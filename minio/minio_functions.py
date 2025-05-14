@@ -45,7 +45,7 @@ REPO = "its-irb/irb-storage-public-scripts"
 try:
     from version import __version__
 except ImportError:
-    __version__ = "unknown"
+    __version__ = "1.0.1"
 
 def check_version():
     print(f"Version de este ejecutable: {__version__}")
@@ -55,7 +55,7 @@ def check_version():
         response = requests.get(url, timeout=5)
         if response.status_code == 200:
             latest_tag = response.json().get("tag_name", "")
-            # print(f"\nÚltima versión disponbile: {latest_tag}")
+            print(f"\nÚltima versión disponbile: {latest_tag.strip("v")}")
             if latest_tag and latest_tag.strip("v") > __version__:
                 print(f"\n🚀 Hay una nueva versión disponible: {latest_tag}")
                 print(f"👉 Descárgala aquí: https://github.com/{REPO}/releases/latest\n")
@@ -76,7 +76,7 @@ def check_version():
 def alert_gui(version):
     root = Tk()
     root.withdraw()  # Oculta ventana principal
-    messagebox.showinfo("Nueva versión disponible", f"Versión {version} ya está disponible.\nDescárgala desde GitHub.")
+    messagebox.showinfo("Nueva versión disponible", f"Versión {version} ya está disponible.\nDescárgala desde GitHub: https://github.com/{REPO}/releases/latest.")
 
 def get_rclone_paths(servidor_s3_rcloneconfig):
     user_home_dir_path = str(Path.home())
