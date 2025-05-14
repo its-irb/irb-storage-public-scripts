@@ -30,7 +30,7 @@ MINIO_SERVERS = {
     },
     "minio-bbg": {
         "IRB": {
-            "profile": "minio-bbg",∫
+            "profile": "minio-bbg",
             "endpoint": "http://irbminio.irbbarcelona.pcb.ub.es:9000"
         },
         "HPC": {
@@ -53,12 +53,9 @@ def check_version():
         url = f"https://api.github.com/repos/{REPO}/releases/latest"
         print(f"Comprobando la última versión de {REPO}... en url: {url}")
         response = requests.get(url, timeout=5)
-        print(f"Response: {response}")
-        print(f"Response status code: {response.status_code}")
-        print(f"Response content: {response.content}")
         if response.status_code == 200:
             latest_tag = response.json().get("tag_name", "")
-            print(f"\nÚltima versión disponbile: {latest_tag}")
+            # print(f"\nÚltima versión disponbile: {latest_tag}")
             if latest_tag and latest_tag.strip("v") > __version__:
                 print(f"\n🚀 Hay una nueva versión disponible: {latest_tag}")
                 print(f"👉 Descárgala aquí: https://github.com/{REPO}/releases/latest\n")
@@ -309,4 +306,3 @@ def show_error(message):
     from tkinter import messagebox
     messagebox.showerror("Error", message)
     sys.exit(1)
-    

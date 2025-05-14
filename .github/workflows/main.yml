@@ -40,6 +40,10 @@ jobs:
           for script in *.py; do
             script_name=$(basename "$script" .py)
 
+            if [[ "$script" == "version.py" ]]; then
+              continue  # omite version.py
+            fi
+
             if [[ "$RUNNER_OS" == "Windows" ]] && [[ ! "$script" == *functions* ]]; then
               pyinstaller --onefile "$script" --distpath ../dist
               mv "../dist/$script_name.exe" "../dist/${script_name}-windows.exe"
