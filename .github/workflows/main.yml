@@ -40,7 +40,7 @@ jobs:
           for script in *.py; do
             script_name=$(basename "$script" .py)
 
-            if [[ "$script" == "version.py" ]]; then
+            if [[ "$script" == "version.py" || "$script" == "minio-sts-credentials-request.py" ]]; then
               continue  # omite version.py
             fi
 
