@@ -1,0 +1,97 @@
+name: Build Multiple Executables and Upload to GitHub Releases
+
+on:
+  push:
+    paths:
+      - "minio/*.py"  # Se ejecuta si cualquier script Python cambia
+      # - "minio/windows-gui/*.py"  # Se ejecuta si cualquier script Python cambia
+    branches:
+      - main
+  workflow_dispatch:  # Permite ejecución manual
+
+jobs:
+  build-cli:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r minio/pip-requirements.txt
+          pip install pyinstaller
+
+      - name: Crear ejecutables CLI
+        run: |
+          mkdir -p dist
+          cd minio
+          echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
+
+          for script in *.py; do
+            script_name=$(basename "$script" .py)
+
+            if [[ "$RUNNER_OS" == "Windows" ]] && [[ ! "$script" == *functions* ]]; then
+              pyinstaller --onefile "$script" --distpath ../dist
+              mv "../dist/$script_name.exe" "../dist/${script_name}-windows.exe"
+            elif [[ "$RUNNER_OS" == "Linux" ]] && [[ ! "$script" == *-gui.py ]] && [[ ! "$script" == *functions* ]]; then
+              pyinstaller --onefile "$script" --distpath ../dist
+              mv "../dist/$script_name" "../dist/${script_name}-linux"
+            elif [[ "$RUNNER_OS" == "macOS" ]] && [[ ! "$script" == *functions* ]]; then
+              pyinstaller --onefile "$script" --distpath ../dist
+              mv "../dist/$script_name" "../dist/${script_name}-macos"
+            fi
+          done
+        shell: bash
+
+      - name: Verificar archivos generados
+        shell: bash
+        run: |
+          ls -lah dist || ls dist
+
+      - name: Subir ejecutables CLI como artefactos
+        uses: actions/upload-artifact@v4
+        with:
+          name: executables-cli-${{ matrix.os }}
+          path: dist/*
+
+  release:
+    # needs: [build-cli, build-gui]  
+    needs: build-cli  
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist  # Descarga los ejecutables generados en la carpeta dist
+
+      - name: Verificar archivos descargados
+        run: ls -lah dist
+
+      - name: Mover ejecutables a la raíz de dist
+        run: |
+          find dist -mindepth 2 -type f -exec mv {} dist/ \;
+          ls -lah dist
+
+      - name: Crear GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: "Release v1.0.${{ github.run_number }}"
+          draft: false
+          prerelease: false
+          files: dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT_RELEASES }}
