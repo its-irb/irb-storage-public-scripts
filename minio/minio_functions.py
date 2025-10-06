@@ -60,12 +60,12 @@ def check_version():
                 print(f"\n🚀 Hay una nueva versión disponible: {latest_tag}")
                 print(f"👉 Descárgala aquí: https://github.com/{REPO}/releases/latest\n")
                 # Si estás en macOS, muestra una alerta
-                if platform == "darwin":
-                    alert_gui(latest_tag)
-                # Si estás en Windows, muestra un mensaje de error
-                elif platform == "win32":
-                    from tkinter import messagebox
-                    messagebox.showerror("Nueva versión disponible", f"Versión {latest_tag} ya está disponible.\nDescárgala aqui: https://github.com/{REPO}/releases/latest.")
+                # if platform == "darwin":
+                #     alert_gui(latest_tag)
+                # # Si estás en Windows, muestra un mensaje de error
+                # elif platform == "win32":
+                #     from tkinter import messagebox
+                #     messagebox.showerror("Nueva versión disponible", f"Versión {latest_tag} ya está disponible.\nDescárgala aqui: https://github.com/{REPO}/releases/latest.")
             elif latest_tag and latest_tag.strip("v") == __version__:
                 print(f"✅ Estás usando la última versión: {latest_tag}")
         else:
