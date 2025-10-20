@@ -306,3 +306,60 @@ def show_error(message):
     from tkinter import messagebox
     messagebox.showerror("Error", message)
     sys.exit(1)
+
+def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str):
+    import os
+    import platform
+    import subprocess
+    from pathlib import Path
+    from tkinter import messagebox
+
+    # Detectar plataforma
+    sistema = platform.system()
+    if sistema == "Darwin":
+        # macOS → comprobar FUSE
+        if not Path("/usr/local/bin/rclone").exists() and not Path("/opt/homebrew/bin/rclone").exists():
+            messagebox.showerror("FUSE no detectado", "No se ha detectado FUSE en este sistema. Descárgalo desde: https://osxfuse.github.io")
+            return
+    elif sistema == "Windows":
+        # Windows → comprobar WinFSP
+        winfsp_path = Path("C:/Program Files/WinFsp/bin/winfsp-ctl.exe")
+        if not winfsp_path.exists():
+            messagebox.showerror("WinFSP no detectado", "No se ha detectado WinFSP. Descárgalo desde: https://winfsp.dev")
+            return
+    else:
+        messagebox.showerror("Sistema no soportado", f"Este sistema operativo ({sistema}) no está soportado actualmente.")
+        return
+
+    # Punto de montaje local: ~/rclone-mounts/<perfil>/<prefix_sanitizado>
+    mount_base = Path.home() / "rclone-mounts" / rclone_profile
+    prefix_sanitizado = s3_prefix.replace("/", "_")
+    mount_point = mount_base / prefix_sanitizado
+    os.makedirs(mount_point, exist_ok=True)
+
+    # Comando mount
+    full_remote = f"{rclone_profile}:{s3_prefix}"
+    comando = [
+        "rclone", "mount",
+        full_remote,
+        str(mount_point),
+        "--read-only",
+        "--allow-non-empty"
+    ]
+
+    try:
+        subprocess.Popen(comando)
+    except Exception as e:
+        messagebox.showerror("Error al montar", f"No se pudo montar el prefijo:\n{str(e)}")
+        return
+
+    # Abrir explorador
+    try:
+        if sistema == "Darwin":
+            subprocess.Popen(["open", str(mount_point)])
+        elif sistema == "Windows":
+            subprocess.Popen(["explorer", str(mount_point)])
+        else:
+            subprocess.Popen(["xdg-open", str(mount_point)])
+    except Exception as e:
+        print(f"Montaje realizado, pero no se pudo abrir el explorador: {e}")
