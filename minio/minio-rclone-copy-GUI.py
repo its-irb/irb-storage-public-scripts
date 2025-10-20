@@ -131,7 +131,6 @@ def abrir_interfaz_copia(perfil_rclone):
                     "--one-way",
                     "--checkers=8",
                     "--combined",
-                    "--combined-format=csv",
                     "--checksum",
                     "--check-first",
                     "--copy-links",
