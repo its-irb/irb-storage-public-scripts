@@ -67,17 +67,17 @@ def seleccionar_servidor_minio(root):
     ttk.Button(ventana, text="Continuar", command=continuar).pack(pady=15)
 
     # Comprobar si hay una nueva versión disponible
-    if getattr(sys, 'frozen', False):  # Si es un ejecutable PyInstaller
-        ultima_version = minio_functions.check_update_version()
-        if ultima_version:
-            frame_update = ttk.Frame(ventana)
-            frame_update.pack(pady=(10, 0))
-            ttk.Label(frame_update, text=f"🚀 Nueva versión disponible: {ultima_version}", foreground="green").pack()
-            ttk.Button(
-                frame_update,
-                text="Actualizar a última versión",
-                command=lambda: minio_functions.actualizar_y_reiniciar(ventana, "minio-rclone-copy-GUI")
-            ).pack(pady=(5, 10))
+    # if getattr(sys, 'frozen', False):  # Si es un ejecutable PyInstaller
+    #     ultima_version = minio_functions.check_update_version()
+    #     if ultima_version:
+    #         frame_update = ttk.Frame(ventana)
+    #         frame_update.pack(pady=(10, 0))
+    #         ttk.Label(frame_update, text=f"🚀 Nueva versión disponible: {ultima_version}", foreground="green").pack()
+    #         ttk.Button(
+    #             frame_update,
+    #             text="Actualizar a última versión",
+    #             command=lambda: minio_functions.actualizar_y_reiniciar(ventana, "minio-rclone-copy-GUI")
+    #         ).pack(pady=(5, 10))
 
     ventana.transient(root)
     ventana.grab_set()
