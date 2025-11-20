@@ -73,6 +73,131 @@ def check_version():
     except Exception as e:
         print(f"⚠️ Error verificando actualización: {e}")
 
+def check_update_version():
+    print(f"Version de este ejecutable: {__version__}")
+    try:
+        url = f"https://api.github.com/repos/{REPO}/releases/latest"
+        print(f"Comprobando la última versión de {REPO}... en url: {url}")
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            latest_tag = response.json().get("tag_name", "")
+            print(f"\nÚltima versión disponbile: {latest_tag.strip('v')}")
+            if latest_tag and latest_tag.strip("v") > __version__:
+                print(f"\n🚀 Hay una nueva versión disponible: {latest_tag}")
+                return latest_tag
+        else:
+            print("⚠️ No se pudo comprobar la última versión.")
+            return None
+    except Exception as e:
+        print(f"⚠️ Error verificando actualización: {e}")
+        return None
+
+def mostrar_aviso_version_nueva(ultima_version, file_name):
+    import tkinter as tk
+    from tkinter import messagebox
+
+    ventana = tk.Toplevel()
+    ventana.title("Nueva versión disponible")
+    ventana.geometry("400x160")
+    ventana.eval('tk::PlaceWindow . center')
+
+    label = tk.Label(ventana, text=f"Hay una nueva versión disponible:\n{ultima_version}", font=("Arial", 11))
+    label.pack(pady=(20, 10))
+
+    boton = tk.Button(ventana, text="Actualizar ahora", command=lambda: actualizar_y_reiniciar(ventana, file_name))
+    boton.pack(pady=(0, 15))
+
+def actualizar_y_reiniciar(ventana_parent, file_name):
+    import requests
+    import os
+    import sys
+    import stat
+    import tempfile
+    from tkinter import messagebox
+
+    sistema = platform.system()
+
+    if sistema == "Linux":
+        sufijo = "-linux"
+    elif sistema == "Darwin":
+        sufijo = "-macos"
+    elif sistema == "Windows":
+        sufijo = "-windows.exe"
+    else:
+        sufijo = ""  # fallback si no se reconoce
+    # URL del binario más reciente (ajústalo según tu repositorio)
+    GITHUB_LATEST_URL = f"https://github.com/IRB-Barcelona/mi-app/releases/latest/download/{file_name}{sufijo}"
+
+    ruta_actual = os.path.abspath(sys.argv[0])
+    print(f"Ruta ejecutable actual: {ruta_actual}")
+
+    try:
+        # Descargar nuevo script a fichero temporal
+        r = requests.get(GITHUB_LATEST_URL, timeout=20)
+        r.raise_for_status()
+        with tempfile.NamedTemporaryFile(delete=False, mode='w', encoding='utf-8') as tmp:
+            tmp.write(r.text)
+            nueva_ruta = tmp.name
+        if platform.system() == "Windows":
+            escribir_y_lanzar_updater(ruta_actual, nueva_ruta)    
+        else:
+            # Sustituir el script actual
+            os.replace(nueva_ruta, ruta_actual)
+            os.chmod(ruta_actual, os.stat(ruta_actual).st_mode | stat.S_IEXEC)
+
+            # Aviso
+            messagebox.showinfo("Actualización completada", "La aplicación se reiniciará ahora con la nueva versión.")
+
+            # Reiniciar
+            os.execv(sys.executable, [sys.executable, ruta_actual])
+
+    except Exception as e:
+        messagebox.showerror("Error", f"No se pudo actualizar:\n{str(e)}")
+
+import tempfile
+import subprocess
+import os
+import sys
+import time
+
+def escribir_y_lanzar_updater(ruta_actual, nueva_ruta):
+    updater_code = f"""
+import os
+import time
+import shutil
+import subprocess
+import tkinter.messagebox
+
+old_exe = r\"\"\"{ruta_actual}\"\"\"
+new_exe = r\"\"\"{nueva_ruta}\"\"\"
+
+# Espera a que el ejecutable actual se libere (ya se ha cerrado)
+for _ in range(30):
+    try:
+        os.remove(old_exe)
+        break
+    except PermissionError:
+        time.sleep(1)
+else:
+    print("❌ No se pudo eliminar el ejecutable antiguo.")
+    sys.exit(1)
+
+# Mueve el nuevo ejecutable
+shutil.move(new_exe, old_exe)
+
+tkinter.messagebox.showinfo("Actualización completada", "La aplicación se reiniciará ahora con la nueva versión.")
+
+# Lanza el nuevo ejecutable
+subprocess.Popen([old_exe])
+"""
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".py", mode="w") as f:
+        f.write(updater_code)
+        updater_path = f.name
+
+    subprocess.Popen([sys.executable, updater_path])
+    sys.exit(0)
+
 def alert_gui(version):
     root = Tk()
     root.withdraw()  # Oculta ventana principal
