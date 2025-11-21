@@ -545,9 +545,12 @@ def abrir_interfaz_copia(root, perfil_rclone):
 
 def main():
     root = tk.Tk()
-    root.withdraw()  # Ocultamos la raíz, no se mostrará
+    root.title("MinIO Rclone Launcher")
+    root.geometry("1x1+0+0")  # Ventana invisible de 1x1 píxeles
+    root.overrideredirect(True)  # Sin bordes, completamente invisible
 
     def iniciar_aplicacion():
+        # Mostrar selector de servidor
         eleccion = seleccionar_servidor_minio(root)
         servidor_s3_rcloneconfig = eleccion["perfil"]
         endpoint = eleccion["endpoint"]
@@ -586,9 +589,11 @@ def main():
         else:
             print("No se tomó ninguna acción.")
 
+        # Mostramos la interfaz principal
         abrir_interfaz_copia(root, servidor_s3_rcloneconfig)
 
-    root.after(0, iniciar_aplicacion)
+    # Lanzar toda la aplicación después de que root se haya creado completamente
+    root.after(100, iniciar_aplicacion)
     root.mainloop()
 
 if __name__ == "__main__":
