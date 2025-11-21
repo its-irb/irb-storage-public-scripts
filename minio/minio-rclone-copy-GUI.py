@@ -31,7 +31,7 @@ import urllib
 #     parent.quit()
 
 def seleccionar_servidor_minio(root):
-    print("Seleccionar servidor MinIO") 
+    print("Seleccionar el servidor MinIO") 
     resultado = {"servidor": None, "perfil": None, "endpoint": None}
 
     ventana = tk.Toplevel(root)
