@@ -460,145 +460,135 @@ def abrir_interfaz_copia(root, perfil_rclone):
     procesar_queue()
     ventana.wait_window()
     
-# minio_functions.check_update_version("minio-rclone-copy-GUI")
-def main():
-    # is_pyinstaller_executable = getattr(sys, 'frozen', False)
+# def main():
 
-    root = tk.Tk()
-    root.withdraw()  # Oculta la raíz
-    root.update()
+#     root = tk.Tk()
+#     root.withdraw()  # Oculta la raíz
+#     root.update()
 
-    eleccion = seleccionar_servidor_minio(root)
-    servidor_s3_rcloneconfig = eleccion["perfil"]
-    endpoint = eleccion["endpoint"]
+#     eleccion = seleccionar_servidor_minio(root)
+#     servidor_s3_rcloneconfig = eleccion["perfil"]
+#     endpoint = eleccion["endpoint"]
 
-    buckets_accesibles = []
-    print("Perfil de rclone seleccionado:", servidor_s3_rcloneconfig)
+#     buckets_accesibles = []
+#     print("Perfil de rclone seleccionado:", servidor_s3_rcloneconfig)
 
-    rclone_config_directory_path, rclone_config_file_path, mount_point_path = minio_functions.get_rclone_paths(servidor_s3_rcloneconfig)
+#     rclone_config_directory_path, rclone_config_file_path, mount_point_path = minio_functions.get_rclone_paths(servidor_s3_rcloneconfig)
 
-    # comprobamos si rclone está instalado y si no lo está lo instalamos (solo macos)
-    minio_functions.check_rclone_installation()
+#     # comprobamos si rclone está instalado y si no lo está lo instalamos (solo macos)
+#     minio_functions.check_rclone_installation()
 
-    current_session_token = minio_functions.get_rclone_session_token(servidor_s3_rcloneconfig)
-    if current_session_token == "":
-        print("No hay credenciales de rclone configuradas.")
-        current_expiration_time = "There are not current credentials configured, let's configure it now."
+#     current_session_token = minio_functions.get_rclone_session_token(servidor_s3_rcloneconfig)
+#     if current_session_token == "":
+#         print("No hay credenciales de rclone configuradas.")
+#         current_expiration_time = "There are not current credentials configured, let's configure it now."
         
-    else:
-        current_expiration_time = minio_functions.get_expiration_from_session_token(current_session_token)
+#     else:
+#         current_expiration_time = minio_functions.get_expiration_from_session_token(current_session_token)
 
-    respuesta = prompt_credenciales_renovar(root, current_expiration_time)
-    if respuesta["accion"] == "renovar":
-        print(f"Usuario eligió renovar por {respuesta['dias']} días.")
+#     respuesta = prompt_credenciales_renovar(root, current_expiration_time)
+#     if respuesta["accion"] == "renovar":
+#         print(f"Usuario eligió renovar por {respuesta['dias']} días.")
 
-        credenciales = pedir_credenciales_irb(root)
-        username = credenciales["username"]
-        password = credenciales["password"]
+#         credenciales = pedir_credenciales_irb(root)
+#         username = credenciales["username"]
+#         password = credenciales["password"]
 
-        # # Create the main window
-        # # parent = tk.Tk()
-        # parent = tk.Toplevel(root)
-        # parent.title("Configure IRB Minio S3 to use with rclone")
 
-        # # Create and place the username label and entry
-        # username_label = tk.Label(parent, text="Type your IRB username:")
-        # username_label.pack()
+#         credentials = minio_functions.get_credentials(endpoint, username, password, int(respuesta['dias']) * 86400)
 
-        # username_entry = tk.Entry(parent)
-        # username_entry.insert(0, getpass.getuser())
-        # username_entry.pack()
+#         if credentials is None:
+#             from tkinter import messagebox
+#             messagebox.showerror("Bad Credentials", "Provided credentials are not correct, please try again or contact ITS")
+#             sys.exit("Provided credentials are not correct, please try again or contact ITS")
+#             # sys.exit(1)
 
-        # # Create and place the password label and entry
-        # password_label = tk.Label(parent, text="Type your IRB Password:")
-        # password_label.pack()
+#         print("-------------------------------------")
+#         print("S3 CREDENTIALS:----------------------")
+#         print(f"AWS_ACCESS_KEY_ID={credentials['AccessKeyId']}")
+#         print(f"AWS_SECRET_ACCESS_KEY={credentials['SecretAccessKey']}")
+#         print(f"AWS_SESSION_TOKEN={credentials['SessionToken']}")
+#         print(f"S3_ENDPOINT_URL={endpoint}")
+#         print(f"Time to expiry: {respuesta['dias']} days")
+#         print("-------------------------------------")
+#         print("BUCKETS AVAILABLE FOR THESE CREDENTIALS:")
 
-        # password_entry = tk.Entry(parent, show="*")  # Show asterisks for password
-        # password_entry.pack()
+#         s3_resource = boto3.resource(
+#             "s3",
+#             aws_access_key_id=credentials["AccessKeyId"],
+#             aws_secret_access_key=credentials["SecretAccessKey"],
+#             aws_session_token=credentials["SessionToken"],
+#             region_name="eu-west-1",
+#             endpoint_url=endpoint,
+#         )
 
-        # # Create and place the login button
-        # login_button = tk.Button(parent, text="Set new Rclone credentials", command=validate_login)
-        # login_button.pack()
+#         for bucket in s3_resource.buckets.all():
+#             print(bucket.name)
+#             buckets_accesibles.append(bucket.name)
 
-        # # Give focus to username
-        # password_entry.focus_set()
+#         aws_access_key_id = credentials['AccessKeyId']
+#         aws_secret_access_key = credentials['SecretAccessKey']
+#         aws_session_token = credentials['SessionToken']
 
-        # # Bind return key to submit button
-        # def func(event):
-        #     print("You hit return.")
-        #     validate_login()
-        # parent.bind('<Return>', func)
-        # parent.bind('<KP_Enter>', func)
+#         # Configuramos rclone
+#         minio_functions.configure_rclone(aws_access_key_id, aws_secret_access_key, aws_session_token, endpoint, servidor_s3_rcloneconfig)
+#     elif respuesta["accion"] == "mantener":
+#         print("Usuario eligió mantener las credenciales actuales.")
+#     else:
+#         print("No se tomó ninguna acción.")
 
-        # #Set desired Tkinter Window Size.
-        # parent.geometry("350x150")
+#     # Finalmente abrimos la interfaz de copia en una nueva ventana
+#     # ventana_copia = tk.Toplevel(root)
+#     abrir_interfaz_copia(root, servidor_s3_rcloneconfig)
 
-        # #Same size will be defined in variable for center screen in Tk_Width and Tk_height
-        # Tk_Width = 350
-        # Tk_Height = 150
+#     root.mainloop()
 
-        # #calculate coordination of screen and window form
-        # x_Left = int(parent.winfo_screenwidth()/2 - Tk_Width/2)
-        # y_Top = int(parent.winfo_screenheight()/2 - Tk_Height/2)
+def main():
+    root = tk.Tk()
+    root.withdraw()  # Ocultamos la raíz, no se mostrará
 
-        # # Write following format for center screen
-        # parent.geometry("+{}+{}".format(x_Left, y_Top))
+    def iniciar_aplicacion():
+        eleccion = seleccionar_servidor_minio(root)
+        servidor_s3_rcloneconfig = eleccion["perfil"]
+        endpoint = eleccion["endpoint"]
 
-        # # Start the Tkinter event loop
-        # # parent.mainloop()
-        # # parent.destroy()
-        # parent.grab_set()
-        # parent.wait_window()
+        minio_functions.check_rclone_installation()
 
-        # # durationseconds = 3600 * 24
-        # # endpoint = "http://irbminio.irbbarcelona.pcb.ub.es:9000"
+        current_session_token = minio_functions.get_rclone_session_token(servidor_s3_rcloneconfig)
+        if current_session_token == "":
+            current_expiration_time = "There are not current credentials configured, let's configure it now."
+        else:
+            current_expiration_time = minio_functions.get_expiration_from_session_token(current_session_token)
 
-        credentials = minio_functions.get_credentials(endpoint, username, password, int(respuesta['dias']) * 86400)
+        respuesta = prompt_credenciales_renovar(root, current_expiration_time)
 
-        if credentials is None:
-            from tkinter import messagebox
-            messagebox.showerror("Bad Credentials", "Provided credentials are not correct, please try again or contact ITS")
-            sys.exit("Provided credentials are not correct, please try again or contact ITS")
-            # sys.exit(1)
+        if respuesta["accion"] == "renovar":
+            credenciales = pedir_credenciales_irb(root)
+            username = credenciales["username"]
+            password = credenciales["password"]
+            credentials = minio_functions.get_credentials(endpoint, username, password, int(respuesta['dias']) * 86400)
 
-        print("-------------------------------------")
-        print("S3 CREDENTIALS:----------------------")
-        print(f"AWS_ACCESS_KEY_ID={credentials['AccessKeyId']}")
-        print(f"AWS_SECRET_ACCESS_KEY={credentials['SecretAccessKey']}")
-        print(f"AWS_SESSION_TOKEN={credentials['SessionToken']}")
-        print(f"S3_ENDPOINT_URL={endpoint}")
-        print(f"Time to expiry: {respuesta['dias']} days")
-        print("-------------------------------------")
-        print("BUCKETS AVAILABLE FOR THESE CREDENTIALS:")
+            if credentials is None:
+                from tkinter import messagebox
+                messagebox.showerror("Bad Credentials", "Provided credentials are not correct, please try again or contact ITS")
+                sys.exit("Provided credentials are not correct, please try again or contact ITS")
 
-        s3_resource = boto3.resource(
-            "s3",
-            aws_access_key_id=credentials["AccessKeyId"],
-            aws_secret_access_key=credentials["SecretAccessKey"],
-            aws_session_token=credentials["SessionToken"],
-            region_name="eu-west-1",
-            endpoint_url=endpoint,
-        )
+            minio_functions.configure_rclone(
+                credentials['AccessKeyId'],
+                credentials['SecretAccessKey'],
+                credentials['SessionToken'],
+                endpoint,
+                servidor_s3_rcloneconfig
+            )
 
-        for bucket in s3_resource.buckets.all():
-            print(bucket.name)
-            buckets_accesibles.append(bucket.name)
+        elif respuesta["accion"] == "mantener":
+            print("Usuario eligió mantener las credenciales actuales.")
+        else:
+            print("No se tomó ninguna acción.")
 
-        aws_access_key_id = credentials['AccessKeyId']
-        aws_secret_access_key = credentials['SecretAccessKey']
-        aws_session_token = credentials['SessionToken']
+        abrir_interfaz_copia(root, servidor_s3_rcloneconfig)
 
-        # Configuramos rclone
-        minio_functions.configure_rclone(aws_access_key_id, aws_secret_access_key, aws_session_token, endpoint, servidor_s3_rcloneconfig)
-    elif respuesta["accion"] == "mantener":
-        print("Usuario eligió mantener las credenciales actuales.")
-    else:
-        print("No se tomó ninguna acción.")
-
-    # Finalmente abrimos la interfaz de copia en una nueva ventana
-    # ventana_copia = tk.Toplevel(root)
-    abrir_interfaz_copia(root, servidor_s3_rcloneconfig)
-
+    root.after(0, iniciar_aplicacion)
     root.mainloop()
 
 if __name__ == "__main__":
