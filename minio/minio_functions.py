@@ -22,21 +22,23 @@ MINIO_SERVERS = {
         "IRB": {
             "profile": "minio-gordo",
             "endpoint": "https://minio-gordo.irbbarcelona.pcb.ub.es:9000"
-        },
-        "HPC": {
-            "profile": "minio-gordo-hpc",
-            "endpoint": "https://minio-gordo.hpc.irbbarcelona.pcb.ub.es:9000"
         }
+        # ,
+        # "HPC": {
+        #     "profile": "minio-gordo-hpc",
+        #     "endpoint": "https://minio-gordo.hpc.irbbarcelona.pcb.ub.es:9000"
+        # }
     },
     "minio-bbg": {
         "IRB": {
             "profile": "minio-bbg",
             "endpoint": "http://irbminio.irbbarcelona.pcb.ub.es:9000"
-        },
-        "HPC": {
-            "profile": "minio-bbg-hpc",
-            "endpoint": "http://irbminio.hpc.irbbarcelona.pcb.ub.es:9000"
         }
+        # ,
+        # "HPC": {
+        #     "profile": "minio-bbg-hpc",
+        #     "endpoint": "http://irbminio.hpc.irbbarcelona.pcb.ub.es:9000"
+        # }
     }
 }
 
