@@ -1604,6 +1604,10 @@ def main():
     # Aseguramos el desmontaje de shares al salir
     atexit.register(lambda: desmontar_todos_los_shares(usuario_actual))
 
+    # Obtener credenciales LDAP del usuario
+    credenciales_smb = pedir_credenciales_smb(root, getpass.getuser(), False)
+    print(f"Credenciales SMB obtenidas. Usuario: {credenciales_smb['usuario']}")
+    
     # Obtener grupos LDAP del usuario
     grupos_ldap = get_ldap_groups()
     print("Grupos LDAP del usuario:", grupos_ldap)
@@ -1619,6 +1623,9 @@ def main():
             usuario_actual = "admin_" + getpass.getuser()
             grupos_ldap.append("Domain Admins")
             es_admin_its = True
+
+            credenciales_admin = pedir_credenciales_smb(root, usuario_actual, True)
+            print(f"Credenciales SMB obtenidas. Usuario: {credenciales_smb['usuario']}")
 
     else:
         es_admin_its = False
@@ -1637,8 +1644,6 @@ def main():
     shares_no_configurados = []
 
     # Obtener shares accesibles desde NetApp
-    credenciales_smb = pedir_credenciales_smb(root, usuario_actual, es_admin_its)
-    print(f"Credenciales SMB obtenidas. Usuario: {credenciales_smb['usuario']}")
     shares_accesibles = obtener_shares_accesibles(grupos_ldap, credenciales_smb["usuario"], credenciales_smb["password"], usuario_actual, EXCEPCION_FILERS)
     print("Shares accesibles desde NetApp:")
     for share in shares_accesibles:
@@ -1657,13 +1662,22 @@ def main():
         for share in shares_accesibles:
             nombre_perfil_esperado = f"{usuario_actual}-smbmount-{share['host']}"
             if nombre_perfil_esperado not in perfiles_configurados:
-                crear_perfil_rclone_smb(
-                    nombre_perfil=nombre_perfil_esperado,
-                    host=share["host"],
-                    path=share["name"],
-                    username=credenciales_smb["usuario"],
-                    password=credenciales_smb["password"]
-                )
+                if es_admin_its:
+                    crear_perfil_rclone_smb(
+                        nombre_perfil=nombre_perfil_esperado,
+                        host=share["host"],
+                        path=share["name"],
+                        username=credenciales_admin["usuario"],
+                        password=credenciales_admin["password"]
+                    )
+                else:
+                    crear_perfil_rclone_smb(
+                        nombre_perfil=nombre_perfil_esperado,
+                        host=share["host"],
+                        path=share["name"],
+                        username=credenciales_smb["usuario"],
+                        password=credenciales_smb["password"]
+                    )
                 print(f"Perfil rclone creado para share {share['name']}: {nombre_perfil_esperado}")
 
         # Actualizamos la lista de perfiles configurados
@@ -1706,10 +1720,11 @@ def main():
         respuesta = prompt_credenciales_renovar(root, current_expiration_time)
 
         if respuesta["accion"] == "renovar":
-            credenciales = pedir_credenciales_irb(root, usuario_actual)
-            username = credenciales["username"]
-            password = credenciales["password"]
-            credentials = minio_functions.get_credentials(endpoint, username, password, int(respuesta['dias']) * 86400)
+            # credenciales = pedir_credenciales_irb(root, usuario_actual)
+            # username = credenciales["username"]
+            # password = credenciales["password"]
+            # credentials = minio_functions.get_credentials(endpoint, username, password, int(respuesta['dias']) * 86400)
+            credentials = minio_functions.get_credentials(endpoint, credenciales_smb["usuario"], credenciales_smb["password"], int(respuesta['dias']) * 86400)
 
             if credentials is None:
                 from tkinter import messagebox

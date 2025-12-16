@@ -51,29 +51,29 @@ except ImportError:
 
 def check_version():
     print(f"Version de este ejecutable: {__version__}")
-    try:
-        url = f"https://api.github.com/repos/{REPO}/releases/latest"
-        print(f"Comprobando la última versión de {REPO}... en url: {url}")
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200:
-            latest_tag = response.json().get("tag_name", "")
-            print(f"\nÚltima versión disponbile: {latest_tag.strip("v")}")
-            if latest_tag and latest_tag.strip("v") > __version__:
-                print(f"\n🚀 Hay una nueva versión disponible: {latest_tag}")
-                print(f"👉 Descárgala aquí: https://github.com/{REPO}/releases/latest\n")
-                # Si estás en macOS, muestra una alerta
-                # if platform == "darwin":
-                #     alert_gui(latest_tag)
-                # # Si estás en Windows, muestra un mensaje de error
-                # elif platform == "win32":
-                #     from tkinter import messagebox
-                #     messagebox.showerror("Nueva versión disponible", f"Versión {latest_tag} ya está disponible.\nDescárgala aqui: https://github.com/{REPO}/releases/latest.")
-            elif latest_tag and latest_tag.strip("v") == __version__:
-                print(f"✅ Estás usando la última versión: {latest_tag}")
-        else:
-            print("⚠️ No se pudo comprobar la última versión.")
-    except Exception as e:
-        print(f"⚠️ Error verificando actualización: {e}")
+    # try:
+    #     url = f"https://api.github.com/repos/{REPO}/releases/latest"
+    #     print(f"Comprobando la última versión de {REPO}... en url: {url}")
+    #     response = requests.get(url, timeout=5)
+    #     if response.status_code == 200:
+    #         latest_tag = response.json().get("tag_name", "")
+    #         print(f"\nÚltima versión disponbile: {latest_tag.strip("v")}")
+    #         if latest_tag and latest_tag.strip("v") > __version__:
+    #             print(f"\n🚀 Hay una nueva versión disponible: {latest_tag}")
+    #             print(f"👉 Descárgala aquí: https://github.com/{REPO}/releases/latest\n")
+    #             # Si estás en macOS, muestra una alerta
+    #             # if platform == "darwin":
+    #             #     alert_gui(latest_tag)
+    #             # # Si estás en Windows, muestra un mensaje de error
+    #             # elif platform == "win32":
+    #             #     from tkinter import messagebox
+    #             #     messagebox.showerror("Nueva versión disponible", f"Versión {latest_tag} ya está disponible.\nDescárgala aqui: https://github.com/{REPO}/releases/latest.")
+    #         elif latest_tag and latest_tag.strip("v") == __version__:
+    #             print(f"✅ Estás usando la última versión: {latest_tag}")
+    #     else:
+    #         print("⚠️ No se pudo comprobar la última versión.")
+    # except Exception as e:
+    #     print(f"⚠️ Error verificando actualización: {e}")
 
 def check_update_version():
     print(f"Version de este ejecutable: {__version__}")
