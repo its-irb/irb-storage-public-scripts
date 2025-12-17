@@ -954,6 +954,8 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
     import minio_functions
     import sys
 
+    num_cores = os.cpu_count()
+
     _, rclone_config_path, _ = minio_functions.get_rclone_paths(perfil_rclone)
 
     ventana = tk.Toplevel(root)
@@ -1073,7 +1075,7 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
     ttk.Label(frame_rutas, text="Avanzado (solo expertos): Flags adicionales para rclone:").grid(row=4, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
     entry_flags = ttk.Entry(frame_rutas)
-    entry_flags.insert(0, "--transfers=4 --checkers=8 --s3-no-check-bucket --local-no-check-updated")
+    entry_flags.insert(0, f"--transfers={num_cores} --checkers={num_cores} --s3-no-check-bucket --local-no-check-updated")
     entry_flags.grid(row=5, column=0, columnspan=3, sticky="ew")
 
     # Que se expanda solo la columna 0 (donde va la entrada de texto)
