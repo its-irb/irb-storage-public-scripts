@@ -383,7 +383,7 @@ def montar_share_rclone(nombre_perfil, share_path, punto_montaje, mounts_activos
         proceso = subprocess.Popen(comando, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         # Esperar unos segundos para comprobar si el montaje se ha completado
-        for _ in range(10):
+        for _ in range(30):
             time.sleep(1)
             if os.path.ismount(punto_montaje):
                 return  # Montaje correcto
