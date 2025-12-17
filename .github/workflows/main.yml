@@ -71,7 +71,7 @@ jobs:
   build-rocky:
     runs-on: ubuntu-latest
     container:
-      image: rockylinux:9.6  # O usa rockylinux:9.6 si está disponible
+      image: rockylinux:9  
     steps:
       - name: Instalar dependencias básicas
         run: |
