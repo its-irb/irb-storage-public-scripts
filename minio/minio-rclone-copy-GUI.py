@@ -37,6 +37,19 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import atexit
 import shlex
 
+
+import os
+
+def obtener_num_cpus():
+    cpus = os.environ.get("SLURM_CPUS_PER_TASK")
+    if cpus:
+        try:
+            return int(cpus)
+        except ValueError:
+            pass  # fallback si hay valor corrupto
+
+    return os.cpu_count() or 1  # fallback mínimo seguro
+
 def traducir_ruta_a_remote(ruta_local, mounts_activos):
     """
     Traduce una ruta local a formato rclone remote:/ruta usando la variable global mounts_activos.
@@ -224,7 +237,7 @@ def pedir_credenciales_smb(parent, usuario_actual, es_admin_its=False):
     resultado = {"usuario": None, "password": None}
 
     ventana = tk.Toplevel(parent)
-    ventana.title("Credenciales SMB")
+    ventana.title("IRB Credentials Required")
     ventana.geometry("350x180")
     ventana.transient(parent)
     ventana.grab_set()
@@ -954,7 +967,7 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
     import minio_functions
     import sys
 
-    num_cores = os.cpu_count()
+    num_cores = obtener_num_cpus()
 
     _, rclone_config_path, _ = minio_functions.get_rclone_paths(perfil_rclone)
 
@@ -1087,13 +1100,13 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
     frame_botones = ttk.Frame(ventana)
     frame_botones.pack(pady=(15, 0))
 
-    boton_copiar = ttk.Button(frame_botones, text="Copiar")
+    boton_copiar = ttk.Button(frame_botones, text="Copy data")
     boton_copiar.grid(row=0, column=0, padx=10)
 
-    boton_check = ttk.Button(frame_botones, text="Verificar copia")
+    boton_check = ttk.Button(frame_botones, text="Check data")
     boton_check.grid(row=0, column=1, padx=10)
 
-    boton_montar = ttk.Button(frame_botones, text="Montar destino")
+    boton_montar = ttk.Button(frame_botones, text="Mount destination folder")
     boton_montar.grid(row=0, column=2, padx=10)
 
     # boton_montar_smb = ttk.Button(frame_botones, text="Montar SMB (rclone)", command=montar_volumen_smb_con_rclone)

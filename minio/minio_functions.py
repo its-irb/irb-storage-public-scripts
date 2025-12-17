@@ -50,7 +50,7 @@ except ImportError:
     __version__ = "1.0.1"
 
 def check_version():
-    print(f"Version de este ejecutable: {__version__}")
+    print(f"Version of this executable: {__version__}")
     # try:
     #     url = f"https://api.github.com/repos/{REPO}/releases/latest"
     #     print(f"Comprobando la última versión de {REPO}... en url: {url}")
@@ -76,22 +76,22 @@ def check_version():
     #     print(f"⚠️ Error verificando actualización: {e}")
 
 def check_update_version():
-    print(f"Version de este ejecutable: {__version__}")
+    print(f"Version of this executable: {__version__}")
     try:
         url = f"https://api.github.com/repos/{REPO}/releases/latest"
-        print(f"Comprobando la última versión de {REPO}... en url: {url}")
+        print(f"Checking the latest version of {REPO}... at url: {url}")
         response = requests.get(url, timeout=5)
         if response.status_code == 200:
             latest_tag = response.json().get("tag_name", "")
-            print(f"\nÚltima versión disponbile: {latest_tag.strip('v')}")
+            print(f"\nLatest available version: {latest_tag.strip('v')}")
             if latest_tag and latest_tag.strip("v") > __version__:
                 print(f"\n🚀 Hay una nueva versión disponible: {latest_tag}")
                 return latest_tag
         else:
-            print("⚠️ No se pudo comprobar la última versión.")
+            print("⚠️ Could not check the latest version.")
             return None
     except Exception as e:
-        print(f"⚠️ Error verificando actualización: {e}")
+        print(f"⚠️ Error verifying update: {e}")
         return None
 
 def mostrar_aviso_version_nueva(ultima_version, file_name):
@@ -99,14 +99,14 @@ def mostrar_aviso_version_nueva(ultima_version, file_name):
     from tkinter import messagebox
 
     ventana = tk.Toplevel()
-    ventana.title("Nueva versión disponible")
+    ventana.title("New version available")
     ventana.geometry("400x160")
     ventana.eval('tk::PlaceWindow . center')
 
-    label = tk.Label(ventana, text=f"Hay una nueva versión disponible:\n{ultima_version}", font=("Arial", 11))
+    label = tk.Label(ventana, text=f"There is a new version available:\n{ultima_version}", font=("Arial", 11))
     label.pack(pady=(20, 10))
 
-    boton = tk.Button(ventana, text="Actualizar ahora", command=lambda: actualizar_y_reiniciar(ventana, file_name))
+    boton = tk.Button(ventana, text="Update now", command=lambda: actualizar_y_reiniciar(ventana, file_name))
     boton.pack(pady=(0, 15))
 
 def actualizar_y_reiniciar(ventana_parent, file_name):
@@ -131,7 +131,7 @@ def actualizar_y_reiniciar(ventana_parent, file_name):
     GITHUB_LATEST_URL = f"https://github.com/IRB-Barcelona/mi-app/releases/latest/download/{file_name}{sufijo}"
 
     ruta_actual = os.path.abspath(sys.argv[0])
-    print(f"Ruta ejecutable actual: {ruta_actual}")
+    print(f"Current executable path: {ruta_actual}")
 
     try:
         # Descargar nuevo script a fichero temporal
@@ -148,13 +148,13 @@ def actualizar_y_reiniciar(ventana_parent, file_name):
             os.chmod(ruta_actual, os.stat(ruta_actual).st_mode | stat.S_IEXEC)
 
             # Aviso
-            messagebox.showinfo("Actualización completada", "La aplicación se reiniciará ahora con la nueva versión.")
+            messagebox.showinfo("Update completed", "The application will now restart with the new version.")
 
             # Reiniciar
             os.execv(sys.executable, [sys.executable, ruta_actual])
 
     except Exception as e:
-        messagebox.showerror("Error", f"No se pudo actualizar:\n{str(e)}")
+        messagebox.showerror("Error", f"Could not update:\n{str(e)}")
 
 import tempfile
 import subprocess
@@ -173,7 +173,7 @@ import tkinter.messagebox
 old_exe = r\"\"\"{ruta_actual}\"\"\"
 new_exe = r\"\"\"{nueva_ruta}\"\"\"
 
-# Espera a que el ejecutable actual se libere (ya se ha cerrado)
+# Wait for the current executable to be released (it has already been closed)
 for _ in range(30):
     try:
         os.remove(old_exe)
@@ -181,13 +181,13 @@ for _ in range(30):
     except PermissionError:
         time.sleep(1)
 else:
-    print("❌ No se pudo eliminar el ejecutable antiguo.")
+    print("❌ Could not delete the old executable.")
     sys.exit(1)
 
 # Mueve el nuevo ejecutable
 shutil.move(new_exe, old_exe)
 
-tkinter.messagebox.showinfo("Actualización completada", "La aplicación se reiniciará ahora con la nueva versión.")
+tkinter.messagebox.showinfo("Update completed", "The application will now restart with the new version.")
 
 # Lanza el nuevo ejecutable
 subprocess.Popen([old_exe])
@@ -203,7 +203,7 @@ subprocess.Popen([old_exe])
 def alert_gui(version):
     root = Tk()
     root.withdraw()  # Oculta ventana principal
-    messagebox.showinfo("Nueva versión disponible", f"Versión {version} ya está disponible.\nDescárgala desde GitHub: https://github.com/{REPO}/releases/latest.")
+    messagebox.showinfo("New version available", f"Version {version} is now available.\nDownload it from GitHub: https://github.com/{REPO}/releases/latest.")
 
 def get_rclone_paths(servidor_s3_rcloneconfig):
     user_home_dir_path = str(Path.home())
@@ -446,21 +446,21 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str):
     if sistema == "Darwin":
         # macOS → comprobar FUSE
         if not Path("/usr/local/bin/rclone").exists() and not Path("/opt/homebrew/bin/rclone").exists():
-            messagebox.showerror("FUSE no detectado", "No se ha detectado FUSE en este sistema. Descárgalo desde: https://osxfuse.github.io")
+            messagebox.showerror("FUSE not detected", "FUSE was not detected on this system. Download it from: https://osxfuse.github.io")
             return
     elif sistema == "Windows":
         # Windows → comprobar WinFSP
         winfsp_path = Path("C:/Program Files/WinFsp/bin/winfsp-ctl.exe")
         if not winfsp_path.exists():
-            messagebox.showerror("WinFSP no detectado", "No se ha detectado WinFSP. Descárgalo desde: https://winfsp.dev")
+            messagebox.showerror("WinFSP not detected", "WinFSP was not detected on this system. Download it from: https://winfsp.dev")
             return
     elif sistema == "Linux":
         # Linux → comprobar FUSE
         if not shutil.which("fusermount"):
-            messagebox.showerror("FUSE no detectado", "No se ha detectado FUSE en este sistema. Instálalo usando el gestor de paquetes de tu distribución.")
+            messagebox.showerror("FUSE not detected", "FUSE was not detected on this system. Install it using your distribution's package manager.")
             return
     else:
-        messagebox.showerror("Sistema no soportado", f"Este sistema operativo ({sistema}) no está soportado actualmente.")
+        messagebox.showerror("Unsupported system", f"This operating system ({sistema}) is not currently supported.")
         return
 
     # Punto de montaje local: ~/rclone-mounts/<perfil>/<prefix_sanitizado>
@@ -482,10 +482,10 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str):
     try:
         subprocess.Popen(comando)
     except Exception as e:
-        messagebox.showerror("Error al montar", f"No se pudo montar el prefijo:\n{str(e)}")
+        messagebox.showerror("Error mounting", f"Could not mount the prefix:\n{str(e)}")
         return
 
-    # Abrir explorador
+    # Open file explorer
     try:
         if sistema == "Darwin":
             subprocess.Popen(["open", str(mount_point)])
@@ -496,4 +496,4 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str):
         else:
             subprocess.Popen(["xdg-open", str(mount_point)])
     except Exception as e:
-        print(f"Montaje realizado, pero no se pudo abrir el explorador: {e}")
+        print(f"Mount successful, but could not open file explorer: {e}")
