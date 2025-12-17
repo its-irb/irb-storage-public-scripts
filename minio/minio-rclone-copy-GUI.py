@@ -137,7 +137,7 @@ def obtener_shares_accesibles(grupos_usuario: list[str], username, password, usu
 
 
     except Exception as e:
-        print(f"Error al obtener shares desde el proxy: {e}")
+        print(f"Error getting shares from proxy: {e}")
         return []
 
     grupos_set = {g.strip().lower() for g in grupos_usuario}
@@ -229,14 +229,14 @@ def pedir_credenciales_smb(parent, usuario_actual, es_admin_its=False):
     ventana.transient(parent)
     ventana.grab_set()
 
-    tk.Label(ventana, text="Introduce tus credenciales SMB").pack(pady=(10, 5))
+    tk.Label(ventana, text="Enter your credentials").pack(pady=(10, 5))
 
-    tk.Label(ventana, text="Usuario:").pack()
+    tk.Label(ventana, text="Username:").pack()
     usuario_var = tk.StringVar(parent, value=usuario_actual)
     entry_user = ttk.Entry(ventana, textvariable=usuario_var, state="disabled")
     entry_user.pack(pady=(0, 5))
 
-    tk.Label(ventana, text="Contraseña:").pack()
+    tk.Label(ventana, text="Password:").pack()
     password_var = tk.StringVar()
     entry_pass = ttk.Entry(ventana, textvariable=password_var, show="*")
     entry_pass.pack(pady=(0, 10))
@@ -264,16 +264,16 @@ def pedir_credenciales_smb(parent, usuario_actual, es_admin_its=False):
             resultado["password"] = password
             ventana.destroy()
         except Exception as e:
-            print("LDAP bind fallido:", str(e))  # Debug opcional
-            messagebox.showerror("Error de autenticación", "Usuario o contraseña incorrectos.")
+            print("LDAP bind failed:", str(e))  # Optional debug
+            messagebox.showerror("Authentication Error", "Incorrect username or password.")
 
     def cancelar():
         ventana.destroy()
 
     btn_frame = ttk.Frame(ventana)
     btn_frame.pack()
-    ttk.Button(btn_frame, text="Cancelar", command=cancelar).pack(side=tk.LEFT, padx=10)
-    ttk.Button(btn_frame, text="Aceptar", command=confirmar).pack(side=tk.RIGHT, padx=10)
+    ttk.Button(btn_frame, text="Cancel", command=cancelar).pack(side=tk.LEFT, padx=10)
+    ttk.Button(btn_frame, text="OK", command=confirmar).pack(side=tk.RIGHT, padx=10)
 
     ventana.wait_window()
 
@@ -300,7 +300,7 @@ def actualizar_password_perfiles_rclone(usuario: str, nueva_password: str, rclon
         )
         password_obscurecida = resultado.stdout.strip()
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error al obscurecer contraseña: {e.stderr}")
+        print(f"❌ Error obscuring password: {e.stderr}")
         return
 
     actualizado = False
@@ -313,9 +313,9 @@ def actualizar_password_perfiles_rclone(usuario: str, nueva_password: str, rclon
     if actualizado:
         with open(rclone_config_path, "w") as f:
             config.write(f)
-        print(f"🔐 Contraseña actualizada correctamente para todos los perfiles SMB de '{usuario}'")
+        print(f"🔐 Password updated successfully for all SMB profiles of '{usuario}'")
     else:
-        print(f"⚠️ No se encontraron perfiles tipo '{usuario}-smbmount-*' en el rclone.conf")
+        print(f"⚠️ No profiles of type '{usuario}-smbmount-*' found in rclone.conf")
 
 def crear_perfil_rclone_smb(nombre_perfil,host, path, username, password):
     config_path = Path.home() / ".config" / "rclone" / "rclone.conf"
@@ -390,9 +390,9 @@ def montar_share_rclone(nombre_perfil, share_path, punto_montaje, mounts_activos
 
         # Si no se montó tras el timeout, terminar el proceso
         proceso.terminate()
-        messagebox.showerror("Error al montar recurso SMB", f"No se pudo montar {nombre_perfil} en {punto_montaje} tras 10 segundos.")
+        messagebox.showerror("Error mounting SMB resource", f"Could not mount {nombre_perfil} on {punto_montaje} after 30 seconds.")
     except Exception as e:
-        messagebox.showerror("Error en el montado de recurso SMB", f"Excepción: {str(e)}")
+        messagebox.showerror("Error mounting SMB resource", f"Exception: {str(e)}")
 
 def desmontar_todos_los_shares(usuario_actual):
     usuario = usuario_actual
@@ -406,13 +406,13 @@ def desmontar_todos_los_shares(usuario_actual):
             try:
                 subprocess.run(["umount", "-f", str(subdir)], check=True)
             except subprocess.CalledProcessError as e:
-                print(f"Error al desmontar {subdir}: {e}")
-    print("Todos los shares SMB han sido desmontados.")
+                print(f"Error unmounting {subdir}: {e}")
+    print("All SMB shares have been unmounted.")
 
 
 def seleccionar_shares_montar(root, shares, usuario_actual, mounts_activos, es_admin_its=False):
     ventana = tk.Toplevel(root)
-    ventana.title("Seleccionar sshares CIFS para montar como " + usuario_actual)
+    ventana.title("Select CIFS shares to mount as " + usuario_actual)
     # ventana.geometry("400x300")
 
     # ancho = ventana.winfo_reqwidth()
@@ -421,7 +421,7 @@ def seleccionar_shares_montar(root, shares, usuario_actual, mounts_activos, es_a
     # y = (ventana.winfo_screenheight() // 2) - (alto // 2)
     # ventana.geometry(f'+{x}+{y}')
 
-    tk.Label(ventana, text="Recursos CIFS disponibles:").pack(pady=(10, 5))
+    tk.Label(ventana, text="Available SMB/CIFS resources:").pack(pady=(10, 5))
     # frame_cifs = ttk.Frame(ventana)
     # frame_cifs.pack(pady=(0, 10), fill=tk.X)
 
@@ -569,21 +569,21 @@ def seleccionar_shares_montar(root, shares, usuario_actual, mounts_activos, es_a
         nueva_password = resultado["password"]
 
         if not resultado:
-            messagebox.showinfo("Cancelado", "No se actualizaron las credenciales.")
+            messagebox.showinfo("Cancelled", "Credentials were not updated.")
             return
 
         # nueva_password = resultado[1]
         try:
             actualizar_password_perfiles_rclone(usuario_actual, nueva_password)
-            messagebox.showinfo("Éxito", f"Se han actualizado las credenciales para los perfiles de {usuario_actual}.")
+            messagebox.showinfo("Success", f"Credentials have been updated for all profiles of {usuario_actual}.")
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudieron actualizar las credenciales:\n{e}")
+            messagebox.showerror("Error", f"Could not update credentials:\n{e}")
 
     ttk.Button(
     ventana,
-    text="Actualizar credenciales SMB",
+    text="Update SMB credentials",
     command=lambda: on_actualizar_credenciales_smb(usuario_actual, es_admin_its)).pack(pady=(5, 0))
-    ttk.Button(ventana, text="Continuar", command=continuar).pack(pady=15)
+    ttk.Button(ventana, text="Continue", command=continuar).pack(pady=15)
 
     # # Forzar cálculo del tamaño real
     # ventana.update_idletasks()
@@ -605,7 +605,7 @@ def seleccionar_shares_montar(root, shares, usuario_actual, mounts_activos, es_a
     # ✅ Ajuste: calcula ancho y alto para priorizar que quepan filas (crecer verticalmente)
     shares_por_columna = 15
     columnas = max(1, len(shares) // shares_por_columna + (len(shares) % shares_por_columna > 0))
-    print(f"Columnas calculadas: {columnas}")
+    # print(f"Calculated columns: {columnas}")
     ancho_ventana = max(500, 200 + (columnas * 160))  # un poco más ancho por columna
 
     # número de filas visibles (máximo filas_por_columna, pero si hay menos shares, menos)
@@ -647,11 +647,11 @@ def seleccionar_shares_montar(root, shares, usuario_actual, mounts_activos, es_a
 
 
 def seleccionar_servidor_minio(root, shares, perfiles_configurados):
-    print("Seleccionar el servidor MinIO") 
+    print("Select the MinIO server to use:") 
     resultado = {"servidor": None, "perfil": None, "endpoint": None}
 
     ventana = tk.Toplevel(root)
-    ventana.title("Seleccionar servidor MinIO")
+    ventana.title("Select MinIO server")
     # ventana.geometry("400x300")
 
     # ancho = ventana.winfo_reqwidth()
@@ -660,7 +660,7 @@ def seleccionar_servidor_minio(root, shares, perfiles_configurados):
     # y = (ventana.winfo_screenheight() // 2) - (alto // 2)
     # ventana.geometry(f'+{x}+{y}')
 
-    ttk.Label(ventana, text="Selecciona el servidor MinIO:").pack(pady=(10, 5))
+    ttk.Label(ventana, text="Select the MinIO server:").pack(pady=(10, 5))
     servidor_var = tk.StringVar(value=list(MINIO_SERVERS.keys())[0])
     servidor_menu = ttk.Combobox(ventana, textvariable=servidor_var, values=list(MINIO_SERVERS.keys()), state="readonly", width=30)
     servidor_menu.pack(pady=(0, 10))
@@ -788,7 +788,7 @@ def seleccionar_servidor_minio(root, shares, perfiles_configurados):
 
 
     # ttk.Button(ventana, text="Actualizar credenciales SMB", command=on_actualizar_credenciales_smb).pack(pady=(5, 0))
-    ttk.Button(ventana, text="Continuar", command=continuar).pack(pady=15)
+    ttk.Button(ventana, text="Continue", command=continuar).pack(pady=15)
 
     # Comprobar si hay una nueva versión disponible
     if getattr(sys, 'frozen', False):  # Si es un ejecutable PyInstaller
@@ -796,10 +796,10 @@ def seleccionar_servidor_minio(root, shares, perfiles_configurados):
         if ultima_version:
             frame_update = ttk.Frame(ventana)
             frame_update.pack(pady=(10, 0))
-            ttk.Label(frame_update, text=f"🚀 Nueva versión disponible: {ultima_version}", foreground="green").pack()
+            ttk.Label(frame_update, text=f"🚀 New version available: {ultima_version}", foreground="green").pack()
             ttk.Button(
                 frame_update,
-                text="Actualizar a última versión",
+                text="Update to latest version",
                 command=lambda: minio_functions.actualizar_y_reiniciar(ventana, "minio-rclone-copy-GUI")
             ).pack(pady=(5, 10))
 
@@ -959,7 +959,7 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
     _, rclone_config_path, _ = minio_functions.get_rclone_paths(perfil_rclone)
 
     ventana = tk.Toplevel(root)
-    ventana.title("Copiar y verificar datos con rclone")
+    ventana.title("Copy and verify data with rclone")
     ventana.geometry("1024x768")
     ventana.update_idletasks()
     x = (ventana.winfo_screenwidth() // 2) - (ventana.winfo_width() // 2)
@@ -1019,13 +1019,13 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
     # entrada_origen.pack(side=tk.LEFT, padx=(0, 5))
 
     def seleccionar_archivo():
-        ruta = traducir_ruta_a_remote(filedialog.askopenfilename(title="Selecciona archivo de origen"), mounts_activos)
+        ruta = traducir_ruta_a_remote(filedialog.askopenfilename(title="Select source file"), mounts_activos)
         if ruta:
             entrada_origen.delete(0, tk.END)
             entrada_origen.insert(0, ruta)
 
     def seleccionar_carpeta():
-        ruta = traducir_ruta_a_remote(filedialog.askdirectory(title="Selecciona carpeta de origen"), mounts_activos)
+        ruta = traducir_ruta_a_remote(filedialog.askdirectory(title="Select source folder"), mounts_activos)
         if ruta:
             entrada_origen.delete(0, tk.END)
             entrada_origen.insert(0, ruta)
@@ -1054,25 +1054,24 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
     frame_rutas.pack(fill=tk.X, padx=10, pady=(15, 10))
 
     # --- Línea 1: Origen (entrada + botones)
-    ttk.Label(frame_rutas, text="Ruta origen (local o perfil rclone):").grid(row=0, column=0, columnspan=3, sticky="w")
+    ttk.Label(frame_rutas, text="Source path (local or rclone profile):").grid(row=0, column=0, columnspan=3, sticky="w")
 
     entrada_origen = ttk.Entry(frame_rutas, width=60)
     entrada_origen.grid(row=1, column=0, sticky="ew", padx=(0, 5))
 
-    boton_archivo = ttk.Button(frame_rutas, text="📄 Archivo", command=seleccionar_archivo)
+    boton_archivo = ttk.Button(frame_rutas, text="📄 File", command=seleccionar_archivo)
     boton_archivo.grid(row=1, column=1, padx=(0, 5))
 
-    boton_carpeta = ttk.Button(frame_rutas, text="📁 Carpeta", command=seleccionar_carpeta)
+    boton_carpeta = ttk.Button(frame_rutas, text="📁 Folder", command=seleccionar_carpeta)
     boton_carpeta.grid(row=1, column=2)
 
     # --- Línea 2: Destino
-    ttk.Label(frame_rutas, text=f"Ruta destino (bucket en perfil {perfil_rclone}):").grid(row=2, column=0, columnspan=3, sticky="w", pady=(10, 0))
-
+    ttk.Label(frame_rutas, text=f"Destination path (bucket in profile {perfil_rclone}):").grid(row=2, column=0, columnspan=3, sticky="w", pady=(10, 0))
     entrada_destino = ttk.Entry(frame_rutas)
     entrada_destino.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(0, 10))
 
     # --- Línea 3: Flags avanzados
-    ttk.Label(frame_rutas, text="Avanzado (solo expertos): Flags adicionales para rclone:").grid(row=4, column=0, columnspan=3, sticky="w", pady=(10, 0))
+    ttk.Label(frame_rutas, text="Advanced (experts only): Additional flags for rclone:").grid(row=4, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
     entry_flags = ttk.Entry(frame_rutas)
     entry_flags.insert(0, f"--transfers={num_cores} --checkers={num_cores} --s3-no-check-bucket --local-no-check-updated")
@@ -1105,7 +1104,7 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
     def lanzar_montaje():
         ruta_destino = entrada_destino.get().strip()
         if not ruta_destino:
-            messagebox.showerror("Error","Debes indicar una ruta de destino para montar.")
+            messagebox.showerror("Error","You must specify a destination path to mount.")
             return
         minio_functions.mount_rclone_S3_prefix_to_folder(perfil_rclone, ruta_destino)
 
@@ -1142,7 +1141,7 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
         
 
         if not origen or not destino:
-            messagebox.showerror("Error","Debes introducir tanto origen como destino.")
+            messagebox.showerror("Error","You must enter both source and destination.")
             return
         
         # 🟩 CONSTRUIR EL JSON DE METADATOS EN EL HILO PRINCIPAL
@@ -1162,7 +1161,7 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
         boton_copiar.config(state="disabled")
         boton_check.config(state="disabled")
         # log_text.delete("1.0", tk.END)
-        log_text.insert(tk.END, f"Ejecutando: rclone copy {origen} {perfil_rclone}:/{destino}\n")
+        log_text.insert(tk.END, f"Executing: rclone copy {origen} {perfil_rclone}:/{destino}\n")
 
         def ejecutar_rclone_copy():
             try:
@@ -1191,7 +1190,7 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
 
                 # Mostrar el comando final en la GUI
                 comando_str = " ".join(shlex.quote(arg) for arg in comando)
-                log_queue.put(f"\n🧾 Comando completo:\n{comando_str}\n\n")
+                log_queue.put(f"\n🧾 Full command:\n{comando_str}\n\n")
 
                 proceso = subprocess.Popen(
                     comando,
@@ -1203,12 +1202,12 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
                     log_queue.put(linea)
                 proceso.wait()
                 if proceso.returncode == 0:
-                    log_queue.put("\n✅ Copia finalizada correctamente.\n")
+                    log_queue.put("\n✅ Copy completed successfully.\n")
                     log_queue.put(("enable_button", "check"))
                 else:
-                    log_queue.put(f"\n❌ Error en la copia. Código: {proceso.returncode}")
+                    log_queue.put(f"\n❌ Copy error. Code: {proceso.returncode}")
             except Exception as e:
-                log_queue.put(f"\n❌ Excepción al ejecutar rclone: {str(e)}")
+                log_queue.put(f"\n❌ Exception while executing rclone: {str(e)}")
             finally:
                 log_queue.put(("enable_button", "copiar"))
 
@@ -1221,7 +1220,7 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
         flags_adicionales = entry_flags.get().strip().split()
 
         if not origen or not destino:
-            messagebox.showerror("Error","Debes introducir tanto origen como destino.")
+            messagebox.showerror("Error","You must enter both source and destination.")
             return
         
         # def es_directorio_rclone(ruta_rclone: str, config_path: str) -> bool:
@@ -1476,7 +1475,7 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
 
         # --- Lógica de verificación ---
         boton_check.config(state="disabled")
-        log_text.insert(tk.END, f"\n🔍 Verificando con: rclone check {origen} {perfil_rclone}:/{destino}\n\n")
+        log_text.insert(tk.END, f"\n🔍 Verifying with: rclone check {origen} {perfil_rclone}:/{destino}\n\n")
 
         def ejecutar_rclone_check():
             comando = [
@@ -1512,7 +1511,7 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
             comando.extend(flags_adicionales)
 
             comando_str = " ".join(shlex.quote(arg) for arg in comando)
-            log_queue.put(f"\n🧾 Comando completo:\n{comando_str}\n\n")
+            log_queue.put(f"\n🧾 Full command:\n{comando_str}\n\n")
 
             try:
                 proceso = subprocess.Popen(
@@ -1525,22 +1524,22 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
                     log_queue.put(linea)
                 proceso.wait()
                 if proceso.returncode == 0:
-                    log_queue.put("\n✅ Verificación OK: no se encontraron diferencias.\n")
+                    log_queue.put("\n✅ Verification OK: no differences found.\n")
                 else:
-                    log_queue.put(f"\n⚠️ Verificación finalizó con código {proceso.returncode}. Revisa posibles diferencias.")
+                    log_queue.put(f"\n⚠️ Verification finished with code {proceso.returncode}. Check for possible differences.")
             except Exception as e:
-                log_queue.put(f"\n❌ Excepción durante verificación: {str(e)}")
+                log_queue.put(f"\n❌ Exception during verification: {str(e)}")
             finally:
                 log_queue.put(("enable_button", "check"))
 
         threading.Thread(target=ejecutar_rclone_check, daemon=True).start()
 
     def cerrar_aplicacion():
-        log_queue.put("\n🧹 Desmontando puntos de montaje...\n")
-        print("Cerrando aplicación, desmontando puntos de montaje...")
+        log_queue.put("\n🧹 Unmounting mount points...\n")
+        print("Closing application, unmounting mount points...")
         desmontar_todos_los_mountpoints()
-        log_queue.put("✅ Desmontaje completado. Cerrando aplicación.\n")
-        print("Desmontaje completado. Cerrando aplicación.")
+        log_queue.put("✅ Unmount completed. Closing application.\n")
+        print("Unmount completed. Closing application.")
         root.destroy()
         sys.exit(0)
 
@@ -1564,8 +1563,8 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
                 elif platform.system() == "Darwin":  # macOS
                     subprocess.run(["umount", full_path], check=True)
             except Exception as e:
-                log_queue.put(f"\n⚠️ No se pudo desmontar {full_path}: {str(e)}\n")
-                print(f"No se pudo desmontar {full_path}: {str(e)}")
+                log_queue.put(f"\n⚠️ Could not unmount {full_path}: {str(e)}\n")
+                print(f"Could not unmount {full_path}: {str(e)}")
 
     
 
@@ -1608,15 +1607,14 @@ def main():
 
     # Obtener credenciales LDAP del usuario
     credenciales_smb = pedir_credenciales_smb(root, getpass.getuser(), False)
-    print(f"Credenciales SMB obtenidas. Usuario: {credenciales_smb['usuario']}")
+    print(f"SMB credentials obtained. User: {credenciales_smb['usuario']}")
     
     # Obtener grupos LDAP del usuario
     grupos_ldap = get_ldap_groups()
-    print("Grupos LDAP del usuario:", grupos_ldap)
-
+    print("User's LDAP groups:", grupos_ldap)
     # Comprobar si el usuario pertenece al grupo its
     if "its" in grupos_ldap:
-        pregunta_admin = messagebox.askyesno("Confirmación", "¿Quieres usar privilegios de administrador ITS para shares CIFS?")
+        pregunta_admin = messagebox.askyesno("Confirmation", "Do you want to use ITS administrator privileges for CIFS shares?")
         if not pregunta_admin:
             usuario_actual = getpass.getuser()
             es_admin_its = False
@@ -1627,11 +1625,11 @@ def main():
             es_admin_its = True
 
             credenciales_admin = pedir_credenciales_smb(root, usuario_actual, True)
-            print(f"Credenciales SMB obtenidas. Usuario: {credenciales_smb['usuario']}")
+            print(f"SMB credentials obtained. User: {credenciales_smb['usuario']}")
 
     else:
         es_admin_its = False
-    print("¿Es usuario admin ITS?", es_admin_its)
+    print("Is ITS admin user?", es_admin_its)
     # """
     # Retrieve login credentials for netapp from AWS Secrets Manager
     # """
@@ -1641,13 +1639,13 @@ def main():
     
     # Obtener perfiles configurados en rclone
     perfiles_configurados = obtener_perfiles_rclone_config()
-    print("Perfiles rclone configurados:", perfiles_configurados)
+    print("Configured rclone profiles:", perfiles_configurados)
 
     shares_no_configurados = []
 
     # Obtener shares accesibles desde NetApp
     shares_accesibles = obtener_shares_accesibles(grupos_ldap, credenciales_smb["usuario"], credenciales_smb["password"], usuario_actual, EXCEPCION_FILERS)
-    print("Shares accesibles desde NetApp:")
+    print("Shares accessible from NetApp:")
     for share in shares_accesibles:
         print(f"- {share['name']} (Path: {share['path']}), Host: {share['host']}")
         nombre_perfil_esperado = f"{usuario_actual}-smbmount-{share['host']}"
@@ -1658,8 +1656,8 @@ def main():
     # Si hay shares sin configurar, pedimos credenciales SMB y los creamos
     if shares_no_configurados:
         if not credenciales_smb:
-            messagebox.showerror("Error", "No se proporcionaron credenciales SMB. Saliendo.")
-            sys.exit("No se proporcionaron credenciales SMB. Saliendo.")
+            messagebox.showerror("Error", "No SMB credentials provided. Exiting.")
+            sys.exit("No SMB credentials provided. Exiting.")
 
         for share in shares_accesibles:
             nombre_perfil_esperado = f"{usuario_actual}-smbmount-{share['host']}"
@@ -1680,11 +1678,11 @@ def main():
                         username=credenciales_smb["usuario"],
                         password=credenciales_smb["password"]
                     )
-                print(f"Perfil rclone creado para share {share['name']}: {nombre_perfil_esperado}")
+                print(f"Rclone profile created for share {share['name']}: {nombre_perfil_esperado}")
 
-        # Actualizamos la lista de perfiles configurados
+        # Update the list of configured profiles
         perfiles_configurados = obtener_perfiles_rclone_config()
-        print("Perfiles rclone configurados comprobados:", perfiles_configurados)
+        print("Checked configured rclone profiles:", perfiles_configurados)
     
     # # Montamos todos los shares SMB configurados
     # for share in shares_accesibles:
@@ -1742,14 +1740,14 @@ def main():
             )
 
         elif respuesta["accion"] == "mantener":
-            print("Usuario eligió mantener las credenciales actuales.")
+            print("User chose to keep the current credentials.")
         else:
-            print("No se tomó ninguna acción.")
+            print("No action taken.")
 
-        # Mostramos la interfaz principal
+        # Show the main interface
         abrir_interfaz_copia(root, servidor_s3_rcloneconfig, mounts_activos)
 
-    # Lanzar toda la aplicación después de que root se haya creado completamente
+    # Launch the entire application after root has been fully created
     root.after(100, iniciar_aplicacion)
     root.mainloop()
 
