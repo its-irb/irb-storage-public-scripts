@@ -454,6 +454,11 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str):
         if not winfsp_path.exists():
             messagebox.showerror("WinFSP no detectado", "No se ha detectado WinFSP. Descárgalo desde: https://winfsp.dev")
             return
+    elif sistema == "Linux":
+        # Linux → comprobar FUSE
+        if not shutil.which("fusermount"):
+            messagebox.showerror("FUSE no detectado", "No se ha detectado FUSE en este sistema. Instálalo usando el gestor de paquetes de tu distribución.")
+            return
     else:
         messagebox.showerror("Sistema no soportado", f"Este sistema operativo ({sistema}) no está soportado actualmente.")
         return
@@ -486,6 +491,8 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str):
             subprocess.Popen(["open", str(mount_point)])
         elif sistema == "Windows":
             subprocess.Popen(["explorer", str(mount_point)])
+        elif sistema == "Linux":
+            subprocess.Popen(["xdg-open", str(mount_point)])
         else:
             subprocess.Popen(["xdg-open", str(mount_point)])
     except Exception as e:
