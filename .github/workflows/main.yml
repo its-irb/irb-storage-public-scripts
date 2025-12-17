@@ -68,9 +68,46 @@ jobs:
           name: executables-cli-${{ matrix.os }}
           path: dist/*
 
+  build-rocky:
+    runs-on: ubuntu-latest
+    container:
+      image: rockylinux:9.6  # O usa rockylinux:9.6 si está disponible
+    steps:
+      - name: Instalar dependencias básicas
+        run: |
+          dnf install -y python3 python3-pip python3-devel gcc make glibc-devel
+          pip3 install --upgrade pip setuptools wheel pyinstaller
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Instalar requirements
+        run: |
+          pip install -r minio/pip-requirements.txt
+          pip install pyinstaller
+
+      - name: Compilar binario
+        run: |
+          mkdir -p dist
+          cd minio
+          echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
+          pyinstaller --onefile minio-rclone-copy-GUI.py --distpath ../dist
+          mv ../dist/minio-rclone-copy-GUI ../dist/minio-rclone-copy-GUI-cluster
+        
+      - name: Verificar archivos generados
+        shell: bash
+        run: |
+          ls -lah dist || ls dist
+
+      - name: Subir artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: minio_gui_linux_cluster
+          path: dist/minio-rclone-copy-GUI-cluster
+
   release:
     # needs: [build-cli, build-gui]  
-    needs: build-cli  
+    needs: [build-cli, build-rocky]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout código
