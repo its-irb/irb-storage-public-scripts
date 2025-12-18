@@ -4,6 +4,8 @@
 import minio_functions
 
 import tkinter as tk
+from ttkthemes import ThemedTk
+
 from tkinter import ttk, messagebox, scrolledtext
 import boto3
 import getpass
@@ -1087,7 +1089,7 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
     ttk.Label(frame_rutas, text="Advanced (experts only): Additional flags for rclone:").grid(row=4, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
     entry_flags = ttk.Entry(frame_rutas)
-    entry_flags.insert(0, f"--transfers={num_cores} --checkers={num_cores} --s3-no-check-bucket --local-no-check-updated")
+    entry_flags.insert(0, f"--transfers={num_cores} --checkers={num_cores} --s3-no-check-bucket")
     entry_flags.grid(row=5, column=0, columnspan=3, sticky="ew")
 
     # Que se expanda solo la columna 0 (donde va la entrada de texto)
@@ -1610,7 +1612,8 @@ def main():
 
     
     # Configuración inicial y obtención de shares accesibles desde NetApp
-    root = tk.Tk()
+    # root = tk.Tk()
+    root = ThemedTk(theme="plastik")
     root.title("MinIO Rclone Launcher")
     root.geometry("1x1+0+0")  # Ventana invisible de 1x1 píxeles
     root.overrideredirect(True)  # Sin bordes, completamente invisible

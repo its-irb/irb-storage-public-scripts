@@ -18,10 +18,10 @@ from tkinter import messagebox, Tk
 
 # Diccionario de servidores y sus variantes de red
 MINIO_SERVERS = {
-    "minio-gordo": {
+    "minio-archive": {
         "IRB": {
-            "profile": "minio-gordo",
-            "endpoint": "https://minio-gordo.irbbarcelona.pcb.ub.es:9000"
+            "profile": "minio-archive",
+            "endpoint": "https://minio-archive.sc.irbbarcelona.org:9000"
         }
         # ,
         # "HPC": {
@@ -29,10 +29,10 @@ MINIO_SERVERS = {
         #     "endpoint": "https://minio-gordo.hpc.irbbarcelona.pcb.ub.es:9000"
         # }
     },
-    "minio-bbg": {
+    "irbminio": {
         "IRB": {
-            "profile": "minio-bbg",
-            "endpoint": "http://irbminio.irbbarcelona.pcb.ub.es:9000"
+            "profile": "irbminio",
+            "endpoint": "http://irbminio.sc.irbbarcelona.org:9000"
         }
         # ,
         # "HPC": {
