@@ -4,7 +4,7 @@
 import minio_functions
 
 import tkinter as tk
-from ttkthemes import ThemedTk
+# from ttkthemes import ThemedTk
 
 from tkinter import ttk, messagebox, scrolledtext
 import boto3
@@ -1612,8 +1612,8 @@ def main():
 
     
     # Configuración inicial y obtención de shares accesibles desde NetApp
-    # root = tk.Tk()
-    root = ThemedTk(theme="plastik")
+    root = tk.Tk()
+    # root = ThemedTk(theme="plastik")
     root.title("MinIO Rclone Launcher")
     root.geometry("1x1+0+0")  # Ventana invisible de 1x1 píxeles
     root.overrideredirect(True)  # Sin bordes, completamente invisible
