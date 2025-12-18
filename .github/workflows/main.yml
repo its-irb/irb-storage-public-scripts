@@ -73,11 +73,6 @@ jobs:
     container:
       image: rockylinux:9  
     steps:
-      - name: Instalar Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.12"
-          
       - name: Instalar dependencias básicas
         run: |
           dnf install -y python3 python3-pip python3-devel gcc make glibc-devel python3-tkinter
