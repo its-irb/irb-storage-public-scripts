@@ -1691,6 +1691,7 @@ def main():
             print(f"SMB credentials obtained. User: {credenciales_smb['usuario']}")
 
     else:
+        usuario_actual = "admin_" + getpass.getuser()
         es_admin_its = False
     print("Is ITS admin user?", es_admin_its)
     # """
