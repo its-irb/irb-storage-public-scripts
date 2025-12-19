@@ -263,24 +263,71 @@ def pedir_credenciales_smb(parent, usuario_actual, es_admin_its=False):
     # Foco inicial en el campo de contraseña
     entry_pass.focus_set()
 
+    # def confirmar(es_admin_its=es_admin_its):
+    #     username = usuario_var.get().strip()
+    #     password = password_var.get().strip()
+
+    #     # DN corregido según estructura LDAP real
+    #     user_dn = f"cn={username},ou=users,ou=admini,o=irbbarcelona"
+    #     server = Server("ldap://irbldap3.sc.irbbarcelona.org")
+
+    #     try:
+    #         if not es_admin_its:
+    #             conn = Connection(server, user=user_dn, password=password, authentication=SIMPLE, auto_bind=True)
+    #             conn.unbind()
+    #         resultado["usuario"] = username
+    #         resultado["password"] = password
+    #         ventana.destroy()
+    #     except Exception as e:
+    #         print("LDAP bind failed:", str(e))  # Optional debug
+    #         messagebox.showerror("Authentication Error", "Incorrect username or password.")
+
+    from ldap3 import Server, Connection, ALL, SIMPLE, SUBTREE
+
     def confirmar(es_admin_its=es_admin_its):
         username = usuario_var.get().strip()
         password = password_var.get().strip()
-
-        # DN corregido según estructura LDAP real
-        user_dn = f"cn={username},ou=users,ou=admini,o=irbbarcelona"
-        server = Server("ldap://irbldap3.sc.irbbarcelona.org")
+        
+        # Configuración del servidor y Base DN (donde empezará a buscar)
+        server = Server("ldap://irbldap3.sc.irbbarcelona.org", get_info=ALL)
+        base_dn = "o=irbbarcelona"  # La raíz de tu árbol
+        search_filter = f"(cn={username})" # O (uid={username}) dependiendo de tu esquema
 
         try:
-            if not es_admin_its:
-                conn = Connection(server, user=user_dn, password=password, authentication=SIMPLE, auto_bind=True)
+            # 1. Conexión inicial (Búsqueda)
+            # Si tu LDAP permite búsquedas anónimas, deja user y password vacíos.
+            # Si no, usa una cuenta de servicio: user='cn=admin,o=irbbarcelona', password='...'
+            conn = Connection(server, auto_bind=True) 
+
+            # 2. Buscar al usuario en todo el árbol (SUBTREE)
+            conn.search(search_base=base_dn,
+                        search_filter=search_filter,
+                        search_scope=SUBTREE,
+                        attributes=['dn'])
+
+            if not conn.entries:
+                messagebox.showerror("Error", "Usuario no encontrado.")
+                return
+
+            # 3. Obtener el DN real que encontró el servidor
+            user_dn_real = conn.entries[0].entry_dn
+
+            # 4. Intentar autenticar (Bind) con la contraseña del usuario
+            conn_auth = Connection(server, user=user_dn_real, password=password, authentication=SIMPLE)
+            
+            if conn_auth.bind():
+                # Autenticación exitosa
+                resultado["usuario"] = username
+                resultado["password"] = password
+                conn_auth.unbind()
                 conn.unbind()
-            resultado["usuario"] = username
-            resultado["password"] = password
-            ventana.destroy()
+                ventana.destroy()
+            else:
+                messagebox.showerror("Error de autenticación", "Contraseña incorrecta.")
+
         except Exception as e:
-            print("LDAP bind failed:", str(e))  # Optional debug
-            messagebox.showerror("Authentication Error", "Incorrect username or password.")
+            print("Error LDAP:", str(e))
+            messagebox.showerror("Error de Conexión", f"No se pudo conectar al servidor LDAP: {e}")
 
     def cancelar():
         ventana.destroy()
