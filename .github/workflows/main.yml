@@ -109,6 +109,8 @@ jobs:
     # needs: [build-cli, build-gui]  
     needs: [build-cli, build-rocky]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout código
         uses: actions/checkout@v4
@@ -135,4 +137,5 @@ jobs:
           prerelease: false
           files: dist/*
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT_RELEASES }}
+          # GITHUB_TOKEN: ${{ secrets.GH_PAT_RELEASES }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
