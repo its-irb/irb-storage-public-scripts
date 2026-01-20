@@ -26,7 +26,7 @@ import urllib
 import configparser
 import requests
 import getpass
-
+from datetime import datetime
 
 import time
 
@@ -185,9 +185,12 @@ def obtener_shares_accesibles(grupos_usuario: list[str], username, password, usu
 
     return resultado
 
-def get_ldap_groups():
+def get_ldap_groups(usuario):
     # usuario = "esancho" 
-    usuario = getpass.getuser()
+    # if usuario is None:
+    #     usuario = getpass.getuser()
+    # else :
+    #     usuario = usuario.strip()
     LDAP_SERVER = "ldap://irbldap3.sc.irbbarcelona.org"
     BASE_DN = "o=irbbarcelona"
     ATTRS = ["groupMembership"]
@@ -235,19 +238,113 @@ def obtener_perfiles_rclone_config(config_path=None):
 
     return config.sections()
 
-def pedir_credenciales_smb(parent, usuario_actual, es_admin_its=False):
+
+
+
+
+
+def pedir_credenciales(root, titulo, pregunta, usuario_prefijado=None):
+    import tkinter as tk
+    from tkinter import ttk, messagebox
+
     resultado = {"usuario": None, "password": None}
 
-    ventana = tk.Toplevel(parent)
-    ventana.title("IRB Credentials Required")
+    ventana = tk.Toplevel(root)
+    ventana.title(titulo)
     ventana.geometry("350x180")
-    ventana.transient(parent)
+    ventana.transient(root)
     ventana.grab_set()
 
-    tk.Label(ventana, text="Enter your credentials").pack(pady=(10, 5))
+    tk.Label(ventana, text=pregunta).pack(pady=(10, 5))
 
     tk.Label(ventana, text="Username:").pack()
-    usuario_var = tk.StringVar(parent, value=usuario_actual)
+    usuario_var = tk.StringVar(value=usuario_prefijado if usuario_prefijado else "")
+    entry_user = ttk.Entry(ventana, textvariable=usuario_var)
+    entry_user.pack(pady=(0, 5))
+
+    if usuario_prefijado:
+        entry_user.configure(state="disabled")
+
+    tk.Label(ventana, text="Password:").pack()
+    password_var = tk.StringVar()
+    entry_pass = ttk.Entry(ventana, textvariable=password_var, show="*")
+    entry_pass.pack(pady=(0, 10))
+    entry_pass.focus_set()
+
+    def confirmar():
+        usuario = usuario_var.get().strip()
+        password = password_var.get().strip()
+        if not usuario or not password:
+            messagebox.showerror("Error", "Username and password are required.")
+            return
+        resultado["usuario"] = usuario
+        resultado["password"] = password
+        ventana.destroy()
+
+    def cancelar():
+        ventana.destroy()
+
+    ventana.bind("<Return>", lambda e: confirmar())
+    ventana.bind("<Escape>", lambda e: cancelar())
+
+    frame_botones = ttk.Frame(ventana)
+    frame_botones.pack(pady=(0, 10))
+    ttk.Button(frame_botones, text="Cancel", command=cancelar).pack(side=tk.LEFT, padx=10)
+    ttk.Button(frame_botones, text="OK", command=confirmar).pack(side=tk.RIGHT, padx=10)
+
+    ventana.wait_window()
+    return resultado if resultado["usuario"] and resultado["password"] else None
+
+def validar_credenciales_ldap(credenciales_ldap):
+    from ldap3 import Server, Connection, SIMPLE, SUBTREE
+
+    if not credenciales_ldap:
+        return False
+
+    usuario_ldap = credenciales_ldap["usuario"]
+    password_ldap = credenciales_ldap["password"]
+
+    server = Server("ldap://irbldap3.sc.irbbarcelona.org")
+    base_dn = "o=irbbarcelona"
+    search_filter = f"(cn={usuario_ldap})"
+
+    try:
+        conn = Connection(server, auto_bind=True)
+        conn.search(base_dn, search_filter, SUBTREE, attributes=['dn'])
+
+        if not conn.entries:
+            return False
+
+        user_dn = conn.entries[0].entry_dn
+        conn_auth = Connection(server, user=user_dn, password=password_ldap, authentication=SIMPLE)
+
+        if conn_auth.bind():
+            conn_auth.unbind()
+            conn.unbind()
+            return True
+        else:
+            return False
+
+    except Exception as e:
+        print(f"LDAP validation error: {e}")
+        return False
+
+
+
+
+def pedir_credenciales_ldap(root, usuario_ldap):
+    from ldap3 import Server, Connection, SIMPLE, SUBTREE
+    resultado = {"usuario": None, "password": None}
+
+    ventana = tk.Toplevel(root)
+    ventana.title("IRB LDAP Authentication")
+    ventana.geometry("350x160")
+    ventana.transient(root)
+    ventana.grab_set()
+
+    tk.Label(ventana, text="Enter your IRB credentials").pack(pady=(10, 5))
+    tk.Label(ventana, text="Username:").pack()
+    usuario_var = tk.StringVar(value=usuario_ldap)
     entry_user = ttk.Entry(ventana, textvariable=usuario_var, state="disabled")
     entry_user.pack(pady=(0, 5))
 
@@ -256,92 +353,225 @@ def pedir_credenciales_smb(parent, usuario_actual, es_admin_its=False):
     entry_pass = ttk.Entry(ventana, textvariable=password_var, show="*")
     entry_pass.pack(pady=(0, 10))
 
-    # Asociar teclas Enter y Escape
-    ventana.bind("<Return>", lambda event: confirmar())
-    ventana.bind("<Escape>", lambda event: cancelar())
-
-    # Foco inicial en el campo de contraseña
     entry_pass.focus_set()
 
-    # def confirmar(es_admin_its=es_admin_its):
-    #     username = usuario_var.get().strip()
-    #     password = password_var.get().strip()
-
-    #     # DN corregido según estructura LDAP real
-    #     user_dn = f"cn={username},ou=users,ou=admini,o=irbbarcelona"
-    #     server = Server("ldap://irbldap3.sc.irbbarcelona.org")
-
-    #     try:
-    #         if not es_admin_its:
-    #             conn = Connection(server, user=user_dn, password=password, authentication=SIMPLE, auto_bind=True)
-    #             conn.unbind()
-    #         resultado["usuario"] = username
-    #         resultado["password"] = password
-    #         ventana.destroy()
-    #     except Exception as e:
-    #         print("LDAP bind failed:", str(e))  # Optional debug
-    #         messagebox.showerror("Authentication Error", "Incorrect username or password.")
-
-    from ldap3 import Server, Connection, ALL, SIMPLE, SUBTREE
-
-    def confirmar(es_admin_its=es_admin_its):
-        username = usuario_var.get().strip()
+    def confirmar():
         password = password_var.get().strip()
-        
-        # Configuración del servidor y Base DN (donde empezará a buscar)
-        server = Server("ldap://irbldap3.sc.irbbarcelona.org", get_info=ALL)
-        base_dn = "o=irbbarcelona"  # La raíz de tu árbol
-        search_filter = f"(cn={username})" # O (uid={username}) dependiendo de tu esquema
+        server = Server("ldap://irbldap3.sc.irbbarcelona.org")
+        base_dn = "o=irbbarcelona"
+        search_filter = f"(cn={usuario_ldap})"
 
         try:
-            # 1. Conexión inicial (Búsqueda)
-            # Si tu LDAP permite búsquedas anónimas, deja user y password vacíos.
-            # Si no, usa una cuenta de servicio: user='cn=admin,o=irbbarcelona', password='...'
-            conn = Connection(server, auto_bind=True) 
-
-            # 2. Buscar al usuario en todo el árbol (SUBTREE)
-            conn.search(search_base=base_dn,
-                        search_filter=search_filter,
-                        search_scope=SUBTREE,
-                        attributes=['dn'])
+            conn = Connection(server, auto_bind=True)
+            conn.search(base_dn, search_filter, SUBTREE, attributes=['dn'])
 
             if not conn.entries:
-                messagebox.showerror("Error", "Usuario no encontrado.")
+                messagebox.showerror("Error", "User not found in LDAP")
                 return
 
-            # 3. Obtener el DN real que encontró el servidor
-            user_dn_real = conn.entries[0].entry_dn
+            user_dn = conn.entries[0].entry_dn
+            conn_auth = Connection(server, user=user_dn, password=password, authentication=SIMPLE)
 
-            # 4. Intentar autenticar (Bind) con la contraseña del usuario
-            conn_auth = Connection(server, user=user_dn_real, password=password, authentication=SIMPLE)
-            
             if conn_auth.bind():
-                # Autenticación exitosa
-                resultado["usuario"] = username
+                resultado["usuario"] = usuario_ldap
                 resultado["password"] = password
                 conn_auth.unbind()
                 conn.unbind()
                 ventana.destroy()
             else:
-                messagebox.showerror("Error de autenticación", "Contraseña incorrecta.")
+                messagebox.showerror("Authentication Error", "Incorrect password")
 
         except Exception as e:
-            print("Error LDAP:", str(e))
-            messagebox.showerror("Error de Conexión", f"No se pudo conectar al servidor LDAP: {e}")
+            messagebox.showerror("LDAP Error", f"Connection error:\n{e}")
 
     def cancelar():
         ventana.destroy()
 
-    btn_frame = ttk.Frame(ventana)
-    btn_frame.pack()
-    ttk.Button(btn_frame, text="Cancel", command=cancelar).pack(side=tk.LEFT, padx=10)
-    ttk.Button(btn_frame, text="OK", command=confirmar).pack(side=tk.RIGHT, padx=10)
+    ventana.bind("<Return>", lambda e: confirmar())
+    ventana.bind("<Escape>", lambda e: cancelar())
+
+    ttk.Button(ventana, text="Cancel", command=cancelar).pack(side=tk.LEFT, padx=10)
+    ttk.Button(ventana, text="OK", command=confirmar).pack(side=tk.RIGHT, padx=10)
 
     ventana.wait_window()
+    return resultado if resultado["usuario"] and resultado["password"] else None
 
-    if resultado["usuario"] and resultado["password"]:
-        return {"usuario": resultado["usuario"], "password": resultado["password"]}
-    return None
+def pedir_credenciales_admin(root, usuario_ldap):
+    resultado = {"usuario": f"admin_{usuario_ldap}", "password": None}
+
+    ventana = tk.Toplevel(root)
+    ventana.title("Admin credentials for SMB mounts")
+    ventana.geometry("350x150")
+    ventana.transient(root)
+    ventana.grab_set()
+
+    tk.Label(ventana, text="Enter password for admin SMB user").pack(pady=(10, 5))
+
+    tk.Label(ventana, text="Username:").pack()
+    entry_user = ttk.Entry(ventana, state="disabled")
+    entry_user.insert(0, resultado["usuario"])
+    entry_user.pack(pady=(0, 5))
+
+    tk.Label(ventana, text="Password:").pack()
+    password_var = tk.StringVar()
+    entry_pass = ttk.Entry(ventana, textvariable=password_var, show="*")
+    entry_pass.pack(pady=(0, 10))
+    entry_pass.focus_set()
+
+    def confirmar():
+        resultado["password"] = password_var.get().strip()
+        ventana.destroy()
+
+    def cancelar():
+        resultado["usuario"] = None
+        resultado["password"] = None
+        ventana.destroy()
+
+    ventana.bind("<Return>", lambda e: confirmar())
+    ventana.bind("<Escape>", lambda e: cancelar())
+
+    ttk.Button(ventana, text="Cancel", command=cancelar).pack(side=tk.LEFT, padx=10)
+    ttk.Button(ventana, text="OK", command=confirmar).pack(side=tk.RIGHT, padx=10)
+
+    ventana.wait_window()
+    return resultado if resultado["password"] else None
+
+def construir_credenciales_smb(credenciales_ldap, usar_privilegios_its, credenciales_admin=None):
+    if usar_privilegios_its:
+        if not credenciales_admin or not credenciales_admin["usuario"] or not credenciales_admin["password"]:
+            raise ValueError("Missing admin credentials to construct SMB credentials with ITS privileges.")
+        return {
+            "usuario": credenciales_admin["usuario"],
+            "password": credenciales_admin["password"]
+        }
+    else:
+        return {
+            "usuario": credenciales_ldap["usuario"],
+            "password": credenciales_ldap["password"]
+        }
+
+# def pedir_credenciales_smb(parent, usuario_actual, es_admin_its=False):
+#     resultado = {"usuario": None, "password": None}
+
+#     ventana = tk.Toplevel(parent)
+#     ventana.title("IRB Credentials Required")
+#     ventana.geometry("350x180")
+#     ventana.transient(parent)
+#     ventana.grab_set()
+
+#     tk.Label(ventana, text="Enter your credentials").pack(pady=(10, 5))
+
+#     tk.Label(ventana, text="Username:").pack()
+#     usuario_var = tk.StringVar(parent, value=usuario_actual)
+#     if usuario_actual == None:
+#         usuario_var.set("")
+#         entry_user = ttk.Entry(ventana, textvariable=usuario_var)
+#     else:
+#         entry_user = ttk.Entry(ventana, textvariable=usuario_var, state="disabled")
+#     entry_user.pack(pady=(0, 5))
+
+#     tk.Label(ventana, text="Password:").pack()
+#     password_var = tk.StringVar()
+#     entry_pass = ttk.Entry(ventana, textvariable=password_var, show="*")
+#     entry_pass.pack(pady=(0, 10))
+
+#     # Asociar teclas Enter y Escape
+#     ventana.bind("<Return>", lambda event: confirmar())
+#     ventana.bind("<Escape>", lambda event: cancelar())
+
+#     # Foco inicial en el campo de contraseña
+#     entry_pass.focus_set()
+
+#     # def confirmar(es_admin_its=es_admin_its):
+#     #     username = usuario_var.get().strip()
+#     #     password = password_var.get().strip()
+
+#     #     # DN corregido según estructura LDAP real
+#     #     user_dn = f"cn={username},ou=users,ou=admini,o=irbbarcelona"
+#     #     server = Server("ldap://irbldap3.sc.irbbarcelona.org")
+
+#     #     try:
+#     #         if not es_admin_its:
+#     #             conn = Connection(server, user=user_dn, password=password, authentication=SIMPLE, auto_bind=True)
+#     #             conn.unbind()
+#     #         resultado["usuario"] = username
+#     #         resultado["password"] = password
+#     #         ventana.destroy()
+#     #     except Exception as e:
+#     #         print("LDAP bind failed:", str(e))  # Optional debug
+#     #         messagebox.showerror("Authentication Error", "Incorrect username or password.")
+
+#     from ldap3 import Server, Connection, ALL, SIMPLE, SUBTREE
+
+#     def confirmar(es_admin_its=es_admin_its):
+#         username = usuario_var.get().strip()
+#         password = password_var.get().strip()
+        
+#         # Configuración del servidor y Base DN (donde empezará a buscar)
+#         server = Server("ldap://irbldap3.sc.irbbarcelona.org", get_info=ALL)
+#         base_dn = "o=irbbarcelona"  # La raíz de tu árbol
+#         search_filter = f"(cn={username})" # O (uid={username}) dependiendo de tu esquema
+
+#         try:
+#             # 1. Conexión inicial (Búsqueda)
+#             # Si tu LDAP permite búsquedas anónimas, deja user y password vacíos.
+#             # Si no, usa una cuenta de servicio: user='cn=admin,o=irbbarcelona', password='...'
+#             conn = Connection(server, auto_bind=True) 
+
+#             # 2. Buscar al usuario en todo el árbol (SUBTREE)
+#             conn.search(search_base=base_dn,
+#                         search_filter=search_filter,
+#                         search_scope=SUBTREE,
+#                         attributes=['dn'])
+
+#             if not conn.entries:
+#                 messagebox.showerror("Error", "Usuario no encontrado.")
+#                 return
+
+#             # 3. Obtener el DN real que encontró el servidor
+#             user_dn_real = conn.entries[0].entry_dn
+            
+#             # # 4. Intentar autenticar (Bind) con la contraseña del usuario
+#             # conn_auth = Connection(server, user=user_dn_real, password=password, authentication=SIMPLE)
+            
+#             # if conn_auth.bind():
+#             #     # Autenticación exitosa
+#             #     resultado["usuario"] = username
+#             #     resultado["password"] = password
+#             #     conn_auth.unbind()
+#             #     conn.unbind()
+#             #     ventana.destroy()
+#             # else:
+#             #     messagebox.showerror("Error de autenticación", "Contraseña incorrecta.")
+#             try:
+#                 if not es_admin_its:
+#                     conn = Connection(server, user=user_dn_real, password=password, authentication=SIMPLE, auto_bind=True)
+#                     conn.unbind()
+#                 resultado["usuario"] = username
+#                 resultado["password"] = password
+#                 ventana.destroy()
+#             except Exception as e:
+#                 print("LDAP bind failed:", str(e))  # Optional debug
+#                 messagebox.showerror("Authentication Error", "Incorrect username or password.")
+
+
+#         except Exception as e:
+#             print("Error LDAP:", str(e))
+#             messagebox.showerror("Error de Conexión", f"No se pudo conectar al servidor LDAP: {e}")
+
+#     def cancelar():
+#         ventana.destroy()
+
+#     btn_frame = ttk.Frame(ventana)
+#     btn_frame.pack()
+#     ttk.Button(btn_frame, text="Cancel", command=cancelar).pack(side=tk.LEFT, padx=10)
+#     ttk.Button(btn_frame, text="OK", command=confirmar).pack(side=tk.RIGHT, padx=10)
+
+#     ventana.wait_window()
+
+#     if resultado["usuario"] and resultado["password"]:
+#         return {"usuario": resultado["usuario"], "password": resultado["password"]}
+#     return None
 
 def actualizar_password_perfiles_rclone(usuario: str, nueva_password: str, rclone_config_path: str = None):
     """
@@ -625,7 +855,12 @@ def seleccionar_shares_montar(root, shares, usuario_actual, mounts_activos, es_a
 
     def on_actualizar_credenciales_smb(usuario_actual, es_admin_its=False):
         # usuario_actual = getpass.getuser()
-        resultado = pedir_credenciales_smb(ventana, usuario_actual, es_admin_its)
+        resultado = pedir_credenciales(ventana, "Update SMB Credentials", "Enter new SMB credentials for user:", usuario_actual)
+
+        if not es_admin_its:
+            if not validar_credenciales_ldap(resultado):
+                messagebox.showinfo("Cancelled", "Credentials not valid.")
+                return
 
         usuario_actual = resultado["usuario"]
         nueva_password = resultado["password"]
@@ -1085,12 +1320,80 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
         if ruta:
             entrada_origen.delete(0, tk.END)
             entrada_origen.insert(0, ruta)
+            actualizar_ruta_resultante()
 
     def seleccionar_carpeta():
         ruta = traducir_ruta_a_remote(filedialog.askdirectory(title="Select source folder"), mounts_activos)
         if ruta:
             entrada_origen.delete(0, tk.END)
             entrada_origen.insert(0, ruta)
+            actualizar_ruta_resultante()
+
+    
+    ## Mecanismo de debounce para comprobar ruta destino
+    debounce_timer = None
+
+    def comprobar_ruta_accesible(event=None):
+        nonlocal debounce_timer
+        # print("🔁 Evento detectado: tecla pulsada en destino")
+
+        if debounce_timer:
+            debounce_timer.cancel()
+            # print("⏱️ Timer anterior cancelado")
+
+        debounce_timer = threading.Timer(0.5, verificar_ruta_remota)
+        debounce_timer.start()
+        # print("⏳ Nuevo timer iniciado")
+
+    def verificar_ruta_remota():
+        ruta = entrada_destino.get().strip()
+        # print(f"📡 Verificando ruta: {ruta}")
+
+        if not ruta:
+            entrada_destino.configure(background="white")
+            # print("⚪ Campo vacío: fondo blanco")
+            return
+
+        try:
+            result = subprocess.run(
+                ["rclone", "ls", f"{perfil_rclone}:{ruta}"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=5,
+            )
+
+            # print("⏺️ Subprocess result:")
+            # print(f"    returncode = {result.returncode}")
+            # print(f"    stdout = {result.stdout.decode().strip()}")
+            # print(f"    stderr = {result.stderr.decode().strip()}")
+
+            if result.returncode == 0:
+                entrada_destino.configure(background="#d6f5d6")  # verde suave
+                # print("✅ Ruta accesible: fondo verde")
+            else:
+                entrada_destino.configure(background="#f5d6d6")  # rojo suave
+                # print("❌ Ruta no accesible: fondo rojo")
+
+        except subprocess.TimeoutExpired:
+            entrada_destino.configure(background="#f5d6d6")
+            # print("⏰ Timeout al ejecutar rclone")
+        except Exception as e:
+            entrada_destino.configure(background="#f5d6d6")
+            print(f"‼️ Excepción inesperada: {e}")
+
+    def actualizar_ruta_resultante(*args):
+        origen = entrada_origen.get().strip()
+        destino = entrada_destino.get().strip().rstrip("/")
+
+        if not origen or not destino:
+            label_ruta_resultante.configure(text="Files will be copied into: [incomplete]")
+            return
+
+        ruta_esperada = f"{destino}/"
+        label_ruta_resultante.configure(text=f"Files will be copied into: {ruta_esperada}")
+    def manejar_evento_destino(event=None):
+        comprobar_ruta_accesible()
+        actualizar_ruta_resultante()
 
     # boton_archivo = ttk.Button(frame_origen, text="📄 Archivo", command=seleccionar_archivo)
     # boton_archivo.pack(side=tk.LEFT, padx=(0, 5))
@@ -1129,15 +1432,24 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
 
     # --- Línea 2: Destino
     ttk.Label(frame_rutas, text=f"Destination path (bucket in profile {perfil_rclone}):").grid(row=2, column=0, columnspan=3, sticky="w", pady=(10, 0))
-    entrada_destino = ttk.Entry(frame_rutas)
+    # entrada_destino = ttk.Entry(frame_rutas)
+    entrada_destino = tk.Entry(frame_rutas)  # usa tk.Entry, no ttk.Entry
     entrada_destino.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(0, 10))
 
+    # --- Línea informativa de ruta final esperada ---
+    ## enlazamos evento de comprobación de ruta destino
+    entrada_destino.bind("<KeyRelease>", manejar_evento_destino)
+    entrada_origen.bind("<KeyRelease>", actualizar_ruta_resultante)
+
+    label_ruta_resultante = ttk.Label(frame_rutas, text="Los archivos se copiarán en: [ruta no determinada aún]", wraplength=750, justify="left")
+    label_ruta_resultante.grid(row=4, column=0, columnspan=3, sticky="w", pady=(0, 10))
+
     # --- Línea 3: Flags avanzados
-    ttk.Label(frame_rutas, text="Advanced (experts only): Additional flags for rclone:").grid(row=4, column=0, columnspan=3, sticky="w", pady=(10, 0))
+    ttk.Label(frame_rutas, text="Advanced (experts only): Additional flags for rclone:").grid(row=5, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
     entry_flags = ttk.Entry(frame_rutas)
     entry_flags.insert(0, f"--transfers={num_cores} --checkers={num_cores} --s3-no-check-bucket")
-    entry_flags.grid(row=5, column=0, columnspan=3, sticky="ew")
+    entry_flags.grid(row=6, column=0, columnspan=3, sticky="ew")
 
     # Que se expanda solo la columna 0 (donde va la entrada de texto)
     frame_rutas.columnconfigure(0, weight=1)
@@ -1158,10 +1470,48 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
     boton_montar = ttk.Button(frame_botones, text="Mount destination folder")
     boton_montar.grid(row=0, column=2, padx=10)
 
+    boton_guardar_log = ttk.Button(frame_botones, text="Save Log…", command=lambda: guardar_log_en_fichero(log_text))
+    boton_guardar_log.grid(row=0, column=3, padx=10)
+
     # boton_montar_smb = ttk.Button(frame_botones, text="Montar SMB (rclone)", command=montar_volumen_smb_con_rclone)
     # boton_montar_smb.grid(row=0, column=3, padx=10)
 
     # --- Fin botones de acción ---
+
+    def guardar_log_en_fichero(log_widget):
+        """
+        Abre un diálogo para guardar el contenido de log_widget en un .txt
+        """
+
+        # Fecha y hora actual
+        ahora = datetime.now()
+        timestamp_str = ahora.strftime("%Y-%m-%d %H:%M:%S")
+        filename_default = f"bifrost-{ahora.strftime('%Y-%m-%d_%H-%M-%S')}.log"
+
+
+        contenido = f"### Log saved at: {timestamp_str} ###\n\n"
+        contenido += "### Log Output ###\n"
+        contenido += log_widget.get("1.0", tk.END).rstrip()
+        if not contenido:
+            messagebox.showinfo("Save Log", "There is no log content to save.")
+            return
+
+        # Diálogo “Guardar como”
+        ruta_guardado = filedialog.asksaveasfilename(
+            title="Save log as…",
+            defaultextension=".log",
+            initialfile=filename_default,
+            filetypes=[("Log files", "*.log"), ("Text files", "*.txt"), ("All files", "*.*")]
+        )
+        if not ruta_guardado:
+            return  # El usuario canceló
+
+        try:
+            with open(ruta_guardado, "w", encoding="utf-8") as f:
+                f.write(contenido)
+            messagebox.showinfo("Save Log", f"Log saved successfully to:\n{ruta_guardado}")
+        except Exception as e:
+            messagebox.showerror("Save Log", f"Error saving log:\n{str(e)}")
 
     def lanzar_montaje():
         ruta_destino = entrada_destino.get().strip()
@@ -1222,6 +1572,17 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
 
         boton_copiar.config(state="disabled")
         boton_check.config(state="disabled")
+
+        # Insertar timestamp y metadatos en el log antes de la copia
+        ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_text.insert(tk.END, f"### Copy operation started at {ahora} ###\n")
+
+        log_text.insert(tk.END, "### Metadata ###\n")
+        for clave, valor in metadatos_dict.items():
+            log_text.insert(tk.END, f"{clave}: {valor}\n")
+        log_text.insert(tk.END, "\n")
+
+
         # log_text.delete("1.0", tk.END)
         log_text.insert(tk.END, f"Executing: rclone copy {origen} {perfil_rclone}:/{destino}\n")
 
@@ -1551,7 +1912,7 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
 
             if fichero:
                 comando += [
-                    "--checksum",
+                    # "--checksum",
                     "--one-way",
                     "--copy-links"
                 ]
@@ -1559,7 +1920,7 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
                 comando += [
                     "--one-way",
                     "--combined",
-                    "--checksum",
+                    # "--checksum",
                     "--copy-links",
                     "--exclude", "/.DS_Store",
                     "--exclude", "**/.DS_Store",
@@ -1645,6 +2006,9 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
     ventana.update_idletasks()
     ventana.lift()
     ventana.focus_force()
+
+    ventana.columnconfigure(0, weight=1)
+    
     procesar_queue()
     ventana.wait_window()
     
@@ -1654,6 +2018,10 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
 
 def main():
     EXCEPCION_FILERS = ["filer12-svm-vm"]
+    if "--customuser" in sys.argv or "-c" in sys.argv:
+        PERMITIR_USUARIO_CUSTOM = True
+    else:
+        PERMITIR_USUARIO_CUSTOM = False
     # Variable global
     mounts_activos = []  # Cada entrada será un dict con keys: mount_path, remote_name, remote_subpath
 
@@ -1665,41 +2033,75 @@ def main():
     root.geometry("1x1+0+0")  # Ventana invisible de 1x1 píxeles
     root.overrideredirect(True)  # Sin bordes, completamente invisible
 
-    # Aseguramos el desmontaje de shares al salir
-    atexit.register(lambda: desmontar_todos_los_shares(usuario_actual))
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     # Obtener credenciales LDAP del usuario
-    credenciales_smb = pedir_credenciales_smb(root, getpass.getuser(), False)
-    print(f"SMB credentials obtained. User: {credenciales_smb['usuario']}")
+    usuario_ldap = None
+    while not usuario_ldap:
+        if PERMITIR_USUARIO_CUSTOM:
+            credenciales_ldap = pedir_credenciales(root, "Enter your username", "Enter your username:")
+        else:
+            credenciales_ldap = pedir_credenciales(root, "Enter your username", "Enter your username:", getpass.getuser())
+        if validar_credenciales_ldap(credenciales_ldap):
+            usuario_ldap = credenciales_ldap["usuario"]
     
+    print(f"LDAP credentials obtained. User: {credenciales_ldap['usuario']}")
+
+
+
+
+
+
+
+
+
+
+
     # Obtener grupos LDAP del usuario
-    grupos_ldap = get_ldap_groups()
+    grupos_ldap = get_ldap_groups(usuario_ldap)
     print("User's LDAP groups:", grupos_ldap)
     # Comprobar si el usuario pertenece al grupo its
     if "its" in grupos_ldap:
-        pregunta_admin = messagebox.askyesno("Confirmation", "Do you want to use ITS administrator privileges for CIFS shares?")
-        if not pregunta_admin:
-            usuario_actual = getpass.getuser()
-            es_admin_its = False
-
+        usar_privilegios = messagebox.askyesno("Confirmation", "Do you want to use ITS administrator privileges for CIFS shares?")
+        if usar_privilegios:
+            credenciales_admin = pedir_credenciales(root, "Enter your username", "Enter your username:", "admin_" + usuario_ldap)
+            # Aseguramos el desmontaje de shares al salir
+            atexit.register(lambda: desmontar_todos_los_shares(credenciales_admin["usuario"]))
         else:
-            usuario_actual = "admin_" + getpass.getuser()
-            grupos_ldap.append("Domain Admins")
-            es_admin_its = True
-
-            credenciales_admin = pedir_credenciales_smb(root, usuario_actual, True)
-            print(f"SMB credentials obtained. User: {credenciales_smb['usuario']}")
-
+            credenciales_admin = None
+            # Aseguramos el desmontaje de shares al salir
+            atexit.register(lambda: desmontar_todos_los_shares(usuario_ldap))
     else:
-        usuario_actual = "admin_" + getpass.getuser()
-        es_admin_its = False
-    print("Is ITS admin user?", es_admin_its)
-    # """
-    # Retrieve login credentials for netapp from AWS Secrets Manager
-    # """
-    # login_secret = json.loads(get_secret("netapp-analitycs-login"))
-    # netapp_username = login_secret.get("username")
-    # netapp_password = login_secret.get("password")
+        usar_privilegios = False
+        credenciales_admin = None
+        # Aseguramos el desmontaje de shares al salir
+        atexit.register(lambda: desmontar_todos_los_shares(usuario_ldap))
+    credenciales_smb = construir_credenciales_smb(
+        credenciales_ldap,
+        usar_privilegios_its=usar_privilegios,
+        credenciales_admin=credenciales_admin
+    )
+    
+
+
+    print("Using ITS admin privileges:", usar_privilegios)
+    print("Current LDAP user:", usuario_ldap)
+    print("Admin credentials:", credenciales_admin['usuario'] if credenciales_admin else 'None')
+    print(f"SMB credentials obtained. User: {credenciales_smb['usuario'] if credenciales_smb else 'None'}")
+
+
     
     # Obtener perfiles configurados en rclone
     perfiles_configurados = obtener_perfiles_rclone_config()
@@ -1708,11 +2110,11 @@ def main():
     shares_no_configurados = []
 
     # Obtener shares accesibles desde NetApp
-    shares_accesibles = obtener_shares_accesibles(grupos_ldap, credenciales_smb["usuario"], credenciales_smb["password"], usuario_actual, EXCEPCION_FILERS)
+    shares_accesibles = obtener_shares_accesibles(grupos_ldap, credenciales_ldap["usuario"], credenciales_ldap["password"], credenciales_smb['usuario'], EXCEPCION_FILERS)
     print("Shares accessible from NetApp:")
     for share in shares_accesibles:
         print(f"- {share['name']} (Path: {share['path']}), Host: {share['host']}")
-        nombre_perfil_esperado = f"{usuario_actual}-smbmount-{share['host']}"
+        nombre_perfil_esperado = f"{credenciales_smb['usuario']}-smbmount-{share['host']}"
         # Comprobamos si tenemos perfiles para los shares, si no, pedimos credenciales SMB y los creamos
         if nombre_perfil_esperado not in perfiles_configurados:
             shares_no_configurados.append(share["name"])
@@ -1724,24 +2126,16 @@ def main():
             sys.exit("No SMB credentials provided. Exiting.")
 
         for share in shares_accesibles:
-            nombre_perfil_esperado = f"{usuario_actual}-smbmount-{share['host']}"
+            nombre_perfil_esperado = f"{credenciales_smb['usuario']}-smbmount-{share['host']}"
             if nombre_perfil_esperado not in perfiles_configurados:
-                if es_admin_its:
-                    crear_perfil_rclone_smb(
-                        nombre_perfil=nombre_perfil_esperado,
-                        host=share["host"],
-                        path=share["name"],
-                        username=credenciales_admin["usuario"],
-                        password=credenciales_admin["password"]
-                    )
-                else:
-                    crear_perfil_rclone_smb(
-                        nombre_perfil=nombre_perfil_esperado,
-                        host=share["host"],
-                        path=share["name"],
-                        username=credenciales_smb["usuario"],
-                        password=credenciales_smb["password"]
-                    )
+                
+                crear_perfil_rclone_smb(
+                    nombre_perfil=nombre_perfil_esperado,
+                    host=share["host"],
+                    path=share["name"],
+                    username=credenciales_smb["usuario"],
+                    password=credenciales_smb["password"]
+                )
                 print(f"Rclone profile created for share {share['name']}: {nombre_perfil_esperado}")
 
         # Update the list of configured profiles
@@ -1766,7 +2160,7 @@ def main():
 
 
     def iniciar_aplicacion():
-        seleccionar_shares_montar(root, shares_accesibles, usuario_actual, mounts_activos, es_admin_its)
+        seleccionar_shares_montar(root, shares_accesibles, credenciales_smb["usuario"], mounts_activos, usar_privilegios)
         
         # Mostrar selector de servidor
         eleccion = seleccionar_servidor_minio(root, shares_accesibles, perfiles_configurados)
@@ -1788,7 +2182,8 @@ def main():
             # username = credenciales["username"]
             # password = credenciales["password"]
             # credentials = minio_functions.get_credentials(endpoint, username, password, int(respuesta['dias']) * 86400)
-            credentials = minio_functions.get_credentials(endpoint, credenciales_smb["usuario"], credenciales_smb["password"], int(respuesta['dias']) * 86400)
+            print(f"Requesting new temporary credentials for user {credenciales_ldap['usuario']}...")
+            credentials = minio_functions.get_credentials(endpoint, credenciales_ldap["usuario"], credenciales_ldap["password"], int(respuesta['dias']) * 86400)
 
             if credentials is None:
                 from tkinter import messagebox

@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 import jwt
 import shutil
 from tkinter import messagebox, Tk
+import flet as ft
+
 
 # Diccionario de servidores y sus variantes de red
 MINIO_SERVERS = {
@@ -240,12 +242,46 @@ def get_credentials(endpoint, username, password, durationseconds = 86400):
         "Version": "2011-06-15",
     }
     r = requests.post(endpoint, params=params)
+
+    # --- DIAGNÓSTICO (NO cambia lógica) ---
+    print(f"[STS] HTTP {r.status_code}")
+    if r.status_code >= 400:
+        print(f"[STS] Response headers: {dict(r.headers)}")
+        print(f"[STS] Response body:\n{r.text}")
+    # -------------------------------------
+
+
     credentials = {}
     content = r.content
-    root = etree.fromstring(content)
+
+    # root = etree.fromstring(content)
+    # --- DIAGNÓSTICO (NO cambia lógica) ---
+    try:
+        root = etree.fromstring(content)
+    except Exception as e:
+        print(f"[STS] ERROR: respuesta no es XML válido: {e}")
+        print(f"[STS] Raw body:\n{r.text}")
+        return None
+    # -------------------------------------
+
+
     ns = {"ns": "https://sts.amazonaws.com/doc/2011-06-15/"}
+
+    # --- DIAGNÓSTICO (NO cambia lógica) ---
+    err = root.find("ns:Error", ns) or root.find(".//ns:Error", ns)
+    if err is not None:
+        code = err.findtext("ns:Code", namespaces=ns)
+        msg  = err.findtext("ns:Message", namespaces=ns)
+        reqid = root.findtext(".//ns:RequestId", namespaces=ns)
+        print(f"[STS] Error Code={code} Message={msg} RequestId={reqid}")
+    # -------------------------------------
+
     et = root.find("ns:AssumeRoleWithLDAPIdentityResult/ns:Credentials", ns)
     if(et is None):
+        # --- DIAGNÓSTICO (NO cambia lógica) ---
+        print("[STS] No se encontró Credentials en la respuesta XML.")
+        print(f"[STS] Body (XML):\n{r.text}")
+        # -------------------------------------
         print("ERROR: Invalid LDAP credentials")
         return None
     else:
@@ -497,3 +533,33 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str):
             subprocess.Popen(["xdg-open", str(mount_point)])
     except Exception as e:
         print(f"Mount successful, but could not open file explorer: {e}")
+
+def dialogo_confirmacion_flet(page: ft.Page, titulo: str, mensaje: str, texto_si="Yes", texto_no="No") -> bool:
+    """Muestra un diálogo modal de confirmación y devuelve True/False según la respuesta."""
+    respuesta = {"valor": None}
+
+    def cerrar_dlg(e):
+        respuesta["valor"] = e.control.text == texto_si
+        dlg.open = False
+        page.update()
+
+    dlg = ft.AlertDialog(
+        modal=True,
+        title=ft.Text(titulo),
+        content=ft.Text(mensaje),
+        actions=[
+            ft.TextButton(texto_no, on_click=cerrar_dlg),
+            ft.TextButton(texto_si, on_click=cerrar_dlg),
+        ],
+        actions_alignment=ft.MainAxisAlignment.END
+    )
+
+    page.dialog = dlg
+    dlg.open = True
+    page.update()
+
+    # Espera activa hasta que se cierre el diálogo (bloqueante)
+    while dlg.open:
+        time.sleep(0.1)
+
+    return respuesta["valor"]
