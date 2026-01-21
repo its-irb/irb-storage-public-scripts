@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 import jwt
 import shutil
 from tkinter import messagebox, Tk
-import flet as ft
+# import flet as ft
 
 
 # Diccionario de servidores y sus variantes de red
@@ -534,32 +534,32 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str):
     except Exception as e:
         print(f"Mount successful, but could not open file explorer: {e}")
 
-def dialogo_confirmacion_flet(page: ft.Page, titulo: str, mensaje: str, texto_si="Yes", texto_no="No") -> bool:
-    """Muestra un diálogo modal de confirmación y devuelve True/False según la respuesta."""
-    respuesta = {"valor": None}
+# def dialogo_confirmacion_flet(page: ft.Page, titulo: str, mensaje: str, texto_si="Yes", texto_no="No") -> bool:
+#     """Muestra un diálogo modal de confirmación y devuelve True/False según la respuesta."""
+#     respuesta = {"valor": None}
 
-    def cerrar_dlg(e):
-        respuesta["valor"] = e.control.text == texto_si
-        dlg.open = False
-        page.update()
+#     def cerrar_dlg(e):
+#         respuesta["valor"] = e.control.text == texto_si
+#         dlg.open = False
+#         page.update()
 
-    dlg = ft.AlertDialog(
-        modal=True,
-        title=ft.Text(titulo),
-        content=ft.Text(mensaje),
-        actions=[
-            ft.TextButton(texto_no, on_click=cerrar_dlg),
-            ft.TextButton(texto_si, on_click=cerrar_dlg),
-        ],
-        actions_alignment=ft.MainAxisAlignment.END
-    )
+#     dlg = ft.AlertDialog(
+#         modal=True,
+#         title=ft.Text(titulo),
+#         content=ft.Text(mensaje),
+#         actions=[
+#             ft.TextButton(texto_no, on_click=cerrar_dlg),
+#             ft.TextButton(texto_si, on_click=cerrar_dlg),
+#         ],
+#         actions_alignment=ft.MainAxisAlignment.END
+#     )
 
-    page.dialog = dlg
-    dlg.open = True
-    page.update()
+#     page.dialog = dlg
+#     dlg.open = True
+#     page.update()
 
-    # Espera activa hasta que se cierre el diálogo (bloqueante)
-    while dlg.open:
-        time.sleep(0.1)
+#     # Espera activa hasta que se cierre el diálogo (bloqueante)
+#     while dlg.open:
+#         time.sleep(0.1)
 
-    return respuesta["valor"]
+#     return respuesta["valor"]
