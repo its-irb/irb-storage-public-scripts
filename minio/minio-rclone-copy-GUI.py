@@ -227,8 +227,11 @@ def obtener_perfiles_rclone_config(config_path=None):
     Returns:
         list[str]: Lista de nombres de secciones/perfiles.
     """
-    if config_path is None:
-        config_path = os.path.expanduser("~/.config/rclone/rclone.conf")
+    # if config_path is None:
+    #     config_path = os.path.expanduser("~/.config/rclone/rclone.conf")
+
+    config_path = obtener_ruta_rclone_conf()
+    print(f"Using rclone config path: {config_path}")
 
     if not os.path.exists(config_path):
         return []
@@ -609,15 +612,57 @@ def actualizar_password_perfiles_rclone(usuario: str, nueva_password: str, rclon
     else:
         print(f"⚠️ No profiles of type '{usuario}-smbmount-*' found in rclone.conf")
 
-def ruta_config_rclone():
-    p = subprocess.check_output(["rclone", "config", "file"], text=True).strip()
-    return Path(p)
+def obtener_ruta_rclone_conf() -> Path:
+    """
+    Ejecuta `rclone config file`, limpia la salida (Windows/macOS/Linux) y devuelve
+    la ruta ABSOLUTA al fichero rclone.conf que rclone está usando.
+
+    Asume que `rclone` está en el PATH.
+    """
+    out = subprocess.check_output(
+        ["rclone", "config", "file"],
+        text=True,
+        stderr=subprocess.STDOUT,
+    ).strip()
+
+    # Divide en líneas no vacías y recorre de atrás hacia delante
+    lines = [l.strip().strip('"').strip("'") for l in out.splitlines() if l.strip()]
+
+    # 1) Lo más fiable: una línea que termine en .conf
+    for l in reversed(lines):
+        if l.lower().endswith(".conf"):
+            return Path(l).expanduser().resolve()
+
+    # 2) Si no aparece .conf: intenta extraer una ruta absoluta (Windows o POSIX)
+    candidates = []
+    for l in lines:
+        # Windows: C:\...
+        if re.search(r"[A-Za-z]:\\", l):
+            candidates.append(l[l.find(re.search(r"[A-Za-z]:\\", l).group(0)) :])
+        # POSIX: /...
+        if "/" in l:
+            m = re.search(r"(/[^ \t\r\n]+)", l)
+            if m:
+                candidates.append(m.group(1))
+
+    for c in reversed(candidates):
+        c = c.strip().strip('"').strip("'")
+        p = Path(c)
+        # Si parece directorio, asume rclone.conf dentro
+        if p.suffix.lower() != ".conf":
+            p = p / "rclone.conf"
+        return p.expanduser().resolve()
+
+    raise RuntimeError(f"No pude extraer la ruta del config. Salida de `rclone config file`: {out!r}")
+
+
 
 def crear_perfil_rclone_smb(nombre_perfil,host, path, username, password):
     # config_path = Path.home() / ".config" / "rclone" / "rclone.conf"
-    config_path = ruta_config_rclone()
+    config_path = obtener_ruta_rclone_conf()
+    print(f"Using rclone config path: {config_path}")
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     config = configparser.ConfigParser()
     config.read(config_path)
 
