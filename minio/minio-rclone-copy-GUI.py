@@ -609,8 +609,15 @@ def actualizar_password_perfiles_rclone(usuario: str, nueva_password: str, rclon
     else:
         print(f"⚠️ No profiles of type '{usuario}-smbmount-*' found in rclone.conf")
 
+def ruta_config_rclone():
+    p = subprocess.check_output(["rclone", "config", "file"], text=True).strip()
+    return Path(p)
+
 def crear_perfil_rclone_smb(nombre_perfil,host, path, username, password):
-    config_path = Path.home() / ".config" / "rclone" / "rclone.conf"
+    # config_path = Path.home() / ".config" / "rclone" / "rclone.conf"
+    config_path = ruta_config_rclone()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    
     config = configparser.ConfigParser()
     config.read(config_path)
 
