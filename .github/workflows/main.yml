@@ -34,7 +34,13 @@ jobs:
           pip install -r minio/pip-requirements.txt
           pip install pyinstaller
 
+      - name: Limpia nombre de rama para artefactos
+        id: clean_branch
+        run: echo "name=${{ github.ref_name }}" | sed 's/\//-/g' >> $GITHUB_OUTPUT
+
       - name: Crear ejecutables CLI
+        env:
+          BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
         run: |
           mkdir -p dist
           cd minio
@@ -49,13 +55,13 @@ jobs:
 
             if [[ "$RUNNER_OS" == "Windows" ]] && [[ ! "$script" == *functions* ]]; then
               pyinstaller --onefile "$script" --distpath ../dist
-              mv "../dist/$script_name.exe" "../dist/${script_name}-windows.exe"
+              mv "../dist/$script_name.exe" "../dist/${script_name}-${BRANCH_SUFFIX}-windows.exe"
             elif [[ "$RUNNER_OS" == "Linux" ]] && [[ ! "$script" == *-gui.py ]] && [[ ! "$script" == *functions* ]]; then
               pyinstaller --onefile "$script" --distpath ../dist
-              mv "../dist/$script_name" "../dist/${script_name}-linux"
+              mv "../dist/$script_name" "../dist/${script_name}-${BRANCH_SUFFIX}-linux"
             elif [[ "$RUNNER_OS" == "macOS" ]] && [[ ! "$script" == *functions* ]]; then
               pyinstaller --onefile "$script" --distpath ../dist
-              mv "../dist/$script_name" "../dist/${script_name}-macos"
+              mv "../dist/$script_name" "../dist/${script_name}-${BRANCH_SUFFIX}-macos"
             fi
           done
         shell: bash
@@ -68,7 +74,7 @@ jobs:
       - name: Subir ejecutables CLI como artefactos
         uses: actions/upload-artifact@v4
         with:
-          name: executables-cli-${{ matrix.os }}-${{ github.ref_name }}
+          name: executables-cli-${{ matrix.os }}-${{ steps.clean_branch.outputs.name }}
           path: dist/*
 
   build-rocky:
@@ -89,13 +95,19 @@ jobs:
           pip install -r minio/pip-requirements.txt
           pip install pyinstaller
 
+      - name: Limpia nombre de rama para artefactos
+        id: clean_branch
+        run: echo "name=${{ github.ref_name }}" | sed 's/\//-/g' >> $GITHUB_OUTPUT
+
       - name: Compilar binario
+        env:
+          BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
         run: |
           mkdir -p dist
           cd minio
           echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
           pyinstaller --onefile minio-rclone-copy-GUI.py --distpath ../dist
-          mv ../dist/minio-rclone-copy-GUI ../dist/minio-rclone-copy-GUI-cluster
+          mv ../dist/minio-rclone-copy-GUI ../dist/minio-rclone-copy-GUI-${BRANCH_SUFFIX}-cluster
         
       - name: Verificar archivos generados
         shell: bash
@@ -105,8 +117,8 @@ jobs:
       - name: Subir artefacto
         uses: actions/upload-artifact@v4
         with:
-          name: minio_gui_linux_cluster-${{ github.ref_name }}
-          path: dist/minio-rclone-copy-GUI-cluster
+          name: minio_gui_linux_cluster-${{ steps.clean_branch.outputs.name }}
+          path: dist/minio-rclone-copy-GUI-${{ steps.clean_branch.outputs.name }}-cluster
 
   release:
     needs: [build-cli, build-rocky]
@@ -133,18 +145,17 @@ jobs:
 
       - name: Eliminar sufijos de rama de los nombres de archivo
         run: |
-          # Eliminar el sufijo -develop, -main, -release, etc. de los nombres de archivo
+          # Eliminar el sufijo de rama de los nombres de archivo (ej: -develop, -main, -release)
           for file in dist/*; do
             if [[ -f "$file" ]]; then
-              # Obtener el nombre base sin extensión
               base=$(basename "$file")
               ext="${base##*.}"
               
               # Si tiene extensión (como .exe)
               if [[ "$base" != "$ext" ]]; then
-                # Extraer nombre sin sufijo de rama (antes del último guión y algo)
-                new_name=$(echo "$base" | sed -E 's/-[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+$//')
-                new_name="${new_name}.${ext}"
+                # Quitar sufijo de rama antes de la extensión
+                new_name=$(echo "$base" | sed -E 's/-[a-zA-Z0-9_-]+\.([a-zA-Z0-9]+)$//.\1/')
+                new_name=$(echo "$new_name" | sed 's/\.\([a-zA-Z0-9]*\)$/\.\1/')
               else
                 # Sin extensión
                 new_name=$(echo "$base" | sed -E 's/-[a-zA-Z0-9_-]+$//')
@@ -166,5 +177,4 @@ jobs:
           prerelease: false
           files: dist/*
         env:
-          # GITHUB_TOKEN: ${{ secrets.GH_PAT_RELEASES }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
