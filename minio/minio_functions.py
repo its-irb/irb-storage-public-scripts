@@ -219,7 +219,7 @@ def actualizar_y_reiniciar(ventana_parent, file_name):
     else:
         sufijo = ""  # fallback si no se reconoce
     # URL del binario más reciente (ajústalo según tu repositorio)
-    GITHUB_LATEST_URL = f"https://api.github.com/repos/{REPO}/releases/latest/download/{file_name}{sufijo}"
+    GITHUB_LATEST_URL = f"https://github.com/{REPO}/releases/latest/download/{file_name}{sufijo}"
 
     ruta_actual = os.path.abspath(sys.argv[0])
     print(f"Current executable path: {ruta_actual}")
