@@ -1682,7 +1682,7 @@ def main():
     # Si el usuario eligió continuar, el script sigue aquí
 
     # ========================================================================
-    # PASO 1: AUTENTICACIÓN LDAP
+    # PASO 1: AUTENTICACIÓN LDAP 
     # ========================================================================
     # Obtener credenciales LDAP del usuario
     usuario_ldap = None
