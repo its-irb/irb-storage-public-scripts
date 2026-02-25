@@ -208,13 +208,13 @@ def actualizar_y_reiniciar(ventana_parent, file_name):
     import tempfile
     from tkinter import messagebox
 
-    sistema = platform.system()
+    sistema = sys.platform
 
-    if sistema == "Linux":
+    if sistema == "linux":
         sufijo = "-linux"
-    elif sistema == "Darwin":
+    elif sistema == "darwin":
         sufijo = "-macos"
-    elif sistema == "Windows":
+    elif sistema == "win32":
         sufijo = "-windows.exe"
     else:
         sufijo = ""  # fallback si no se reconoce
@@ -228,10 +228,11 @@ def actualizar_y_reiniciar(ventana_parent, file_name):
         # Descargar nuevo script a fichero temporal
         r = requests.get(GITHUB_LATEST_URL, timeout=20)
         r.raise_for_status()
-        with tempfile.NamedTemporaryFile(delete=False, mode='w', encoding='utf-8') as tmp:
-            tmp.write(r.text)
+        # Usar 'wb' parabinario (PyInstaller ejecutables), no 'w' para texto
+        with tempfile.NamedTemporaryFile(delete=False, mode='wb') as tmp:
+            tmp.write(r.content)
             nueva_ruta = tmp.name
-        if platform.system() == "Windows":
+        if sys.platform == "win32":
             escribir_y_lanzar_updater(ruta_actual, nueva_ruta)    
         else:
             # Sustituir el script actual
@@ -256,10 +257,16 @@ import time
 def escribir_y_lanzar_updater(ruta_actual, nueva_ruta):
     updater_code = f"""
 import os
+import sys
 import time
 import shutil
 import subprocess
-import tkinter.messagebox
+
+try:
+    import tkinter.messagebox
+    messagebox = tkinter.messagebox
+except ImportError:
+    messagebox = None
 
 old_exe = r\"\"\"{ruta_actual}\"\"\"
 new_exe = r\"\"\"{nueva_ruta}\"\"\"
@@ -271,14 +278,24 @@ for _ in range(30):
         break
     except PermissionError:
         time.sleep(1)
+    except FileNotFoundError:
+        # File was already removed, assume update already happened
+        sys.exit(0)
 else:
-    print("❌ Could not delete the old executable.")
+    if messagebox:
+        messagebox.showerror("Update failed", "Could not delete the old executable after 30 seconds.")
     sys.exit(1)
 
 # Mueve el nuevo ejecutable
-shutil.move(new_exe, old_exe)
+try:
+    shutil.move(new_exe, old_exe)
+except Exception as e:
+    if messagebox:
+        messagebox.showerror("Update failed", f"Could not replace executable: {{e}}")
+    sys.exit(1)
 
-tkinter.messagebox.showinfo("Update completed", "The application will now restart with the new version.")
+if messagebox:
+    messagebox.showinfo("Update completed", "The application will now restart with the new version.")
 
 # Lanza el nuevo ejecutable
 subprocess.Popen([old_exe])
