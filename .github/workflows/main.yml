@@ -7,6 +7,9 @@ on:
       # - "minio/windows-gui/*.py"  # Se ejecuta si cualquier script Python cambia
     branches:
       - main
+      - release
+      - develop
+      - feature/*
   workflow_dispatch:  # Permite ejecución manual
 
 jobs:
@@ -65,7 +68,7 @@ jobs:
       - name: Subir ejecutables CLI como artefactos
         uses: actions/upload-artifact@v4
         with:
-          name: executables-cli-${{ matrix.os }}
+          name: executables-cli-${{ matrix.os }}-${{ github.ref_name }}
           path: dist/*
 
   build-rocky:
@@ -102,15 +105,15 @@ jobs:
       - name: Subir artefacto
         uses: actions/upload-artifact@v4
         with:
-          name: minio_gui_linux_cluster
+          name: minio_gui_linux_cluster-${{ github.ref_name }}
           path: dist/minio-rclone-copy-GUI-cluster
 
   release:
-    # needs: [build-cli, build-gui]  
     needs: [build-cli, build-rocky]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release'
     steps:
       - name: Checkout código
         uses: actions/checkout@v4
@@ -126,6 +129,32 @@ jobs:
       - name: Mover ejecutables a la raíz de dist
         run: |
           find dist -mindepth 2 -type f -exec mv {} dist/ \;
+          ls -lah dist
+
+      - name: Eliminar sufijos de rama de los nombres de archivo
+        run: |
+          # Eliminar el sufijo -develop, -main, -release, etc. de los nombres de archivo
+          for file in dist/*; do
+            if [[ -f "$file" ]]; then
+              # Obtener el nombre base sin extensión
+              base=$(basename "$file")
+              ext="${base##*.}"
+              
+              # Si tiene extensión (como .exe)
+              if [[ "$base" != "$ext" ]]; then
+                # Extraer nombre sin sufijo de rama (antes del último guión y algo)
+                new_name=$(echo "$base" | sed -E 's/-[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+$//')
+                new_name="${new_name}.${ext}"
+              else
+                # Sin extensión
+                new_name=$(echo "$base" | sed -E 's/-[a-zA-Z0-9_-]+$//')
+              fi
+              
+              if [[ "$base" != "$new_name" ]]; then
+                mv "$file" "dist/$new_name"
+              fi
+            fi
+          done
           ls -lah dist
 
       - name: Crear GitHub Release
