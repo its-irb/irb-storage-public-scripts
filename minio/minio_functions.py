@@ -77,7 +77,24 @@ def check_version():
     # except Exception as e:
     #     print(f"⚠️ Error verificando actualización: {e}")
 
-def check_update_version():
+def check_update_version(force_update=False):
+    """
+    Comprueba si hay una versión nueva disponible en GitHub.
+    
+    Args:
+        force_update (bool): Si True, simula que hay una versión nueva disponible
+                            (usado para testing con el flag --update)
+    
+    Returns:
+        str or None: Versión más reciente si hay actualización disponible,
+                    None si no hay actualización o no se puede comprobar.
+    """
+    # Si force_update=True, simular versión nueva disponible
+    if force_update:
+        print("⚠️ Force update mode enabled (--update flag detected)")
+        print("Simulating new version available: 999.999.999")
+        return "v999.999.999"
+    
     print(f"Version of this executable: {__version__}")
     try:
         url = f"https://api.github.com/repos/{REPO}/releases/latest"
@@ -96,20 +113,92 @@ def check_update_version():
         print(f"⚠️ Error verifying update: {e}")
         return None
 
-def mostrar_aviso_version_nueva(ultima_version, file_name):
+def check_and_handle_update(parent_window=None):
+    """
+    Comprueba si hay actualizaciones y muestra popup al usuario.
+    
+    Args:
+        parent_window: Ventana de Tkinter para posicionar el popup
+    
+    Returns:
+        bool: Siempre True (continuar), excepto si hay error
+              Si el usuario elige actualizar, esta función nunca devuelve
+              porque actualizar_y_reiniciar() hace os.execv()
+    """
+    # Detectar si es versión linux_cluster (Open On Demand)
+    # Opción 1: nombre del ejecutable
+    executable_name = os.path.basename(sys.argv[0] if hasattr(sys, 'argv') else '')
+    if '_linux_cluster' in executable_name:
+        return True  # Saltar comprobación en cluster
+    
+    # Opción 2: entorno HPC (SLURM)
+    if os.environ.get('SLURM_JOB_ID'):
+        return True  # En cluster, saltar comprobación
+    
+    # Detectar si se pasó --update en la línea de comandos
+    force_update = "--update" in sys.argv
+    
+    # Comprobar versión
+    ultima_version = check_update_version(force_update=force_update)
+    
+    if ultima_version:
+        # Mostrar popup y esperar decisión
+        mostrar_aviso_version_nueva(ultima_version, "minio-rclone-copy-GUI", parent_window)
+    
+    return True  # Siempre continuar (a menos que actualizar_y_reiniciar reinicie)
+
+
+def mostrar_aviso_version_nueva(ultima_version, file_name, parent_window=None):
     import tkinter as tk
     from tkinter import messagebox
 
-    ventana = tk.Toplevel()
+    # Crear ventana si no se proporciona parent_window
+    if parent_window:
+        ventana = tk.Toplevel(parent_window)
+        ventana.transient(parent_window)
+        ventana.grab_set()
+    else:
+        ventana = tk.Tk()
+        ventana.withdraw()  # Ocultar ventana principal
+        ventana = tk.Toplevel()
+    
     ventana.title("New version available")
-    ventana.geometry("400x160")
-    ventana.eval('tk::PlaceWindow . center')
-
-    label = tk.Label(ventana, text=f"There is a new version available:\n{ultima_version}", font=("Arial", 11))
-    label.pack(pady=(20, 10))
-
-    boton = tk.Button(ventana, text="Update now", command=lambda: actualizar_y_reiniciar(ventana, file_name))
-    boton.pack(pady=(0, 15))
+    ventana.geometry("450x180")
+    
+    # Centrar ventana
+    if parent_window:
+        x = parent_window.winfo_rootx() + 50
+        y = parent_window.winfo_rooty() + 50
+        ventana.geometry(f"+{x}+{y}")
+    
+    # Label con mensaje
+    tk.Label(ventana, text=f"There is a new version available:\n{ultima_version}", font=("Arial", 11)).pack(pady=(20, 10))
+    
+    # Variables para control
+    resultado = {"eleccion": None}
+    
+    def actualizar_y_reiniciar_wrapper():
+        try:
+            actualizar_y_reiniciar(ventana, file_name)
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not update:\n{str(e)}")
+        resultado["eleccion"] = "update"
+    
+    def cancelar():
+        resultado["eleccion"] = "cancel"
+        ventana.destroy()
+    
+    # Botones
+    frame_botones = tk.Frame(ventana)
+    frame_botones.pack(pady=(0, 15))
+    
+    tk.Button(frame_botones, text="Update now", command=actualizar_y_reiniciar_wrapper).pack(side=tk.LEFT, padx=5)
+    tk.Button(frame_botones, text="Continue", command=cancelar).pack(side=tk.LEFT, padx=5)
+    
+    # Esperar decisión del usuario
+    ventana.wait_window()
+    
+    return resultado["eleccion"] != "cancel"
 
 def actualizar_y_reiniciar(ventana_parent, file_name):
     import requests

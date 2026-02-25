@@ -904,7 +904,7 @@ def seleccionar_shares_montar(root, shares, usuario_actual, mounts_activos, es_a
     ventana.wait_window()
     return None
 
-def seleccionar_servidor_minio(root, shares, perfiles_configurados):
+def seleccionar_servidor_minio(root, shares, perfiles_configurados, force_update=False):
     """
     Diálogo para seleccionar el servidor MinIO y verificar actualizaciones.
     
@@ -912,6 +912,7 @@ def seleccionar_servidor_minio(root, shares, perfiles_configurados):
         root: Ventana padre
         shares: No usado (compatibilidad)
         perfiles_configurados: No usado (compatibilidad)
+        force_update (bool): Si True, simula que hay una versión nueva disponible
     
     Returns:
         dict: {
@@ -946,20 +947,6 @@ def seleccionar_servidor_minio(root, shares, perfiles_configurados):
         ventana.destroy()
 
     ttk.Button(ventana, text="Continue", command=continuar).pack(pady=15)
-
-    # Comprobar si hay una nueva versión disponible
-    if getattr(sys, 'frozen', False):  # Si es un ejecutable PyInstaller
-        ultima_version = minio_functions.check_update_version()
-        if ultima_version:
-            frame_update = ttk.Frame(ventana)
-            frame_update.pack(pady=(10, 0))
-            ttk.Label(frame_update, text=f"🚀 New version available: {ultima_version}", foreground="green").pack()
-            ttk.Button(
-                frame_update,
-                text="Update to latest version",
-                command=lambda: minio_functions.actualizar_y_reiniciar(ventana, "minio-rclone-copy-GUI")
-            ).pack(pady=(5, 10))
-
 
     # Forzar cálculo del tamaño real
     ventana.update_idletasks()
@@ -1631,7 +1618,7 @@ def main():
     FLUJO COMPLETO:
     ==============
     1. Configuración inicial
-       - Parseo de argumentos (--customuser para permitir usuario arbitrario)
+       - Parseo de argumentos (--customuser para permitir usuario arbitrario, --update para forzar actualización)
        - Creación de ventana raíz invisible
     
     2. Autenticación LDAP
@@ -1672,6 +1659,13 @@ def main():
         PERMITIR_USUARIO_CUSTOM = True
     else:
         PERMITIR_USUARIO_CUSTOM = False
+    
+    # Detectar si se debe forzar la comprobación de actualizaciones
+    if "--update" in sys.argv:
+        FORCE_UPDATE_CHECK = True
+    else:
+        FORCE_UPDATE_CHECK = False
+    
     # Variable global
     mounts_activos = []  # Cada entrada será un dict con keys: mount_path, remote_name, remote_subpath
 
@@ -1681,6 +1675,11 @@ def main():
     root.title("MinIO Rclone Launcher")
     root.geometry("1x1+0+0")  # Ventana invisible de 1x1 píxeles
     root.overrideredirect(True)  # Sin bordes, completamente invisible
+
+    # ====== PASO 0: COMPROBAR ACTUALIZACIONES (antes de cualquier otra cosa) ====
+    minio_functions.check_and_handle_update(root)
+    # Si el usuario eligió actualizar, actualizar_y_reiniciar() ya reinició el script
+    # Si el usuario eligió continuar, el script sigue aquí
 
     # ========================================================================
     # PASO 1: AUTENTICACIÓN LDAP
@@ -1783,7 +1782,7 @@ def main():
         seleccionar_shares_montar(root, shares_accesibles, credenciales_smb["usuario"], mounts_activos, usar_privilegios)
         
         # Mostrar selector de servidor
-        eleccion = seleccionar_servidor_minio(root, shares_accesibles, perfiles_configurados)
+        eleccion = seleccionar_servidor_minio(root, shares_accesibles, perfiles_configurados, force_update=FORCE_UPDATE_CHECK)
         servidor_s3_rcloneconfig = eleccion["perfil"]
         endpoint = eleccion["endpoint"]
 
