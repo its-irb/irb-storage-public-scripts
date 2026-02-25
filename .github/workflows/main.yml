@@ -34,9 +34,18 @@ jobs:
           pip install -r minio/pip-requirements.txt
           pip install pyinstaller
 
+      - name: Depurar nombre de rama
+        shell: bash
+        run: |
+          echo "Ref name: ${{ github.ref_name }}"
+
       - name: Limpia nombre de rama para artefactos
         id: clean_branch
-        run: echo "name=${{ github.ref_name }}" | sed 's/\//-/g' >> $GITHUB_OUTPUT
+        shell: bash
+        run: |
+          clean_name=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
+          echo "name=$clean_name" >> $GITHUB_OUTPUT
+          echo "Clean name: $clean_name"
 
       - name: Crear ejecutables CLI
         env:
