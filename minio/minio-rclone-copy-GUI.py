@@ -222,7 +222,7 @@ def validar_credenciales_ldap(credenciales_ldap):
 # GESTIÓN DE SHARES SMB/CIFS
 # ============================================================================
 
-def obtener_shares_accesibles(grupos_usuario: list[str], username, password, usuario_actual, excepcion_filers: list[str]) -> list[dict]:
+def obtener_shares_accesibles(grupos_usuario: list[str], username, password, usuario_actual, excepcion_filers: list[str], usar_privilegios: bool = False) -> list[dict]:
     """
     Obtiene la lista de shares SMB/CIFS a los que el usuario tiene acceso.
     
@@ -235,6 +235,7 @@ def obtener_shares_accesibles(grupos_usuario: list[str], username, password, usu
         password (str): Password para autenticación en la API
         usuario_actual (str): Username actual (para matching en ACLs)
         excepcion_filers (list): Filers a excluir (ej: ["filer12-svm-vm"])
+        usar_privilegios (bool): Si True, incluye también shares con acceso a Domain Admins
     
     Returns:
         list: Lista de diccionarios con información de shares accesibles
@@ -243,7 +244,9 @@ def obtener_shares_accesibles(grupos_usuario: list[str], username, password, usu
     Proceso de filtrado:
     1. Normalizar ACL principal (quitar prefijos LDAP, dominios, etc.)
     2. Comparar con username o grupos del usuario
-    3. Excluir filers especificados
+    3. Incluir shares con acceso "Everyone" (acceso universal)
+    4. Si usar_privilegios=True, incluir shares con acceso a Domain Admins
+    5. Excluir filers especificados
     """
 
     # URL del servidor intermedio que ya hace de proxy con NetApp
@@ -299,11 +302,22 @@ def obtener_shares_accesibles(grupos_usuario: list[str], username, password, usu
         if share["svm"]["name"] not in excepcion_filers:
             # Verificar ACLs del share
             for acl in share.get("acls", []):
-                principal = acl.get("user_or_group", "")
-                pnorm = normalizar_acl(principal)
+                user_or_group = acl.get("user_or_group", "")
+                user_or_group_lower = user_or_group.strip().lower()
+                pnorm = normalizar_acl(user_or_group)
 
                 # Usuario tiene acceso si su username o alguno de sus grupos coincide
-                if pnorm == usuario_actual.lower() or pnorm in grupos_set:
+                tiene_acceso = pnorm == usuario_actual.lower() or pnorm in grupos_set
+                
+                # Incluir shares con acceso "Everyone" (acceso universal)
+                # if user_or_group_lower == "everyone":
+                #     tiene_acceso = True
+                
+                # Si usa privilegios de admin, también incluir shares con acceso a Domain Admins
+                if usar_privilegios and "domain admins" in user_or_group_lower:
+                    tiene_acceso = True
+                
+                if tiene_acceso:
                     resultado.append({
                         "name": share["name"],
                         "path": share["path"],
@@ -1740,7 +1754,7 @@ def main():
     shares_no_configurados = []
 
     # Obtener shares accesibles desde NetApp
-    shares_accesibles = obtener_shares_accesibles(grupos_ldap, credenciales_ldap["usuario"], credenciales_ldap["password"], credenciales_smb['usuario'], EXCEPCION_FILERS)
+    shares_accesibles = obtener_shares_accesibles(grupos_ldap, credenciales_ldap["usuario"], credenciales_ldap["password"], credenciales_smb['usuario'], EXCEPCION_FILERS, usar_privilegios)
     print("Shares accessible from NetApp:")
     for share in shares_accesibles:
         print(f"- {share['name']} (Path: {share['path']}), Host: {share['host']}")
