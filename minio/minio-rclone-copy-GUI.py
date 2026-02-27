@@ -1541,7 +1541,7 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
             else:
                 comando += [
                     "--one-way",
-                    "--combined",
+                    "--combined", "~/rclone-combined-check.txt",
                     "--copy-links",
                     "--exclude", "/.DS_Store",
                     "--exclude", "**/.DS_Store",
