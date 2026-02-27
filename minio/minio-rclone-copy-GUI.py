@@ -65,12 +65,6 @@ import minio_functions
 # Desactivar warnings SSL (entorno corporativo con certificados internos)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Opción recomendada (portable y fiable en Windows/macOS/Linux)
-HOME_DIR = Path.home()  # -> Path a la carpeta personal real del usuario
-
-# Si necesitas forzar string con separadores del SO:
-HOME_DIR_STR = str(HOME_DIR)
-
 
 # ============================================================================
 # CONFIGURACIÓN Y UTILIDADES DEL SISTEMA
@@ -1530,7 +1524,9 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
         log_text.insert(tk.END, f"\n🔍 Verifying with: rclone check {origen} {perfil_rclone}:/{destino}\n\n")
 
         def ejecutar_rclone_check():
-            combined_path = HOME_DIR / "rclone-combined-check.txt"
+            combined_path = Path.home() / "rclone-combined-check.txt"   # HOME en los 3 SO
+            combined_path.parent.mkdir(parents=True, exist_ok=True)
+
             comando = [
                 "rclone", "check",
                 origen,
@@ -1548,7 +1544,7 @@ def abrir_interfaz_copia(root, perfil_rclone, mounts_activos):
             else:
                 comando += [
                     "--one-way",
-                    "--combined", combined_path,
+                    "--combined", str(combined_path),
                     "--copy-links",
                     "--exclude", "/.DS_Store",
                     "--exclude", "**/.DS_Store",
