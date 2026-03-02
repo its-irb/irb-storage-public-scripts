@@ -312,9 +312,9 @@ if errorlevel 1 (
     exit /b 1
 )
 echo Update completed. Restarting...
-rem Usar PowerShell para lanzar el exe: mas fiable que "start" de CMD
-rem cuando el proceso se inicia desde un contexto cmd.exe /c anidado
-powershell -NoProfile -Command "Start-Process -FilePath '%OLD_EXE%'"
+rem Llamada directa al exe: la mas fiable en todo contexto de Windows.
+rem La ventana CMD permanece abierta mientras la app corre (comportamiento esperado).
+"%OLD_EXE%"
 exit /b 0
 
 :timeout_err
