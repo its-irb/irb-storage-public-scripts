@@ -77,6 +77,16 @@ def check_version():
     # except Exception as e:
     #     print(f"⚠️ Error verificando actualización: {e}")
 
+def _parse_version(v: str) -> tuple:
+    """
+    Convierte una cadena de versión (ej: 'v1.10.2' o '1.10.2') en
+    una tupla de enteros para comparación semántica correcta.
+    """
+    try:
+        return tuple(int(x) for x in v.strip("v").split("."))
+    except Exception:
+        return (0,)
+
 def check_update_version(force_update=False):
     """
     Comprueba si hay una versión nueva disponible en GitHub.
@@ -103,9 +113,11 @@ def check_update_version(force_update=False):
         if response.status_code == 200:
             latest_tag = response.json().get("tag_name", "")
             print(f"\nLatest available version: {latest_tag.strip('v')}")
-            if latest_tag and latest_tag.strip("v") > __version__:
-                print(f"\n🚀 Hay una nueva versión disponible: {latest_tag}")
+            if latest_tag and _parse_version(latest_tag) > _parse_version(__version__):
+                print(f"\n🚀 New version available: {latest_tag}")
                 return latest_tag
+            else:
+                print("✅ You are using the latest version.")
         else:
             print("⚠️ Could not check the latest version.")
             return None
@@ -125,6 +137,11 @@ def check_and_handle_update(parent_window=None):
               Si el usuario elige actualizar, esta función nunca devuelve
               porque actualizar_y_reiniciar() hace os.execv()
     """
+    # Solo comprobar actualizaciones si se está ejecutando como binario compilado (PyInstaller)
+    if not getattr(sys, 'frozen', False):
+        print("ℹ️ Running as Python script (not compiled). Skipping update check.")
+        return True
+
     # Detectar si es versión linux_cluster (Open On Demand)
     # Opción 1: nombre del ejecutable
     executable_name = os.path.basename(sys.argv[0] if hasattr(sys, 'argv') else '')

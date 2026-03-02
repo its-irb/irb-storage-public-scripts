@@ -918,15 +918,14 @@ def seleccionar_shares_montar(root, shares, usuario_actual, mounts_activos, es_a
     ventana.wait_window()
     return None
 
-def seleccionar_servidor_minio(root, shares, perfiles_configurados, force_update=False):
+def seleccionar_servidor_minio(root, shares, perfiles_configurados):
     """
-    Diálogo para seleccionar el servidor MinIO y verificar actualizaciones.
+    Diálogo para seleccionar el servidor MinIO.
     
     Args:
         root: Ventana padre
         shares: No usado (compatibilidad)
         perfiles_configurados: No usado (compatibilidad)
-        force_update (bool): Si True, simula que hay una versión nueva disponible
     
     Returns:
         dict: {
@@ -934,10 +933,6 @@ def seleccionar_servidor_minio(root, shares, perfiles_configurados, force_update
             "perfil": str,        # Nombre del perfil rclone
             "endpoint": str       # URL del endpoint S3
         }
-    
-    Funcionalidad adicional:
-        - Verifica si hay actualizaciones disponibles (solo en ejecutable PyInstaller)
-        - Muestra botón de actualización si hay versión nueva
     """
     print("Select the MinIO server to use:") 
     resultado = {"servidor": None, "perfil": None, "endpoint": None}
@@ -1676,13 +1671,7 @@ def main():
         PERMITIR_USUARIO_CUSTOM = True
     else:
         PERMITIR_USUARIO_CUSTOM = False
-    
-    # Detectar si se debe forzar la comprobación de actualizaciones
-    if "--update" in sys.argv:
-        FORCE_UPDATE_CHECK = True
-    else:
-        FORCE_UPDATE_CHECK = False
-    
+
     # Variable global
     mounts_activos = []  # Cada entrada será un dict con keys: mount_path, remote_name, remote_subpath
 
@@ -1799,7 +1788,7 @@ def main():
         seleccionar_shares_montar(root, shares_accesibles, credenciales_smb["usuario"], mounts_activos, usar_privilegios)
         
         # Mostrar selector de servidor
-        eleccion = seleccionar_servidor_minio(root, shares_accesibles, perfiles_configurados, force_update=FORCE_UPDATE_CHECK)
+        eleccion = seleccionar_servidor_minio(root, shares_accesibles, perfiles_configurados)
         servidor_s3_rcloneconfig = eleccion["perfil"]
         endpoint = eleccion["endpoint"]
 
