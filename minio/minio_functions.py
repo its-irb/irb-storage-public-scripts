@@ -329,9 +329,12 @@ exit /b
         f.write(updater_code)
         updater_path = f.name
 
-    # Lanzar el .bat en una ventana separada y salir del proceso actual
+    # Lanzar el .bat en una ventana separada y salir del proceso actual.
+    # os._exit(0) termina inmediatamente a nivel de SO, sin pasar por Python ni Tkinter.
+    # sys.exit(0) levanta SystemExit, que Tkinter captura internamente y no propaga,
+    # dejando el proceso vivo y el .exe bloqueado — por eso el .bat vencía el timeout.
     subprocess.Popen(["cmd.exe", "/c", "start", "", updater_path], shell=False)
-    sys.exit(0)
+    os._exit(0)
 
 def alert_gui(version):
     root = Tk()
