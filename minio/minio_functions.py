@@ -311,10 +311,11 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
-echo Update completed. Restarting...
-rem Llamada directa al exe: la mas fiable en todo contexto de Windows.
-rem La ventana CMD permanece abierta mientras la app corre (comportamiento esperado).
-"%OLD_EXE%"
+echo.
+echo  Update completed successfully!
+echo  Please reopen the application manually.
+echo.
+pause
 exit /b 0
 
 :timeout_err
