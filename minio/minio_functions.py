@@ -259,8 +259,11 @@ def actualizar_y_reiniciar(ventana_parent, file_name):
             # Aviso
             messagebox.showinfo("Update completed", "The application will now restart with the new version.")
 
-            # Reiniciar
-            os.execv(sys.executable, [sys.executable, ruta_actual])
+            # Reiniciar: en PyInstaller sys.executable ES el propio binario,
+            # por lo que se invoca ruta_actual directamente como ejecutable.
+            # Se filtra --update de los argumentos para no entrar en bucle.
+            args_relanzar = [arg for arg in sys.argv[1:] if arg != "--update"]
+            os.execv(ruta_actual, [ruta_actual] + args_relanzar)
 
     except Exception as e:
         messagebox.showerror("Error", f"Could not update:\n{str(e)}")
