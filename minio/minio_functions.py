@@ -275,58 +275,65 @@ import sys
 import time
 
 def escribir_y_lanzar_updater(ruta_actual, nueva_ruta):
-    updater_code = f"""
-import os
-import sys
-import time
-import shutil
-import subprocess
+    """
+    En Windows el ejecutable PyInstaller no puede sobreescribirse a sí mismo mientras
+    está en ejecución. Este helper escribe un script .bat que:
+    1. Espera a que el proceso actual termine (con timeout)
+    2. Reemplaza el ejecutable con el nuevo binario descargado
+    3. Lanza el nuevo ejecutable
+    4. Se autoelimina
 
-try:
-    import tkinter.messagebox
-    messagebox = tkinter.messagebox
-except ImportError:
-    messagebox = None
+    Se usa .bat en lugar de .py porque en PyInstaller sys.executable es el propio
+    .exe, no el intérprete de Python, por lo que no se puede lanzar un script .py.
+    """
+    # Construir script batch
+    updater_code = f"""@echo off
+setlocal
+set "OLD_EXE={ruta_actual}"
+set "NEW_EXE={nueva_ruta}"
 
-old_exe = r\"\"\"{ruta_actual}\"\"\"
-new_exe = r\"\"\"{nueva_ruta}\"\"\"
+echo Waiting for the application to close...
 
-# Wait for the current executable to be released (it has already been closed)
-for _ in range(30):
-    try:
-        os.remove(old_exe)
-        break
-    except PermissionError:
-        time.sleep(1)
-    except FileNotFoundError:
-        # File was already removed, assume update already happened
-        sys.exit(0)
-else:
-    if messagebox:
-        messagebox.showerror("Update failed", "Could not delete the old executable after 30 seconds.")
-    sys.exit(1)
+rem Intentar borrar el ejecutable antiguo (esperar hasta 30s)
+set /a i=0
+:waitloop
+if %i% geq 30 goto timeout_err
+del /f "%OLD_EXE%" >nul 2>&1
+if not exist "%OLD_EXE%" goto do_move
+timeout /t 1 /nobreak >nul
+set /a i+=1
+goto waitloop
 
-# Mueve el nuevo ejecutable
-try:
-    shutil.move(new_exe, old_exe)
-except Exception as e:
-    if messagebox:
-        messagebox.showerror("Update failed", f"Could not replace executable: {{e}}")
-    sys.exit(1)
+:do_move
+move /y "%NEW_EXE%" "%OLD_EXE%"
+if errorlevel 1 (
+    echo ERROR: Could not replace the executable.
+    pause
+    exit /b 1
+)
+echo.
+echo  Update completed successfully!
+echo  Please reopen the application manually.
+echo.
+pause
+exit /b 0
 
-if messagebox:
-    messagebox.showinfo("Update completed", "The application will now restart with the new version.")
-
-# Lanza el nuevo ejecutable
-subprocess.Popen([old_exe])
+:timeout_err
+echo ERROR: Could not delete the old executable after 30 seconds.
+pause
+exit /b 1
 """
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".py", mode="w") as f:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".bat", mode="w", encoding="utf-8") as f:
         f.write(updater_code)
         updater_path = f.name
 
-    subprocess.Popen([sys.executable, updater_path])
-    sys.exit(0)
+    # Lanzar el .bat en una ventana separada y salir del proceso actual.
+    # os._exit(0) termina inmediatamente a nivel de SO, sin pasar por Python ni Tkinter.
+    # sys.exit(0) levanta SystemExit, que Tkinter captura internamente y no propaga,
+    # dejando el proceso vivo y el .exe bloqueado — por eso el .bat vencía el timeout.
+    subprocess.Popen(["cmd.exe", "/c", "start", "", updater_path], shell=False)
+    os._exit(0)
 
 def alert_gui(version):
     root = Tk()
