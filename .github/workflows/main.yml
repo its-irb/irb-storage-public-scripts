@@ -152,27 +152,25 @@ jobs:
           find dist -mindepth 2 -type f -exec mv {} dist/ \;
           ls -lah dist
 
-      - name: Eliminar sufijos de rama de los nombres de archivo
+      - name: Calcular sufijo de rama
+        id: clean_branch
+        shell: bash
         run: |
-          # Eliminar el sufijo de rama de los nombres de archivo (ej: -develop, -main, -release)
+          clean_name=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
+          echo "name=$clean_name" >> $GITHUB_OUTPUT
+
+      - name: Eliminar sufijo de rama de los nombres de archivo
+        shell: bash
+        env:
+          BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
+        run: |
           for file in dist/*; do
-            if [[ -f "$file" ]]; then
-              base=$(basename "$file")
-              ext="${base##*.}"
-              
-              # Si tiene extensión (como .exe)
-              if [[ "$base" != "$ext" ]]; then
-                # Quitar sufijo de rama antes de la extensión
-                new_name=$(echo "$base" | sed -E 's/-[a-zA-Z0-9_-]+\.([a-zA-Z0-9]+)$//.\1/')
-                new_name=$(echo "$new_name" | sed 's/\.\([a-zA-Z0-9]*\)$/\.\1/')
-              else
-                # Sin extensión
-                new_name=$(echo "$base" | sed -E 's/-[a-zA-Z0-9_-]+$//')
-              fi
-              
-              if [[ "$base" != "$new_name" ]]; then
-                mv "$file" "dist/$new_name"
-              fi
+            [[ -f "$file" ]] || continue
+            base=$(basename "$file")
+            # Elimina SOLO "-${BRANCH_SUFFIX}" (una vez) y conserva el resto (-windows, -linux, -cluster, .exe, etc.)
+            new_name="${base/-${BRANCH_SUFFIX}/}"
+            if [[ "$base" != "$new_name" ]]; then
+              mv "$file" "dist/$new_name"
             fi
           done
           ls -lah dist
