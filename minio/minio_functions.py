@@ -309,22 +309,18 @@ move /y "%NEW_EXE%" "%OLD_EXE%"
 if errorlevel 1 (
     echo ERROR: Could not replace the executable.
     pause
-    goto cleanup
+    exit /b 1
 )
 echo Update completed. Restarting...
-rem Nota: start con titulo vacio + ruta entre comillas falla en CMD.
-rem Se usa un titulo no vacio para que CMD interprete correctamente el ejecutable.
-start "MinIO Rclone" "%OLD_EXE%"
-goto cleanup
+rem Usar PowerShell para lanzar el exe: mas fiable que "start" de CMD
+rem cuando el proceso se inicia desde un contexto cmd.exe /c anidado
+powershell -NoProfile -Command "Start-Process -FilePath '%OLD_EXE%'"
+exit /b 0
 
 :timeout_err
 echo ERROR: Could not delete the old executable after 30 seconds.
 pause
-
-:cleanup
-rem Autoeliminar este script
-del /f "%~f0" >nul 2>&1
-exit /b
+exit /b 1
 """
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".bat", mode="w", encoding="utf-8") as f:
