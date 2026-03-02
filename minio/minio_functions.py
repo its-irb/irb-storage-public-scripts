@@ -289,8 +289,8 @@ def escribir_y_lanzar_updater(ruta_actual, nueva_ruta):
     # Construir script batch
     updater_code = f"""@echo off
 setlocal
-set OLD_EXE={ruta_actual}
-set NEW_EXE={nueva_ruta}
+set "OLD_EXE={ruta_actual}"
+set "NEW_EXE={nueva_ruta}"
 
 echo Waiting for the application to close...
 
@@ -312,7 +312,9 @@ if errorlevel 1 (
     goto cleanup
 )
 echo Update completed. Restarting...
-start "" "%OLD_EXE%"
+rem Nota: start con titulo vacio + ruta entre comillas falla en CMD.
+rem Se usa un titulo no vacio para que CMD interprete correctamente el ejecutable.
+start "MinIO Rclone" "%OLD_EXE%"
 goto cleanup
 
 :timeout_err
