@@ -78,10 +78,7 @@ except ImportError:
 # ============================================================================
 
 def _parse_version(v: str) -> tuple:
-    """
-    Convierte una cadena de versión (ej: 'v1.10.2' o '1.10.2') en
-    una tupla de enteros para comparación semántica correcta.
-    """
+    """Convierte 'v1.10.2' o '1.10.2' en tupla de enteros para comparación semántica."""
     try:
         return tuple(int(x) for x in v.strip("v").split("."))
     except Exception:
@@ -91,9 +88,6 @@ def _parse_version(v: str) -> tuple:
 def check_update_version(force_update: bool = False) -> str | None:
     """
     Comprueba si hay una versión nueva disponible en GitHub.
-
-    Args:
-        force_update: Si True, simula que hay una versión nueva (para testing).
 
     Returns:
         Tag de la versión más reciente si hay actualización, None en caso contrario.
@@ -126,19 +120,19 @@ def check_update_version(force_update: bool = False) -> str | None:
 def should_check_for_updates() -> bool:
     """
     Determina si se debe comprobar actualizaciones en el entorno actual.
-    Devuelve False en entornos HPC/cluster o cuando no se ejecuta como binario compilado.
+    Devuelve False en entornos HPC/cluster o cuando no se ejecuta como binario compilado,
+    a menos que se pase el flag --update (útil para testing en desarrollo).
     """
+    if "--update" in sys.argv:
+        return True
     if not getattr(sys, 'frozen', False):
         print("ℹ️ Running as Python script (not compiled). Skipping update check.")
         return False
-
     executable_name = os.path.basename(sys.argv[0] if hasattr(sys, 'argv') else '')
     if '_linux_cluster' in executable_name:
         return False
-
     if os.environ.get('SLURM_JOB_ID'):
         return False
-
     return True
 
 
@@ -179,10 +173,7 @@ def download_new_binary(file_name: str) -> str:
 # ============================================================================
 
 def obtener_num_cpus() -> int:
-    """
-    Obtiene el número de CPUs disponibles.
-    Prioriza SLURM_CPUS_PER_TASK (entorno HPC) sobre os.cpu_count().
-    """
+    """Obtiene el número de CPUs disponibles. Prioriza SLURM_CPUS_PER_TASK."""
     cpus = os.environ.get("SLURM_CPUS_PER_TASK")
     if cpus:
         try:
@@ -193,9 +184,7 @@ def obtener_num_cpus() -> int:
 
 
 def get_rclone_paths(servidor_s3_rcloneconfig: str) -> tuple[str, str, str]:
-    """
-    Devuelve (config_dir, config_file, mount_point_base) según el SO.
-    """
+    """Devuelve (config_dir, config_file, mount_point_base) según el SO."""
     user_home_dir_path = str(Path.home())
     if sys_platform in ("linux", "linux2"):
         rclone_config_directory_path = user_home_dir_path + "/.config/rclone"
@@ -218,9 +207,7 @@ def get_rclone_paths(servidor_s3_rcloneconfig: str) -> tuple[str, str, str]:
 
 
 def obtener_ruta_rclone_conf() -> Path:
-    """
-    Ejecuta `rclone config file` y devuelve la ruta absoluta al rclone.conf activo.
-    """
+    """Ejecuta `rclone config file` y devuelve la ruta absoluta al rclone.conf activo."""
     out = subprocess.check_output(
         ["rclone", "config", "file"],
         text=True,
@@ -255,9 +242,7 @@ def obtener_ruta_rclone_conf() -> Path:
 
 
 def traducir_ruta_a_remote(ruta_local: str, mounts_activos: list) -> str:
-    """
-    Convierte una ruta local a formato rclone remote:/ruta.
-    """
+    """Convierte una ruta local a formato rclone remote:/ruta."""
     ruta_local = os.path.abspath(ruta_local)
     for mount in mounts_activos:
         mount_path = os.path.abspath(mount["mount_path"])
@@ -333,6 +318,74 @@ def launch_rclonebrowser() -> None:
 
 
 # ============================================================================
+# DETECCIÓN DE FUSE / WINFSP
+# ============================================================================
+
+def _check_winfsp_windows() -> bool:
+    """Detecta WinFSP en Windows por múltiples métodos."""
+    import shutil
+    import winreg
+
+    # 1. En el PATH
+    if shutil.which("winfsp-ctl.exe") or shutil.which("winfsp-x64.dll"):
+        return True
+
+    # 2. Variables de entorno (cubre Program Files, Program Files (x86), y rutas custom)
+    for env_var in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
+        pf = os.environ.get(env_var, "")
+        if pf and (Path(pf) / "WinFsp" / "bin" / "winfsp-ctl.exe").exists():
+            return True
+
+    # 3. Registro de Windows (más fiable: el instalador siempre escribe aquí)
+    for hive, key_path in (
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WinFsp"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\WinFsp"),  # instalación 32-bit en sistema 64-bit
+    ):
+        try:
+            winreg.OpenKey(hive, key_path).Close()
+            return True
+        except FileNotFoundError:
+            continue
+
+    return False
+
+
+def _check_fuse_macos() -> bool:
+    """Detecta macFUSE / osxfuse en macOS."""
+    # Filesystem bundles o librerías
+    if any(p.exists() for p in (
+        Path("/Library/Filesystems/macfuse.fs"),
+        Path("/Library/Filesystems/osxfuse.fs"),
+        Path("/usr/local/lib/libfuse.dylib"),
+    )):
+        return True
+    # Módulo del kernel cargado
+    try:
+        result = subprocess.run(["kextstat"], capture_output=True, text=True, timeout=5)
+        if "fuse" in result.stdout.lower():
+            return True
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return False
+
+
+def _check_fuse_linux() -> bool:
+    """Detecta FUSE en Linux."""
+    import shutil
+    # fusermount (FUSE 2) o fusermount3 (FUSE 3)
+    if shutil.which("fusermount") or shutil.which("fusermount3"):
+        return True
+    # Módulo del kernel o dispositivo
+    try:
+        result = subprocess.run(["lsmod"], capture_output=True, text=True, timeout=5)
+        if "fuse" in result.stdout.lower():
+            return True
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return Path("/dev/fuse").exists()
+
+
+# ============================================================================
 # AUTENTICACIÓN STS (MinIO) Y GESTIÓN DE CREDENCIALES RCLONE
 # ============================================================================
 
@@ -394,9 +447,7 @@ def configure_rclone(
     endpoint: str,
     profilename: str = "minio-gordo",
 ) -> None:
-    """
-    Crea o actualiza un perfil S3/MinIO en rclone.conf con las credenciales STS.
-    """
+    """Crea o actualiza un perfil S3/MinIO en rclone.conf con las credenciales STS."""
     rclone_config_directory_path, rclone_config_file_path, _ = get_rclone_paths(profilename)
 
     if os.path.isfile(rclone_config_file_path):
@@ -437,9 +488,7 @@ def configure_rclone(
 
 
 def get_rclone_session_token(profile_name: str, config_path: str | None = None) -> str:
-    """
-    Lee el session_token del perfil rclone dado. Devuelve "" si no existe.
-    """
+    """Lee el session_token del perfil rclone dado. Devuelve '' si no existe."""
     if not config_path:
         if sys_platform == "darwin":
             config_path = os.path.expanduser("~/.config/rclone/rclone.conf")
@@ -502,40 +551,40 @@ def mount_rclone_S3_bucket_to_folder(mount_point_folder: str, servidor_s3_rclone
 def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> None:
     """
     Monta un prefijo S3 en ~/rclone-mounts/<perfil>/<prefix> y abre el explorador.
-    Muestra error en consola si faltan dependencias (FUSE / WinFSP).
+    Lanza EnvironmentError si faltan dependencias (rclone, FUSE / WinFSP).
     """
-    import shutil as _shutil
+    import shutil
+
+    # Verificar rclone (común a todos los sistemas)
+    if not shutil.which("rclone"):
+        raise EnvironmentError("rclone not found in PATH. Download from: https://rclone.org/downloads/")
 
     sistema = platform.system()
     if sistema == "Darwin":
-        if not Path("/usr/local/bin/rclone").exists() and not Path("/opt/homebrew/bin/rclone").exists():
-            raise EnvironmentError("FUSE was not detected. Download from: https://osxfuse.github.io")
+        if not _check_fuse_macos():
+            raise EnvironmentError("macFUSE not detected. Download from: https://osxfuse.github.io")
     elif sistema == "Windows":
-        if not Path("C:/Program Files/WinFsp/bin/winfsp-ctl.exe").exists():
-            raise EnvironmentError("WinFSP was not detected. Download from: https://winfsp.dev")
+        if not _check_winfsp_windows():
+            raise EnvironmentError("WinFSP not detected. Download from: https://winfsp.dev")
     elif sistema == "Linux":
-        if not _shutil.which("fusermount"):
-            raise EnvironmentError("FUSE was not detected. Install via your package manager.")
+        if not _check_fuse_linux():
+            raise EnvironmentError(
+                "FUSE not detected. Install via: sudo apt install fuse  (Debian/Ubuntu) "
+                "or: sudo dnf install fuse  (Fedora/RHEL)"
+            )
     else:
         raise EnvironmentError(f"Unsupported OS: {sistema}")
 
     mount_base = Path.home() / "rclone-mounts" / rclone_profile
-    prefix_sanitizado = s3_prefix.replace("/", "_")
+    prefix_sanitizado = s3_prefix.strip("/").replace("/", "_")
     mount_point = mount_base / prefix_sanitizado
     os.makedirs(mount_point, exist_ok=True)
 
-    full_remote = f"{rclone_profile}:{s3_prefix}"
-    comando = ["rclone", "mount", full_remote, str(mount_point), "--read-only", "--allow-non-empty"]
-
-    subprocess.Popen(comando)
+    subprocess.Popen(["rclone", "mount", f"{rclone_profile}:{s3_prefix}", str(mount_point), "--read-only", "--allow-non-empty"])
 
     try:
-        if sistema == "Darwin":
-            subprocess.Popen(["open", str(mount_point)])
-        elif sistema == "Windows":
-            subprocess.Popen(["explorer", str(mount_point)])
-        else:
-            subprocess.Popen(["xdg-open", str(mount_point)])
+        opener = {"Darwin": ["open"], "Windows": ["explorer"], "Linux": ["xdg-open"]}
+        subprocess.Popen(opener[sistema] + [str(mount_point)])
     except Exception as e:
         print(f"Mount successful, but could not open file explorer: {e}")
 
@@ -549,9 +598,7 @@ LDAP_BASE_DN = "o=irbbarcelona"
 
 
 def get_ldap_groups(usuario: str) -> list[str]:
-    """
-    Obtiene los grupos LDAP a los que pertenece un usuario.
-    """
+    """Obtiene los grupos LDAP a los que pertenece un usuario."""
     server = Server(LDAP_SERVER_URL)
     conn = Connection(server, auto_bind=True)
     conn.search(
@@ -573,9 +620,7 @@ def get_ldap_groups(usuario: str) -> list[str]:
 
 
 def validar_credenciales_ldap(credenciales_ldap: dict | None) -> bool:
-    """
-    Valida credenciales LDAP mediante un bind autenticado.
-    """
+    """Valida credenciales LDAP mediante un bind autenticado."""
     if not credenciales_ldap:
         return False
     usuario  = credenciales_ldap["usuario"]
@@ -636,9 +681,7 @@ def obtener_shares_accesibles(
     excepcion_filers: list[str],
     usar_privilegios: bool = False,
 ) -> list[dict]:
-    """
-    Obtiene la lista de shares SMB/CIFS accesibles para el usuario.
-    """
+    """Obtiene la lista de shares SMB/CIFS accesibles para el usuario."""
     URL = "https://netapp-api-proxy.sc.irbbarcelona.org/get-shares"
     try:
         respuesta = requests.post(
@@ -954,7 +997,8 @@ def ejecutar_rclone_copy(
             comando,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            universal_newlines=True,
+            encoding="utf-8",
+            errors="replace",
         )
         for linea in proceso.stdout:
             log_fn(linea)
@@ -977,15 +1021,20 @@ def es_directorio_rclone(ruta_rclone: str, config_path: str) -> bool:
     try:
         resultado = subprocess.run(
             ["rclone", "lsjson", ruta_rclone, "--config", config_path],
-            capture_output=True, check=True, text=True,
+            capture_output=True,
+            check=True,
+            encoding="utf-8",
+            errors="replace",
         )
+        if not resultado.stdout:
+            return False
         salida = json.loads(resultado.stdout)
         if not salida:
             return False
         if len(salida) > 1:
             return True
         return salida[0].get("IsDir", False)
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
         return False
 
 
@@ -1089,7 +1138,8 @@ def ejecutar_rclone_check(
             comando,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            universal_newlines=True,
+            encoding="utf-8",
+            errors="replace",
         )
         for linea in proceso.stdout:
             log_fn(linea)
