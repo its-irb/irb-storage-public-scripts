@@ -17,7 +17,6 @@ import shutil
 from tkinter import messagebox, Tk
 # import flet as ft
 
-
 # Diccionario de servidores y sus variantes de red
 MINIO_SERVERS = {
     "minio-archive": {
