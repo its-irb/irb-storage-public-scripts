@@ -35,6 +35,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, filedialog
 
 import backend
+# afegeix això a bifrost.py just després de "import backend"
+print("BACKEND PATH:", backend.__file__)
 
 
 # ============================================================================
@@ -556,7 +558,7 @@ def abrir_interfaz_copia(root, perfil_rclone: str, mounts_activos: list) -> None
     def actualizar_ruta_resultante(*args):
         origen  = entrada_origen.get().strip()
         destino = entrada_destino.get().strip().rstrip("/")
-        if not origen or not destino:
+        if not destino:
             label_ruta_resultante.configure(text="Files will be copied into: [incomplete]")
             return
         label_ruta_resultante.configure(text=f"Files will be copied into: {destino}/")

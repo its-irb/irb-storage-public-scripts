@@ -547,15 +547,9 @@ def mount_rclone_S3_bucket_to_folder(mount_point_folder: str, servidor_s3_rclone
         "--read-only",
     ])
 
-
 def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> None:
-    """
-    Monta un prefijo S3 en ~/rclone-mounts/<perfil>/<prefix> y abre el explorador.
-    Lanza EnvironmentError si faltan dependencias (rclone, FUSE / WinFSP).
-    """
     import shutil
 
-    # Verificar rclone (común a todos los sistemas)
     if not shutil.which("rclone"):
         raise EnvironmentError("rclone not found in PATH. Download from: https://rclone.org/downloads/")
 
@@ -578,13 +572,37 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     mount_base = Path.home() / "rclone-mounts" / rclone_profile
     prefix_sanitizado = s3_prefix.strip("/").replace("/", "_")
     mount_point = mount_base / prefix_sanitizado
-    os.makedirs(mount_point, exist_ok=True)
 
-    subprocess.Popen(["rclone", "mount", f"{rclone_profile}:{s3_prefix}", str(mount_point), "--read-only", "--allow-non-empty"])
+    # Netejar carpeta buida residual d'intents anteriors
+    if mount_point.exists() and not os.path.ismount(mount_point):
+        try:
+            mount_point.rmdir()
+        except OSError as e:
+            raise EnvironmentError(f"Mount point {mount_point} already exists and could not be removed: {e}") from e
+
+    # En Windows, WinFSP requiere que el directorio NO exista
+    # En Linux/macOS, FUSE permite montar en directorio existente
+    if sistema != "Windows":
+        mount_point.mkdir(parents=True, exist_ok=True)
+    else:
+        mount_point.parent.mkdir(parents=True, exist_ok=True)
+
+    comando = ["rclone", "mount", f"{rclone_profile}:{s3_prefix}", str(mount_point), "--read-only", "--links"]
+    if sistema != "Windows":
+        comando.append("--allow-non-empty")
+
+    subprocess.Popen(comando)
+
+    # Esperar un poco a que rclone termine de montar antes de abrir el explorador
+    import time
+    time.sleep(1)
 
     try:
-        opener = {"Darwin": ["open"], "Windows": ["explorer"], "Linux": ["xdg-open"]}
-        subprocess.Popen(opener[sistema] + [str(mount_point)])
+        if sistema == "Windows":
+            os.startfile(str(mount_point))
+        else:
+            opener = {"Darwin": ["open"], "Linux": ["xdg-open"]}
+            subprocess.Popen(opener[sistema] + [str(mount_point)])
     except Exception as e:
         print(f"Mount successful, but could not open file explorer: {e}")
 
