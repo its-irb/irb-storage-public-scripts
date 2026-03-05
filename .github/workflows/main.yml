@@ -115,8 +115,8 @@ jobs:
           mkdir -p dist
           cd minio
           echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
-          pyinstaller --onefile minio-rclone-copy-GUI.py --distpath ../dist
-          mv ../dist/minio-rclone-copy-GUI ../dist/minio-rclone-copy-GUI-${BRANCH_SUFFIX}-cluster
+          pyinstaller --onefile bifrost.py --distpath ../dist
+          mv ../dist/bifrost ../dist/bifrost-${BRANCH_SUFFIX}-cluster
         
       - name: Verificar archivos generados
         shell: bash
@@ -126,8 +126,8 @@ jobs:
       - name: Subir artefacto
         uses: actions/upload-artifact@v4
         with:
-          name: minio_gui_linux_cluster-${{ steps.clean_branch.outputs.name }}
-          path: dist/minio-rclone-copy-GUI-${{ steps.clean_branch.outputs.name }}-cluster
+          name: bifrost_linux_cluster-${{ steps.clean_branch.outputs.name }}
+          path: dist/bifrost-${{ steps.clean_branch.outputs.name }}-cluster
 
   release:
     needs: [build-cli, build-rocky]

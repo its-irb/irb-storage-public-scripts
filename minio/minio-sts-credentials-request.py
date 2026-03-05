@@ -3,14 +3,14 @@ Script para generar credenciales temporales de acceso al servidor de Minio de IR
 Si se pasa el flag -r o --rclone, se generará un perfil en el fichero de configuración de rclone
 En caso contrario, se generarán variables de entorno para AWS CLI y s5cmd.
 """
-import minio_functions
+import backend
 
 import getpass
 import argparse
 import boto3
 import sys
 
-minio_functions.check_version()
+print(f"Version of this executable: {backend.__version__}")
 
 parser = argparse.ArgumentParser(description="Generate STS credentials for Minio IRB servers.")
 parser.add_argument("-u", "--username", required=True, type=str, help="LDAP username")
@@ -35,7 +35,7 @@ durationdays = args.durationdays
 rclone = args.rclone
 profilename = args.profilename
 
-credentials = minio_functions.get_credentials(endpoint, username, password, 86400 * int(durationdays))
+credentials = backend.get_credentials(endpoint, username, password, 86400 * int(durationdays))
 
 if credentials is None:
     sys.exit(1)
@@ -68,7 +68,7 @@ if not rclone:
     print(f"export S3_ENDPOINT_URL={endpoint}")
     print("---------------------------------------------------------------------------------------------------------------")
 else:
-    minio_functions.configure_rclone(credentials['AccessKeyId'], credentials['SecretAccessKey'], credentials['SessionToken'], endpoint, profilename)
+    backend.configure_rclone(credentials['AccessKeyId'], credentials['SecretAccessKey'], credentials['SessionToken'], endpoint, profilename)
     print("---------------------------------------------------------------------------------------------------------------")
     print("Rclone credentials configured, you can now use the minio-gordo-hpc profile to mount S3 bucket")
     print("---------------------------------------------------------------------------------------------------------------")

@@ -160,7 +160,7 @@ def check_and_handle_update(parent_window=None):
     
     if ultima_version:
         # Mostrar popup y esperar decisión
-        mostrar_aviso_version_nueva(ultima_version, "minio-rclone-copy-GUI", parent_window)
+        mostrar_aviso_version_nueva(ultima_version, "bifrost", parent_window)
     
     return True  # Siempre continuar (a menos que actualizar_y_reiniciar reinicie)
 

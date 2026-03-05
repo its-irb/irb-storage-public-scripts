@@ -5,10 +5,11 @@ IRB MinIO Rclone Data Transfer Tool — FRONTEND
 ===============================================
 
 Contiene toda la interfaz gráfica (tkinter).
-No contiene lógica de negocio: delega en backend.py y minio_functions.py.
+No contiene lógica de negocio: delega en backend.py.
 
 Flujo de ventanas:
   main()
+    → check_and_handle_update
     → pedir_credenciales (LDAP)
     → seleccionar_shares_montar
     → seleccionar_servidor_minio
@@ -18,9 +19,12 @@ Flujo de ventanas:
 
 import os
 import sys
+import stat
 import atexit
 import getpass
 import platform
+import tempfile
+import subprocess
 import threading
 import queue
 from pathlib import Path
@@ -30,14 +34,231 @@ import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, filedialog
 
 import backend
-import minio_functions
+
+
+# ============================================================================
+# ACTUALIZACIÓN AUTOMÁTICA — GUI
+# ============================================================================
+
+def check_and_handle_update(parent_window=None) -> bool:
+    """
+    Comprueba si hay actualizaciones y muestra popup al usuario si las hay.
+
+    Returns:
+        True para continuar (excepto si actualizar_y_reiniciar hace os.execv/os._exit).
+    """
+    if not backend.should_check_for_updates():
+        return True
+
+    force_update = "--update" in sys.argv
+    ultima_version = backend.check_update_version(force_update=force_update)
+
+    if ultima_version:
+        _mostrar_aviso_version_nueva(ultima_version, "bifrost", parent_window)
+
+    return True
+
+
+def _mostrar_aviso_version_nueva(ultima_version: str, file_name: str, parent_window=None) -> bool:
+    """
+    Muestra un popup informando de la nueva versión disponible.
+
+    Returns:
+        False si el usuario cancela, True si elige actualizar
+        (en cuyo caso la función no retorna normalmente).
+    """
+    if parent_window:
+        ventana = tk.Toplevel(parent_window)
+        ventana.transient(parent_window)
+        ventana.grab_set()
+    else:
+        _root = tk.Tk()
+        _root.withdraw()
+        ventana = tk.Toplevel(_root)
+
+    ventana.title("New version available")
+    ventana.geometry("450x180")
+
+    if parent_window:
+        x = parent_window.winfo_rootx() + 50
+        y = parent_window.winfo_rooty() + 50
+        ventana.geometry(f"+{x}+{y}")
+
+    tk.Label(
+        ventana,
+        text=f"There is a new version available:\n{ultima_version}",
+        font=("Arial", 11),
+    ).pack(pady=(20, 10))
+
+    resultado = {"eleccion": None}
+
+    def actualizar_wrapper():
+        try:
+            _actualizar_y_reiniciar(ventana, file_name)
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not update:\n{str(e)}")
+        resultado["eleccion"] = "update"
+
+    def cancelar():
+        resultado["eleccion"] = "cancel"
+        ventana.destroy()
+
+    frame_botones = tk.Frame(ventana)
+    frame_botones.pack(pady=(0, 15))
+    tk.Button(frame_botones, text="Update now", command=actualizar_wrapper).pack(side=tk.LEFT, padx=5)
+    tk.Button(frame_botones, text="Continue",   command=cancelar).pack(side=tk.LEFT, padx=5)
+
+    ventana.wait_window()
+    return resultado["eleccion"] != "cancel"
+
+
+def _actualizar_y_reiniciar(ventana_parent, file_name: str) -> None:
+    """
+    Descarga el nuevo binario y reemplaza el ejecutable actual.
+    En macOS/Linux hace os.execv para relanzar. En Windows lanza un .bat.
+    """
+    ruta_actual = os.path.abspath(sys.argv[0])
+    print(f"Current executable path: {ruta_actual}")
+
+    try:
+        nueva_ruta = backend.download_new_binary(file_name)
+
+        if sys.platform == "win32":
+            _escribir_y_lanzar_updater_windows(ruta_actual, nueva_ruta)
+        else:
+            os.replace(nueva_ruta, ruta_actual)
+            os.chmod(ruta_actual, os.stat(ruta_actual).st_mode | stat.S_IEXEC)
+            messagebox.showinfo(
+                "Update completed",
+                "The application will now restart with the new version.",
+            )
+            args_relanzar = [arg for arg in sys.argv[1:] if arg != "--update"]
+            os.execv(ruta_actual, [ruta_actual] + args_relanzar)
+
+    except Exception as e:
+        messagebox.showerror("Error", f"Could not update:\n{str(e)}")
+
+
+def _escribir_y_lanzar_updater_windows(ruta_actual: str, nueva_ruta: str) -> None:
+    """
+    En Windows escribe un .bat que reemplaza el exe tras cerrarse y lo lanza.
+    Termina el proceso actual con os._exit(0).
+    """
+    updater_code = f"""@echo off
+setlocal
+set "OLD_EXE={ruta_actual}"
+set "NEW_EXE={nueva_ruta}"
+
+echo Waiting for the application to close...
+
+set /a i=0
+:waitloop
+if %i% geq 30 goto timeout_err
+del /f "%OLD_EXE%" >nul 2>&1
+if not exist "%OLD_EXE%" goto do_move
+timeout /t 1 /nobreak >nul
+set /a i+=1
+goto waitloop
+
+:do_move
+move /y "%NEW_EXE%" "%OLD_EXE%"
+if errorlevel 1 (
+    echo ERROR: Could not replace the executable.
+    pause
+    exit /b 1
+)
+echo.
+echo  Update completed successfully!
+echo  Please reopen the application manually.
+echo.
+pause
+exit /b 0
+
+:timeout_err
+echo ERROR: Could not delete the old executable after 30 seconds.
+pause
+exit /b 1
+"""
+    with tempfile.NamedTemporaryFile(
+        delete=False, suffix=".bat", mode="w", encoding="utf-8"
+    ) as f:
+        f.write(updater_code)
+        updater_path = f.name
+
+    subprocess.Popen(["cmd.exe", "/c", "start", "", updater_path], shell=False)
+    os._exit(0)
+
+
+# ============================================================================
+# COMPROBACIÓN E INSTALACIÓN DE RCLONE — GUI
+# ============================================================================
+
+def check_rclone_installation() -> None:
+    """
+    Comprueba si rclone está instalado. Si no lo está, intenta instalarlo
+    (macOS vía Homebrew) o muestra un error con instrucciones (Windows/Linux).
+    """
+    if backend.detect_rclone_installed():
+        print("Rclone is installed")
+        return
+
+    print("rclone is not installed")
+    sistema = sys.platform
+
+    if sistema in ("linux", "linux2"):
+        sys.exit("Linux is not supported yet. Please install rclone and fuse-t manually")
+
+    elif sistema == "darwin":
+        if not backend.is_brew_installed():
+            messagebox.showerror(
+                "Rclone is not installed",
+                "❌ Rclone is not installed, and Homebrew is not installed either. "
+                "Please install Homebrew first and run this program again. "
+                "Guide: https://brew.sh/",
+            )
+            sys.exit("❌ Rclone not found and Homebrew not available.")
+        print("Installing rclone via Homebrew...")
+        backend.install_rclone_macos()
+
+    elif sistema == "win32":
+        messagebox.showerror(
+            "Rclone.exe not found",
+            "Download, uncompress the zip file and put rclone.exe in the same folder "
+            "as this executable. Download rclone from https://rclone.org/downloads/\r\n"
+            "Also download and install WinFsp from https://winfsp.dev/rel/",
+        )
+        sys.exit(
+            "Download rclone.exe and place it in the same folder as this executable."
+        )
+
+
+def show_error(message: str) -> None:
+    """Muestra un messagebox de error y termina el proceso."""
+    messagebox.showerror("Error", message)
+    sys.exit(1)
+
+
+def alert_gui(version: str) -> None:
+    """Muestra un messagebox informando de una nueva versión."""
+    root = tk.Tk()
+    root.withdraw()
+    messagebox.showinfo(
+        "New version available",
+        f"Version {version} is now available.\n"
+        f"Download it from GitHub: https://github.com/{backend.REPO}/releases/latest.",
+    )
 
 
 # ============================================================================
 # DIÁLOGOS GENÉRICOS
 # ============================================================================
 
-def pedir_credenciales(root, titulo: str, pregunta: str, usuario_prefijado: str | None = None) -> dict | None:
+def pedir_credenciales(
+    root,
+    titulo: str,
+    pregunta: str,
+    usuario_prefijado: str | None = None,
+) -> dict | None:
     """
     Diálogo para solicitar credenciales (usuario + password).
 
@@ -68,12 +289,12 @@ def pedir_credenciales(root, titulo: str, pregunta: str, usuario_prefijado: str 
     entry_pass.focus_set()
 
     def confirmar():
-        usuario = usuario_var.get().strip()
+        usuario  = usuario_var.get().strip()
         password = password_var.get().strip()
         if not usuario or not password:
             messagebox.showerror("Error", "Username and password are required.")
             return
-        resultado["usuario"] = usuario
+        resultado["usuario"]  = usuario
         resultado["password"] = password
         ventana.destroy()
 
@@ -85,8 +306,8 @@ def pedir_credenciales(root, titulo: str, pregunta: str, usuario_prefijado: str 
 
     frame_botones = ttk.Frame(ventana)
     frame_botones.pack(pady=(0, 10))
-    ttk.Button(frame_botones, text="Cancel", command=cancelar).pack(side=tk.LEFT, padx=10)
-    ttk.Button(frame_botones, text="OK", command=confirmar).pack(side=tk.RIGHT, padx=10)
+    ttk.Button(frame_botones, text="Cancel", command=cancelar).pack(side=tk.LEFT,  padx=10)
+    ttk.Button(frame_botones, text="OK",     command=confirmar).pack(side=tk.RIGHT, padx=10)
 
     ventana.wait_window()
     return resultado if resultado["usuario"] and resultado["password"] else None
@@ -105,7 +326,6 @@ def seleccionar_shares_montar(
 ) -> None:
     """
     Diálogo con checkboxes para seleccionar qué shares CIFS montar.
-    Llama a backend para el montaje efectivo.
     """
     recursos_cifs_dict = backend.construir_recursos_cifs_dict(shares, usuario_actual)
 
@@ -113,11 +333,10 @@ def seleccionar_shares_montar(
     ventana.title(f"Select CIFS shares to mount as {usuario_actual}")
     tk.Label(ventana, text="Available SMB/CIFS resources:").pack(pady=(10, 5))
 
-    # --- Área scrollable ---
     frame_scroll = ttk.Frame(ventana)
     frame_scroll.pack(pady=(0, 10), fill="both", expand=True)
 
-    canvas = tk.Canvas(frame_scroll)
+    canvas    = tk.Canvas(frame_scroll)
     scrollbar = ttk.Scrollbar(frame_scroll, orient="vertical", command=canvas.yview)
     canvas.configure(yscrollcommand=scrollbar.set)
     scrollbar.pack(side="right", fill="y")
@@ -131,23 +350,21 @@ def seleccionar_shares_montar(
         canvas.itemconfig("frame_cifs", width=canvas.winfo_width())
 
     frame_cifs.bind("<Configure>", ajustar_scroll)
-    canvas.bind("<Configure>", ajustar_scroll)
+    canvas.bind("<Configure>",    ajustar_scroll)
 
-    # --- Checkboxes de shares ---
     shares_seleccionados = {}
-    filas_por_columna = 15
+    filas_por_columna    = 15
 
     for idx, share in enumerate(shares):
         nombre_share = share["name"]
         var = tk.BooleanVar(value=False)
         shares_seleccionados[nombre_share] = var
-        fila = idx % filas_por_columna
+        fila    = idx % filas_por_columna
         columna = idx // filas_por_columna
         tk.Checkbutton(frame_cifs, text=nombre_share, variable=var, anchor="w").grid(
             row=fila, column=columna, sticky="w", padx=10, pady=2
         )
 
-    # --- Callbacks ---
     def continuar():
         seleccionados = [n for n, v in shares_seleccionados.items() if v.get()]
         fallidos = backend.montar_shares_seleccionados(
@@ -157,7 +374,8 @@ def seleccionar_shares_montar(
             datos = recursos_cifs_dict[nombre]
             messagebox.showerror(
                 "Error mounting SMB resource",
-                f"Could not mount {datos['nombre_perfil']} on {datos['punto_montaje']} after 30 seconds.",
+                f"Could not mount {datos['nombre_perfil']} on {datos['punto_montaje']} "
+                "after 30 seconds.",
             )
         ventana.destroy()
 
@@ -181,23 +399,21 @@ def seleccionar_shares_montar(
         except Exception as e:
             messagebox.showerror("Error", f"Could not update credentials:\n{e}")
 
-    # --- Botones ---
     ttk.Button(
         ventana, text="Update SMB credentials", command=on_actualizar_credenciales_smb
     ).pack(pady=(5, 0))
     ttk.Button(ventana, text="Continue", command=continuar).pack(pady=15)
 
-    # --- Dimensionado y centrado ---
     ventana.update_idletasks()
-    filas_visibles = min(filas_por_columna, len(shares)) if shares else 1
-    columnas = max(1, len(shares) // filas_por_columna + (len(shares) % filas_por_columna > 0))
-    ancho_ventana = max(500, 200 + columnas * 160)
-    alto_ventana = min(
+    filas_visibles  = min(filas_por_columna, len(shares)) if shares else 1
+    columnas        = max(1, len(shares) // filas_por_columna + (len(shares) % filas_por_columna > 0))
+    ancho_ventana   = max(500, 200 + columnas * 160)
+    alto_ventana    = min(
         max(400, 170 + filas_visibles * 30),
         int(ventana.winfo_screenheight() * 0.85),
     )
-    x = ventana.winfo_screenwidth() // 2 - ancho_ventana // 2
-    y = ventana.winfo_screenheight() // 2 - alto_ventana // 2
+    x = ventana.winfo_screenwidth()  // 2 - ancho_ventana // 2
+    y = ventana.winfo_screenheight() // 2 - alto_ventana  // 2
     ventana.geometry(f"{ancho_ventana}x{alto_ventana}+{x}+{y}")
 
     ventana.transient(root)
@@ -207,11 +423,10 @@ def seleccionar_shares_montar(
     ventana.lift()
     ventana.focus_force()
 
-    # Recentrado tras render real
     ancho_real = ventana.winfo_width()
-    alto_real = ventana.winfo_height()
-    x = ventana.winfo_screenwidth() // 2 - ancho_real // 2
-    y = ventana.winfo_screenheight() // 2 - alto_real // 2
+    alto_real  = ventana.winfo_height()
+    x = ventana.winfo_screenwidth()  // 2 - ancho_real // 2
+    y = ventana.winfo_screenheight() // 2 - alto_real  // 2
     ventana.geometry(f"{ancho_real}x{alto_real}+{x}+{y}")
 
     ventana.wait_window()
@@ -234,11 +449,11 @@ def seleccionar_servidor_minio(root, shares, perfiles_configurados) -> dict:
     ventana.title("Select MinIO server")
 
     ttk.Label(ventana, text="Select the MinIO server:").pack(pady=(10, 5))
-    servidor_var = tk.StringVar(value=list(minio_functions.MINIO_SERVERS.keys())[0])
+    servidor_var = tk.StringVar(value=list(backend.MINIO_SERVERS.keys())[0])
     ttk.Combobox(
         ventana,
         textvariable=servidor_var,
-        values=list(minio_functions.MINIO_SERVERS.keys()),
+        values=list(backend.MINIO_SERVERS.keys()),
         state="readonly",
         width=30,
     ).pack(pady=(0, 10))
@@ -247,8 +462,8 @@ def seleccionar_servidor_minio(root, shares, perfiles_configurados) -> dict:
         servidor = servidor_var.get()
         resultado.update({
             "servidor": servidor,
-            "perfil": minio_functions.MINIO_SERVERS[servidor]["IRB"]["profile"],
-            "endpoint": minio_functions.MINIO_SERVERS[servidor]["IRB"]["endpoint"],
+            "perfil":   backend.MINIO_SERVERS[servidor]["IRB"]["profile"],
+            "endpoint": backend.MINIO_SERVERS[servidor]["IRB"]["endpoint"],
         })
         ventana.destroy()
 
@@ -299,13 +514,13 @@ def prompt_credenciales_renovar(root, tiempo_restante: str) -> dict:
 
     def renovar():
         resultado["accion"] = "renovar"
-        resultado["dias"] = int(dias_var.get())
+        resultado["dias"]   = int(dias_var.get())
         ventana.destroy()
 
     frame_botones = tk.Frame(ventana)
     frame_botones.pack(pady=10)
     tk.Button(frame_botones, text="Keep current", width=12, command=mantener).grid(row=0, column=0, padx=10)
-    tk.Button(frame_botones, text="Renew", width=12, command=renovar).grid(row=0, column=1, padx=10)
+    tk.Button(frame_botones, text="Renew",         width=12, command=renovar).grid(row=0, column=1, padx=10)
 
     _centrar_ventana(ventana)
     ventana.transient(root)
@@ -323,17 +538,15 @@ def prompt_credenciales_renovar(root, tiempo_restante: str) -> dict:
 # ============================================================================
 
 def abrir_interfaz_copia(root, perfil_rclone: str, mounts_activos: list) -> None:
-    """
-    Ventana principal de copia y verificación de datos con rclone.
-    """
+    """Ventana principal de copia y verificación de datos con rclone."""
     num_cores = backend.obtener_num_cpus()
-    _, rclone_config_path, _ = minio_functions.get_rclone_paths(perfil_rclone)
+    _, rclone_config_path, _ = backend.get_rclone_paths(perfil_rclone)
 
     ventana = tk.Toplevel(root)
     ventana.title("Copy and verify data with rclone")
     ventana.geometry("1024x768")
     ventana.update_idletasks()
-    x = ventana.winfo_screenwidth() // 2 - ventana.winfo_width() // 2
+    x = ventana.winfo_screenwidth()  // 2 - ventana.winfo_width()  // 2
     y = ventana.winfo_screenheight() // 2 - ventana.winfo_height() // 2
     ventana.geometry(f"+{x}+{y}")
 
@@ -343,13 +556,13 @@ def abrir_interfaz_copia(root, perfil_rclone: str, mounts_activos: list) -> None
     frame_metadata.columnconfigure(1, weight=1)
 
     labels = [
-        ("Project",           "project_name"),
-        ("Host machine",      "compute_node"),
-        ("Sample type",       "sample_type"),
-        ("Input data type",   "input_data_type"),
-        ("Output data type",  "output_data_type"),
-        ("Requested by",      "requested_by"),
-        ("Research group",    "research_group"),
+        ("Project",          "project_name"),
+        ("Host machine",     "compute_node"),
+        ("Sample type",      "sample_type"),
+        ("Input data type",  "input_data_type"),
+        ("Output data type", "output_data_type"),
+        ("Requested by",     "requested_by"),
+        ("Research group",   "research_group"),
     ]
     metadata_vars = {}
     for idx, (label_text, var_name) in enumerate(labels):
@@ -387,7 +600,7 @@ def abrir_interfaz_copia(root, perfil_rclone: str, mounts_activos: list) -> None
             entrada_origen.insert(0, ruta)
             actualizar_ruta_resultante()
 
-    ttk.Button(frame_rutas, text="📄 File", command=seleccionar_archivo).grid(row=1, column=1, padx=(0, 5))
+    ttk.Button(frame_rutas, text="📄 File",   command=seleccionar_archivo).grid(row=1, column=1, padx=(0, 5))
     ttk.Button(frame_rutas, text="📁 Folder", command=seleccionar_carpeta).grid(row=1, column=2)
 
     ttk.Label(frame_rutas, text=f"Destination path (bucket in profile {perfil_rclone}):").grid(
@@ -412,7 +625,7 @@ def abrir_interfaz_copia(root, perfil_rclone: str, mounts_activos: list) -> None
     debounce_timer = None
 
     def actualizar_ruta_resultante(*args):
-        origen = entrada_origen.get().strip()
+        origen  = entrada_origen.get().strip()
         destino = entrada_destino.get().strip().rstrip("/")
         if not origen or not destino:
             label_ruta_resultante.configure(text="Files will be copied into: [incomplete]")
@@ -427,9 +640,9 @@ def abrir_interfaz_copia(root, perfil_rclone: str, mounts_activos: list) -> None
         debounce_timer.start()
 
     def _verificar_ruta_en_hilo():
-        ruta = entrada_destino.get().strip()
-        accesible = backend.verificar_ruta_rclone_accesible(perfil_rclone, ruta)
-        color = "#d6f5d6" if accesible else "#f5d6d6"
+        ruta       = entrada_destino.get().strip()
+        accesible  = backend.verificar_ruta_rclone_accesible(perfil_rclone, ruta)
+        color      = "#d6f5d6" if accesible else "#f5d6d6"
         if ruta:
             ventana.after(0, lambda: entrada_destino.configure(background=color))
 
@@ -438,7 +651,7 @@ def abrir_interfaz_copia(root, perfil_rclone: str, mounts_activos: list) -> None
         actualizar_ruta_resultante()
 
     entrada_destino.bind("<KeyRelease>", manejar_evento_destino)
-    entrada_origen.bind("<KeyRelease>", actualizar_ruta_resultante)
+    entrada_origen.bind("<KeyRelease>",  actualizar_ruta_resultante)
 
     # ── Botones de acción ──────────────────────────────────────────────────
     frame_botones = ttk.Frame(ventana)
@@ -449,13 +662,13 @@ def abrir_interfaz_copia(root, perfil_rclone: str, mounts_activos: list) -> None
     boton_montar  = ttk.Button(frame_botones, text="Mount destination folder")
     boton_guardar = ttk.Button(frame_botones, text="Save Log…")
 
-    boton_copiar.grid(row=0, column=0, padx=10)
-    boton_check.grid(row=0, column=1, padx=10)
-    boton_montar.grid(row=0, column=2, padx=10)
+    boton_copiar.grid( row=0, column=0, padx=10)
+    boton_check.grid(  row=0, column=1, padx=10)
+    boton_montar.grid( row=0, column=2, padx=10)
     boton_guardar.grid(row=0, column=3, padx=10)
 
     # ── Log ────────────────────────────────────────────────────────────────
-    log_text = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, height=25)
+    log_text  = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, height=25)
     log_text.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
 
     log_queue = queue.Queue()
@@ -477,8 +690,8 @@ def abrir_interfaz_copia(root, perfil_rclone: str, mounts_activos: list) -> None
 
     # ── Guardar log ────────────────────────────────────────────────────────
     def guardar_log():
-        ahora = datetime.now()
-        filename_default = f"bifrost-{ahora.strftime('%Y-%m-%d_%H-%M-%S')}.log"
+        ahora    = datetime.now()
+        filename = f"bifrost-{ahora.strftime('%Y-%m-%d_%H-%M-%S')}.log"
         contenido = (
             f"### Log saved at: {ahora.strftime('%Y-%m-%d %H:%M:%S')} ###\n\n"
             "### Log Output ###\n"
@@ -490,7 +703,7 @@ def abrir_interfaz_copia(root, perfil_rclone: str, mounts_activos: list) -> None
         ruta = filedialog.asksaveasfilename(
             title="Save log as…",
             defaultextension=".log",
-            initialfile=filename_default,
+            initialfile=filename,
             filetypes=[("Log files", "*.log"), ("Text files", "*.txt"), ("All files", "*.*")],
         )
         if not ruta:
@@ -510,7 +723,12 @@ def abrir_interfaz_copia(root, perfil_rclone: str, mounts_activos: list) -> None
         if not ruta_destino:
             messagebox.showerror("Error", "You must specify a destination path to mount.")
             return
-        minio_functions.mount_rclone_S3_prefix_to_folder(perfil_rclone, ruta_destino)
+        try:
+            backend.mount_rclone_S3_prefix_to_folder(perfil_rclone, ruta_destino)
+        except EnvironmentError as e:
+            messagebox.showerror("FUSE / WinFSP not detected", str(e))
+        except Exception as e:
+            messagebox.showerror("Error mounting", f"Could not mount the prefix:\n{str(e)}")
 
     boton_montar.config(command=lanzar_montaje)
 
@@ -522,7 +740,7 @@ def abrir_interfaz_copia(root, perfil_rclone: str, mounts_activos: list) -> None
             messagebox.showerror("Error", "You must enter both source and destination.")
             return
 
-        metadatos_dict   = {k: e.get().strip() for k, e in metadata_vars.items()}
+        metadatos_dict    = {k: e.get().strip() for k, e in metadata_vars.items()}
         flags_adicionales = entry_flags.get().strip().split()
 
         boton_copiar.config(state="disabled")
@@ -631,10 +849,8 @@ def _centrar_ventana(ventana) -> None:
 # ============================================================================
 
 def main():
-    """
-    Punto de entrada. Orquesta el flujo completo delegando lógica en backend.
-    """
-    EXCEPCION_FILERS = backend.EXCEPCION_FILERS
+    """Punto de entrada. Orquesta el flujo completo delegando lógica en backend."""
+    EXCEPCION_FILERS       = backend.EXCEPCION_FILERS
     PERMITIR_USUARIO_CUSTOM = "--customuser" in sys.argv or "-c" in sys.argv
 
     mounts_activos = []
@@ -645,7 +861,7 @@ def main():
     root.overrideredirect(True)
 
     # ── Paso 0: Comprobar actualizaciones ───────────────────────────────────
-    minio_functions.check_and_handle_update(root)
+    check_and_handle_update(root)
 
     # ── Paso 1: Autenticación LDAP ──────────────────────────────────────────
     usuario_ldap = None
@@ -662,7 +878,7 @@ def main():
     grupos_ldap = backend.get_ldap_groups(usuario_ldap)
     print("User's LDAP groups:", grupos_ldap)
 
-    usar_privilegios = False
+    usar_privilegios  = False
     credenciales_admin = None
 
     if "its" in grupos_ldap:
@@ -709,23 +925,23 @@ def main():
             root, shares_accesibles, credenciales_smb["usuario"], mounts_activos, usar_privilegios
         )
 
-        eleccion = seleccionar_servidor_minio(root, shares_accesibles, perfiles_configurados)
+        eleccion               = seleccionar_servidor_minio(root, shares_accesibles, perfiles_configurados)
         servidor_s3_rcloneconfig = eleccion["perfil"]
-        endpoint = eleccion["endpoint"]
+        endpoint               = eleccion["endpoint"]
 
-        minio_functions.check_rclone_installation()
+        check_rclone_installation()
 
-        current_session_token = minio_functions.get_rclone_session_token(servidor_s3_rcloneconfig)
+        current_session_token   = backend.get_rclone_session_token(servidor_s3_rcloneconfig)
         current_expiration_time = (
             "There are no current credentials configured, let's configure it now."
             if current_session_token == ""
-            else minio_functions.get_expiration_from_session_token(current_session_token)
+            else backend.get_expiration_from_session_token(current_session_token)
         )
 
         respuesta = prompt_credenciales_renovar(root, current_expiration_time)
 
         if respuesta["accion"] == "renovar":
-            credentials = minio_functions.get_credentials(
+            credentials = backend.get_credentials(
                 endpoint,
                 credenciales_ldap["usuario"],
                 credenciales_ldap["password"],
@@ -737,7 +953,7 @@ def main():
                     "Provided credentials are not correct, please try again or contact ITS",
                 )
                 sys.exit("Provided credentials are not correct.")
-            minio_functions.configure_rclone(
+            backend.configure_rclone(
                 credentials["AccessKeyId"],
                 credentials["SecretAccessKey"],
                 credentials["SessionToken"],

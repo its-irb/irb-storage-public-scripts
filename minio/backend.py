@@ -7,7 +7,10 @@ IRB MinIO Rclone Data Transfer Tool — BACKEND
 Contiene toda la lógica de negocio sin dependencias de GUI (tkinter).
 
 Módulos cubiertos:
-- Utilidades del sistema (CPUs, rutas)
+- Constantes y versión
+- Comprobación de versión / actualizaciones (lógica pura)
+- Utilidades del sistema (CPUs, rutas rclone)
+- Autenticación STS (MinIO) y gestión de credenciales rclone
 - Autenticación y grupos LDAP
 - Gestión de shares SMB/CIFS
 - Perfiles rclone (lectura, creación, actualización)
@@ -29,21 +32,150 @@ import configparser
 import threading
 import urllib.parse
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
+from sys import platform as sys_platform
 
 import boto3
-from botocore.exceptions import ClientError
-from ldap3 import Server, Connection, SUBTREE, SIMPLE
+import jwt
 import requests
 import urllib3
-
-import minio_functions
+from botocore.exceptions import ClientError
+from ldap3 import Server, Connection, SUBTREE, SIMPLE
+from xml.etree import ElementTree as etree
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 # ============================================================================
-# CONFIGURACIÓN Y UTILIDADES DEL SISTEMA
+# CONSTANTES Y VERSIÓN
+# ============================================================================
+
+MINIO_SERVERS = {
+    "minio-archive": {
+        "IRB": {
+            "profile": "minio-archive",
+            "endpoint": "https://minio-archive.sc.irbbarcelona.org:9000"
+        }
+    },
+    "irbminio": {
+        "IRB": {
+            "profile": "irbminio",
+            "endpoint": "http://irbminio.sc.irbbarcelona.org:9000"
+        }
+    }
+}
+
+REPO = "its-irb/irb-storage-public-scripts"
+
+try:
+    from version import __version__
+except ImportError:
+    __version__ = "1.0.1"
+
+
+# ============================================================================
+# COMPROBACIÓN DE VERSIÓN / ACTUALIZACIONES (lógica pura, sin GUI)
+# ============================================================================
+
+def _parse_version(v: str) -> tuple:
+    """
+    Convierte una cadena de versión (ej: 'v1.10.2' o '1.10.2') en
+    una tupla de enteros para comparación semántica correcta.
+    """
+    try:
+        return tuple(int(x) for x in v.strip("v").split("."))
+    except Exception:
+        return (0,)
+
+
+def check_update_version(force_update: bool = False) -> str | None:
+    """
+    Comprueba si hay una versión nueva disponible en GitHub.
+
+    Args:
+        force_update: Si True, simula que hay una versión nueva (para testing).
+
+    Returns:
+        Tag de la versión más reciente si hay actualización, None en caso contrario.
+    """
+    if force_update:
+        print("⚠️ Force update mode enabled (--update flag detected)")
+        print("Simulating new version available: 999.999.999")
+        return "v999.999.999"
+
+    print(f"Version of this executable: {__version__}")
+    try:
+        url = f"https://api.github.com/repos/{REPO}/releases/latest"
+        print(f"Checking the latest version of {REPO}... at url: {url}")
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            latest_tag = response.json().get("tag_name", "")
+            print(f"\nLatest available version: {latest_tag.strip('v')}")
+            if latest_tag and _parse_version(latest_tag) > _parse_version(__version__):
+                print(f"\n🚀 New version available: {latest_tag}")
+                return latest_tag
+            else:
+                print("✅ You are using the latest version.")
+        else:
+            print("⚠️ Could not check the latest version.")
+    except Exception as e:
+        print(f"⚠️ Error verifying update: {e}")
+    return None
+
+
+def should_check_for_updates() -> bool:
+    """
+    Determina si se debe comprobar actualizaciones en el entorno actual.
+    Devuelve False en entornos HPC/cluster o cuando no se ejecuta como binario compilado.
+    """
+    if not getattr(sys, 'frozen', False):
+        print("ℹ️ Running as Python script (not compiled). Skipping update check.")
+        return False
+
+    executable_name = os.path.basename(sys.argv[0] if hasattr(sys, 'argv') else '')
+    if '_linux_cluster' in executable_name:
+        return False
+
+    if os.environ.get('SLURM_JOB_ID'):
+        return False
+
+    return True
+
+
+def get_update_file_suffix() -> str:
+    """Devuelve el sufijo de plataforma para el binario de actualización."""
+    sistema = sys.platform
+    if sistema == "linux":
+        return "-linux"
+    elif sistema == "darwin":
+        return "-macos"
+    elif sistema == "win32":
+        return "-windows.exe"
+    return ""
+
+
+def download_new_binary(file_name: str) -> str:
+    """
+    Descarga el binario más reciente de GitHub a un fichero temporal.
+
+    Returns:
+        Ruta al fichero temporal descargado.
+
+    Raises:
+        requests.HTTPError: Si la descarga falla.
+    """
+    import tempfile
+    sufijo = get_update_file_suffix()
+    url = f"https://github.com/{REPO}/releases/latest/download/{file_name}{sufijo}"
+    r = requests.get(url, timeout=20)
+    r.raise_for_status()
+    with tempfile.NamedTemporaryFile(delete=False, mode='wb') as tmp:
+        tmp.write(r.content)
+        return tmp.name
+
+
+# ============================================================================
+# UTILIDADES DEL SISTEMA
 # ============================================================================
 
 def obtener_num_cpus() -> int:
@@ -58,6 +190,31 @@ def obtener_num_cpus() -> int:
         except ValueError:
             pass
     return os.cpu_count() or 1
+
+
+def get_rclone_paths(servidor_s3_rcloneconfig: str) -> tuple[str, str, str]:
+    """
+    Devuelve (config_dir, config_file, mount_point_base) según el SO.
+    """
+    user_home_dir_path = str(Path.home())
+    if sys_platform in ("linux", "linux2"):
+        rclone_config_directory_path = user_home_dir_path + "/.config/rclone"
+        rclone_config_file_path = rclone_config_directory_path + "/rclone.conf"
+        mount_point_path = user_home_dir_path + "/" + servidor_s3_rcloneconfig + "-"
+    elif sys_platform == "darwin":
+        rclone_config_directory_path = user_home_dir_path + "/.config/rclone"
+        rclone_config_file_path = rclone_config_directory_path + "/rclone.conf"
+        mount_point_path = user_home_dir_path + "/" + servidor_s3_rcloneconfig + "-"
+    elif sys_platform == "win32":
+        rclone_config_directory_path = user_home_dir_path + "\\AppData\\Roaming\\rclone"
+        rclone_config_file_path = rclone_config_directory_path + "\\rclone.conf"
+        mount_point_path = user_home_dir_path + "\\Documents\\" + servidor_s3_rcloneconfig + "-"
+    else:
+        rclone_config_directory_path = user_home_dir_path + "/.config/rclone"
+        rclone_config_file_path = rclone_config_directory_path + "/rclone.conf"
+        mount_point_path = user_home_dir_path + "/" + servidor_s3_rcloneconfig + "-"
+    print(rclone_config_file_path)
+    return rclone_config_directory_path, rclone_config_file_path, mount_point_path
 
 
 def obtener_ruta_rclone_conf() -> Path:
@@ -100,13 +257,6 @@ def obtener_ruta_rclone_conf() -> Path:
 def traducir_ruta_a_remote(ruta_local: str, mounts_activos: list) -> str:
     """
     Convierte una ruta local a formato rclone remote:/ruta.
-
-    Args:
-        ruta_local: Ruta absoluta en el sistema de archivos local.
-        mounts_activos: Lista de dicts con keys mount_path, remote_name, remote_subpath.
-
-    Returns:
-        Ruta en formato rclone o ruta_local si no pertenece a ningún mount.
     """
     ruta_local = os.path.abspath(ruta_local)
     for mount in mounts_activos:
@@ -121,6 +271,275 @@ def traducir_ruta_a_remote(ruta_local: str, mounts_activos: list) -> str:
     return ruta_local
 
 
+def is_brew_installed() -> bool:
+    """Comprueba si Homebrew está instalado."""
+    import shutil
+    return shutil.which("brew") is not None
+
+
+def detect_rclone_installed() -> bool:
+    """Devuelve True si rclone está disponible en el PATH."""
+    try:
+        subprocess.check_call(
+            ["rclone", "--version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def install_rclone_macos() -> None:
+    """Instala rclone y fuse-t en macOS vía Homebrew (llamadas bloqueantes)."""
+    os.system("brew tap macos-fuse-t/homebrew-cask")
+    os.system("brew install fuse-t")
+    os.system("sudo -v ; curl https://rclone.org/install.sh | sudo bash")
+
+
+def open_file(path: str) -> None:
+    """Abre un directorio en el explorador de archivos del SO."""
+    if sys_platform == "win32":
+        import winreg
+        FILEBROWSER_PATH = os.path.join(os.getenv('WINDIR'), 'explorer.exe')
+        path = os.path.normpath(path + "\\")
+        subprocess.run([FILEBROWSER_PATH, path])
+    elif sys_platform == "darwin":
+        subprocess.Popen(["open", path])
+
+
+def launch_rclonebrowser() -> None:
+    """Lanza RcloneBrowser si está instalado. Lanza excepción con mensaje si no."""
+    if sys_platform == "darwin":
+        app_path = "/Applications/Rclone Browser.app"
+        if os.path.exists(app_path):
+            subprocess.Popen(["open", "-a", app_path])
+        else:
+            raise FileNotFoundError(
+                "RcloneBrowser not installed in /Applications. "
+                "Please install it from https://github.com/kapitainsky/RcloneBrowser/releases"
+            )
+    elif sys_platform == "win32":
+        exe_path = r"C:\Program Files\Rclone Browser\RcloneBrowser.exe"
+        if os.path.exists(exe_path):
+            subprocess.Popen([exe_path], shell=True)
+        else:
+            raise FileNotFoundError(
+                "RcloneBrowser not installed in 'C:\\Program Files\\Rclone Browser\\'. "
+                "Please install it from https://github.com/kapitainsky/RcloneBrowser/releases"
+            )
+    else:
+        raise NotImplementedError("Automatic RcloneBrowser launch not supported on this OS.")
+
+
+# ============================================================================
+# AUTENTICACIÓN STS (MinIO) Y GESTIÓN DE CREDENCIALES RCLONE
+# ============================================================================
+
+def get_credentials(endpoint: str, username: str, password: str, durationseconds: int = 86400) -> dict | None:
+    """
+    Obtiene credenciales STS temporales desde MinIO vía LDAP.
+
+    Returns:
+        Dict con AccessKeyId, SecretAccessKey, SessionToken o None si falla.
+    """
+    params = {
+        "Action": "AssumeRoleWithLDAPIdentity",
+        "LDAPUsername": username,
+        "LDAPPassword": password,
+        "DurationSeconds": durationseconds,
+        "Version": "2011-06-15",
+    }
+    r = requests.post(endpoint, params=params)
+
+    print(f"[STS] HTTP {r.status_code}")
+    if r.status_code >= 400:
+        print(f"[STS] Response headers: {dict(r.headers)}")
+        print(f"[STS] Response body:\n{r.text}")
+
+    try:
+        root = etree.fromstring(r.content)
+    except Exception as e:
+        print(f"[STS] ERROR: respuesta no es XML válido: {e}")
+        print(f"[STS] Raw body:\n{r.text}")
+        return None
+
+    ns = {"ns": "https://sts.amazonaws.com/doc/2011-06-15/"}
+
+    err = root.find("ns:Error", ns) or root.find(".//ns:Error", ns)
+    if err is not None:
+        code  = err.findtext("ns:Code", namespaces=ns)
+        msg   = err.findtext("ns:Message", namespaces=ns)
+        reqid = root.findtext(".//ns:RequestId", namespaces=ns)
+        print(f"[STS] Error Code={code} Message={msg} RequestId={reqid}")
+
+    et = root.find("ns:AssumeRoleWithLDAPIdentityResult/ns:Credentials", ns)
+    if et is None:
+        print("[STS] No se encontró Credentials en la respuesta XML.")
+        print(f"[STS] Body (XML):\n{r.text}")
+        print("ERROR: Invalid LDAP credentials")
+        return None
+
+    credentials = {}
+    for el in et:
+        _, _, tag = el.tag.rpartition("}")
+        credentials[tag] = el.text
+    return credentials
+
+
+def configure_rclone(
+    aws_access_key_id: str,
+    aws_secret_access_key: str,
+    aws_session_token: str,
+    endpoint: str,
+    profilename: str = "minio-gordo",
+) -> None:
+    """
+    Crea o actualiza un perfil S3/MinIO en rclone.conf con las credenciales STS.
+    """
+    rclone_config_directory_path, rclone_config_file_path, _ = get_rclone_paths(profilename)
+
+    if os.path.isfile(rclone_config_file_path):
+        print("Rclone config file exist")
+        with open(rclone_config_file_path, "r") as file:
+            full_config_file_string = file.read()
+    else:
+        print("Rclone config file does not exist")
+        isExist = os.path.exists(rclone_config_directory_path)
+        if not isExist:
+            os.makedirs(rclone_config_directory_path)
+            print("The new directory is created!")
+        full_config_file_string = ""
+        open(rclone_config_file_path, "a").close()
+
+    if re.search(re.escape("[" + profilename + "]"), full_config_file_string):
+        print("Updating rclone config file.")
+        res = full_config_file_string.split("[" + profilename + "]", 1)
+        resto = res[1]
+        resto = re.sub(r'endpoint = (.+)',       "endpoint = " + endpoint,             resto, 1)
+        resto = re.sub(r'access_key_id = (.+)',  "access_key_id = " + aws_access_key_id,  resto, 1)
+        resto = re.sub(r'secret_access_key = (.+)', "secret_access_key = " + aws_secret_access_key, resto, 1)
+        resto = re.sub(r'session_token = (.+)',  "session_token = " + aws_session_token, resto, 1)
+        full_config_file_string_editado = res[0] + "[" + profilename + "]" + resto
+    else:
+        print("Creating profile in rclone config file.")
+        resto = (
+            f"\n[{profilename}]\ntype = s3\nprovider = Minio\n"
+            f"endpoint = {endpoint}\nacl = bucket-owner-full-control\nenv_auth = false\n"
+            f"access_key_id = {aws_access_key_id}\n"
+            f"secret_access_key = {aws_secret_access_key}\n"
+            f"session_token = {aws_session_token}\n"
+        )
+        full_config_file_string_editado = full_config_file_string + resto
+
+    with open(rclone_config_file_path, "w") as f:
+        f.write(full_config_file_string_editado)
+
+
+def get_rclone_session_token(profile_name: str, config_path: str | None = None) -> str:
+    """
+    Lee el session_token del perfil rclone dado. Devuelve "" si no existe.
+    """
+    if not config_path:
+        if sys_platform == "darwin":
+            config_path = os.path.expanduser("~/.config/rclone/rclone.conf")
+        elif sys_platform == "win32":
+            config_path = os.path.join(
+                os.path.expanduser("~"), "AppData", "Roaming", "rclone", "rclone.conf"
+            )
+        else:
+            config_path = os.path.expanduser("~/.config/rclone/rclone.conf")
+
+    if not os.path.isfile(config_path):
+        print(f"El fichero de configuracion de rclone {config_path} no existe")
+        return ""
+
+    config = configparser.ConfigParser()
+    config.read(config_path)
+
+    if profile_name not in config:
+        print(f"Perfil '{profile_name}' no encontrado en {config_path}")
+        return ""
+
+    return config[profile_name].get("session_token", "")
+
+
+def get_expiration_from_session_token(session_token: str):
+    """
+    Decodifica el JWT del session_token y devuelve el tiempo restante hasta expiración.
+
+    Returns:
+        timedelta restante o None si no se puede leer.
+    """
+    try:
+        payload = jwt.decode(session_token, options={"verify_signature": False})
+        exp_timestamp = payload.get("exp")
+        if not exp_timestamp:
+            print("El token no contiene 'exp'.")
+            return None
+        exp_time = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc)
+        now = datetime.now(timezone.utc)
+        remaining = exp_time - now
+        print(f"Expira en: {remaining} ({exp_time})")
+        return remaining
+    except Exception as e:
+        print(f"Error decodificando token: {e}")
+        return None
+
+
+def mount_rclone_S3_bucket_to_folder(mount_point_folder: str, servidor_s3_rcloneconfig: str, bucket: str) -> None:
+    """Monta un bucket S3/MinIO completo en una carpeta local."""
+    print(f"Mounting {servidor_s3_rcloneconfig}:{bucket} to {mount_point_folder}")
+    subprocess.Popen([
+        "rclone", "mount",
+        servidor_s3_rcloneconfig + ":" + bucket,
+        mount_point_folder,
+        "--allow-non-empty",
+        "--read-only",
+    ])
+
+
+def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> None:
+    """
+    Monta un prefijo S3 en ~/rclone-mounts/<perfil>/<prefix> y abre el explorador.
+    Muestra error en consola si faltan dependencias (FUSE / WinFSP).
+    """
+    import shutil as _shutil
+
+    sistema = platform.system()
+    if sistema == "Darwin":
+        if not Path("/usr/local/bin/rclone").exists() and not Path("/opt/homebrew/bin/rclone").exists():
+            raise EnvironmentError("FUSE was not detected. Download from: https://osxfuse.github.io")
+    elif sistema == "Windows":
+        if not Path("C:/Program Files/WinFsp/bin/winfsp-ctl.exe").exists():
+            raise EnvironmentError("WinFSP was not detected. Download from: https://winfsp.dev")
+    elif sistema == "Linux":
+        if not _shutil.which("fusermount"):
+            raise EnvironmentError("FUSE was not detected. Install via your package manager.")
+    else:
+        raise EnvironmentError(f"Unsupported OS: {sistema}")
+
+    mount_base = Path.home() / "rclone-mounts" / rclone_profile
+    prefix_sanitizado = s3_prefix.replace("/", "_")
+    mount_point = mount_base / prefix_sanitizado
+    os.makedirs(mount_point, exist_ok=True)
+
+    full_remote = f"{rclone_profile}:{s3_prefix}"
+    comando = ["rclone", "mount", full_remote, str(mount_point), "--read-only", "--allow-non-empty"]
+
+    subprocess.Popen(comando)
+
+    try:
+        if sistema == "Darwin":
+            subprocess.Popen(["open", str(mount_point)])
+        elif sistema == "Windows":
+            subprocess.Popen(["explorer", str(mount_point)])
+        else:
+            subprocess.Popen(["xdg-open", str(mount_point)])
+    except Exception as e:
+        print(f"Mount successful, but could not open file explorer: {e}")
+
+
 # ============================================================================
 # AUTENTICACIÓN Y GESTIÓN DE USUARIOS LDAP
 # ============================================================================
@@ -132,9 +551,6 @@ LDAP_BASE_DN = "o=irbbarcelona"
 def get_ldap_groups(usuario: str) -> list[str]:
     """
     Obtiene los grupos LDAP a los que pertenece un usuario.
-
-    Returns:
-        Lista de nombres de grupos (solo CN, no DN completo).
     """
     server = Server(LDAP_SERVER_URL)
     conn = Connection(server, auto_bind=True)
@@ -159,19 +575,11 @@ def get_ldap_groups(usuario: str) -> list[str]:
 def validar_credenciales_ldap(credenciales_ldap: dict | None) -> bool:
     """
     Valida credenciales LDAP mediante un bind autenticado.
-
-    Args:
-        credenciales_ldap: {"usuario": str, "password": str}
-
-    Returns:
-        True si las credenciales son válidas.
     """
     if not credenciales_ldap:
         return False
-
-    usuario = credenciales_ldap["usuario"]
+    usuario  = credenciales_ldap["usuario"]
     password = credenciales_ldap["password"]
-
     server = Server(LDAP_SERVER_URL)
     try:
         conn = Connection(server, auto_bind=True)
@@ -179,9 +587,7 @@ def validar_credenciales_ldap(credenciales_ldap: dict | None) -> bool:
         if not conn.entries:
             return False
         user_dn = conn.entries[0].entry_dn
-        conn_auth = Connection(
-            server, user=user_dn, password=password, authentication=SIMPLE
-        )
+        conn_auth = Connection(server, user=user_dn, password=password, authentication=SIMPLE)
         if conn_auth.bind():
             conn_auth.unbind()
             conn.unbind()
@@ -197,27 +603,20 @@ def construir_credenciales_smb(
     usar_privilegios_its: bool,
     credenciales_admin: dict | None = None,
 ) -> dict:
-    """
-    Construye las credenciales SMB finales según el modo de operación.
-
-    Returns:
-        {"usuario": str, "password": str}
-    """
+    """Construye las credenciales SMB finales según el modo de operación."""
     if usar_privilegios_its:
         if (
             not credenciales_admin
             or not credenciales_admin["usuario"]
             or not credenciales_admin["password"]
         ):
-            raise ValueError(
-                "Missing admin credentials to construct SMB credentials with ITS privileges."
-            )
+            raise ValueError("Missing admin credentials for ITS privileges.")
         return {
-            "usuario": credenciales_admin["usuario"],
+            "usuario":  credenciales_admin["usuario"],
             "password": credenciales_admin["password"],
         }
     return {
-        "usuario": credenciales_ldap["usuario"],
+        "usuario":  credenciales_ldap["usuario"],
         "password": credenciales_ldap["password"],
     }
 
@@ -239,9 +638,6 @@ def obtener_shares_accesibles(
 ) -> list[dict]:
     """
     Obtiene la lista de shares SMB/CIFS accesibles para el usuario.
-
-    Returns:
-        Lista de dicts {"name", "path", "host"}.
     """
     URL = "https://netapp-api-proxy.sc.irbbarcelona.org/get-shares"
     try:
@@ -297,9 +693,7 @@ def obtener_shares_accesibles(
 # ============================================================================
 
 def obtener_perfiles_rclone_config(config_path=None) -> list[str]:
-    """
-    Lee el rclone.conf y devuelve los nombres de los perfiles configurados.
-    """
+    """Lee el rclone.conf y devuelve los nombres de los perfiles configurados."""
     config_path = obtener_ruta_rclone_conf()
     print(f"Using rclone config path: {config_path}")
     if not os.path.exists(config_path):
@@ -316,26 +710,20 @@ def crear_perfil_rclone_smb(
     username: str,
     password: str,
 ) -> None:
-    """
-    Crea (o reemplaza) un perfil SMB en rclone.conf.
-    """
+    """Crea (o reemplaza) un perfil SMB en rclone.conf."""
     config_path = obtener_ruta_rclone_conf()
     config_path.parent.mkdir(parents=True, exist_ok=True)
-
     config = configparser.ConfigParser()
     config.read(config_path)
-
     if nombre_perfil in config:
         config.remove_section(nombre_perfil)
-
     config[nombre_perfil] = {
-        "type": "smb",
+        "type":   "smb",
         "domain": "IRBBARCELONA",
-        "host": host,
-        "user": username,
-        "pass": subprocess.getoutput(f"rclone obscure {password}"),
+        "host":   host,
+        "user":   username,
+        "pass":   subprocess.getoutput(f"rclone obscure {password}"),
     }
-
     with open(config_path, "w") as f:
         config.write(f)
 
@@ -345,17 +733,12 @@ def actualizar_password_perfiles_rclone(
     nueva_password: str,
     rclone_config_path: str | None = None,
 ) -> None:
-    """
-    Actualiza la contraseña de todos los perfiles SMB del usuario
-    (patrón: {usuario}-smbmount-*).
-    """
+    """Actualiza la contraseña de todos los perfiles SMB del usuario."""
     print(f"Actualizando contraseña para perfiles rclone tipo '{usuario}-smbmount-*'...")
     if not rclone_config_path:
         rclone_config_path = obtener_ruta_rclone_conf()
-
     config = configparser.ConfigParser()
     config.read(rclone_config_path)
-
     try:
         resultado = subprocess.run(
             ["rclone", "obscure", nueva_password],
@@ -365,7 +748,6 @@ def actualizar_password_perfiles_rclone(
     except subprocess.CalledProcessError as e:
         print(f"❌ Error obscuring password: {e.stderr}")
         return
-
     actualizado = False
     for section in config.sections():
         if (
@@ -374,7 +756,6 @@ def actualizar_password_perfiles_rclone(
         ):
             config[section]["pass"] = password_obscurecida
             actualizado = True
-
     if actualizado:
         with open(rclone_config_path, "w") as f:
             config.write(f)
@@ -409,11 +790,7 @@ def obtener_letra_unidad_disponible() -> str | None:
 
 
 def generar_punto_montaje(usuario_actual: str, nombre_share: str) -> str:
-    """
-    Genera el punto de montaje según el SO:
-    - Windows: letra de unidad
-    - Linux/macOS: ~/cifs-mount/{usuario}/{share}
-    """
+    """Genera el punto de montaje según el SO."""
     if platform.system() == "Windows":
         letra = obtener_letra_unidad_disponible()
         if letra:
@@ -428,21 +805,13 @@ def montar_share_rclone(
     punto_montaje: str,
     mounts_activos: list,
 ) -> bool:
-    """
-    Monta un share SMB con rclone (modo lectura, sin cache VFS).
-
-    Returns:
-        True si el montaje fue exitoso, False en caso contrario.
-    """
+    """Monta un share SMB con rclone."""
     rclone_config_path = obtener_ruta_rclone_conf()
     sistema = platform.system()
-
     if sistema != "Windows":
         os.makedirs(punto_montaje, exist_ok=True)
-
     if os.path.ismount(punto_montaje):
-        return True  # ya montado
-
+        return True
     comando = [
         "rclone", "mount",
         f"{nombre_perfil}:/{share_path}", str(punto_montaje),
@@ -452,18 +821,14 @@ def montar_share_rclone(
     ]
     if sistema == "Windows":
         comando.extend(["--volname", nombre_perfil])
-
     mounts_activos.append({
-        "mount_path": str(punto_montaje),
-        "remote_name": nombre_perfil,
+        "mount_path":     str(punto_montaje),
+        "remote_name":    nombre_perfil,
         "remote_subpath": share_path,
     })
-
     print(f"Montando {comando}...")
     try:
-        proceso = subprocess.Popen(
-            comando, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
+        proceso = subprocess.Popen(comando, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(30):
             time.sleep(1)
             if os.path.ismount(punto_montaje):
@@ -476,9 +841,7 @@ def montar_share_rclone(
 
 
 def desmontar_todos_los_shares(usuario_actual: str) -> None:
-    """
-    Desmonta todos los shares SMB del usuario (llamado en atexit).
-    """
+    """Desmonta todos los shares SMB del usuario (llamado en atexit)."""
     sistema = platform.system()
     if sistema == "Windows":
         try:
@@ -504,13 +867,7 @@ def desmontar_todos_los_shares(usuario_actual: str) -> None:
 
 
 def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
-    """
-    Desmonta un punto de montaje concreto (usado al cerrar la ventana de copia).
-
-    Args:
-        mount_point: Ruta del directorio montado.
-        log_fn: Función opcional para emitir mensajes (ej. log_queue.put).
-    """
+    """Desmonta un punto de montaje concreto."""
     def _log(msg):
         print(msg)
         if log_fn:
@@ -518,7 +875,6 @@ def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
 
     if not os.path.isdir(mount_point) or not os.path.ismount(mount_point):
         return
-
     try:
         sistema = platform.system()
         if sistema == "Linux":
@@ -536,9 +892,7 @@ def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
 
 
 def resolver_mount_point_destino(perfil_rclone: str, ruta_destino: str) -> str:
-    """
-    Calcula la ruta local del mount point para un prefijo S3 dado.
-    """
+    """Calcula la ruta local del mount point para un prefijo S3 dado."""
     mount_base = Path.home() / "rclone-mounts" / perfil_rclone
     prefix_sanitizado = ruta_destino.replace("/", "_")
     return str(mount_base / prefix_sanitizado)
@@ -549,9 +903,7 @@ def resolver_mount_point_destino(perfil_rclone: str, ruta_destino: str) -> str:
 # ============================================================================
 
 def construir_tag_string(metadatos_dict: dict) -> str:
-    """
-    Convierte el diccionario de metadatos en una cadena x-amz-tagging URL-encoded.
-    """
+    """Convierte el diccionario de metadatos en una cadena x-amz-tagging URL-encoded."""
     return "&".join(
         f"{k}={urllib.parse.quote(v)}" for k, v in metadatos_dict.items()
     )
@@ -569,22 +921,8 @@ def ejecutar_rclone_copy(
     on_success=None,
     on_finish=None,
 ) -> None:
-    """
-    Lanza rclone copy en un hilo separado.
-
-    Args:
-        origen: Ruta de origen (local o rclone remote).
-        destino_perfil: Nombre del perfil rclone S3.
-        destino_path: Ruta dentro del bucket.
-        rclone_config_path: Ruta al rclone.conf.
-        metadatos_dict: Dict con metadatos a adjuntar como tags S3.
-        flags_adicionales: Lista de flags extra para rclone.
-        num_cores: Número de cores disponibles.
-        log_fn: Función callable para emitir líneas de log.
-        on_success: Callback sin argumentos llamado si returncode == 0.
-        on_finish: Callback sin argumentos llamado siempre al terminar.
-    """
-    tag_string = construir_tag_string(metadatos_dict)
+    """Lanza rclone copy en un hilo separado."""
+    tag_string   = construir_tag_string(metadatos_dict)
     header_value = f"x-amz-tagging:{tag_string}"
 
     comando = [
@@ -656,15 +994,12 @@ def traducir_a_ruta_local_montada(
     mounts_activos: list,
     config_path: str,
 ) -> str:
-    """
-    Si 'origen' es un remote rclone con mount activo, devuelve la ruta local equivalente.
-    """
+    """Si 'origen' es un remote rclone con mount activo, devuelve la ruta local equivalente."""
     if ":" in origen and not origen.startswith("/"):
         try:
             remote, ruta_relativa = origen.split(":", 1)
         except ValueError:
             return origen
-
         ruta_relativa = ruta_relativa.lstrip("/")
         for mount in mounts_activos:
             if all(k in mount for k in ("remote_name", "mount_path", "remote_subpath")):
@@ -682,14 +1017,7 @@ def preparar_origen_para_check(
     mounts_activos: list,
     rclone_config_path: str,
 ) -> tuple[str, str | None]:
-    """
-    Analiza el origen y lo normaliza para rclone check.
-
-    Returns:
-        (origen_ajustado, fichero_o_None)
-        - Si es un fichero, fichero_o_None = nombre del fichero.
-        - Si es directorio, fichero_o_None = None.
-    """
+    """Analiza el origen y lo normaliza para rclone check."""
     if ":" in origen and not origen.startswith("/"):
         remote, ruta_local = origen.split(":", 1)
         ruta_local = ruta_local.lstrip("/")
@@ -722,23 +1050,10 @@ def ejecutar_rclone_check(
     log_fn,
     on_finish=None,
 ) -> None:
-    """
-    Lanza rclone check en un hilo separado.
-
-    Args:
-        origen: Ruta origen (local o remote rclone).
-        destino_perfil: Perfil rclone S3.
-        destino_path: Ruta dentro del bucket.
-        rclone_config_path: Ruta al rclone.conf.
-        flags_adicionales: Flags extra para rclone.
-        mounts_activos: Montajes activos (para traducción de rutas).
-        log_fn: Callable para emitir líneas de log.
-        on_finish: Callback llamado siempre al terminar.
-    """
+    """Lanza rclone check en un hilo separado."""
     origen_ajustado, fichero = preparar_origen_para_check(
         origen, mounts_activos, rclone_config_path
     )
-
     combined_path = Path.home() / "rclone-combined-check.txt"
     combined_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -750,7 +1065,6 @@ def ejecutar_rclone_check(
         "--progress",
         "--stats=1s",
     ]
-
     if fichero:
         comando += ["--one-way", "--copy-links"]
     else:
@@ -765,7 +1079,6 @@ def ejecutar_rclone_check(
             "--exclude", ".snapshots/**",
             "--exclude", "**/.snapshots/**",
         ]
-
     comando.extend(flags_adicionales)
 
     comando_str = " ".join(shlex.quote(arg) for arg in comando)
@@ -796,12 +1109,7 @@ def ejecutar_rclone_check(
 
 
 def verificar_ruta_rclone_accesible(perfil: str, ruta: str, timeout: int = 5) -> bool:
-    """
-    Comprueba si una ruta en un perfil rclone es accesible.
-
-    Returns:
-        True si rclone ls devuelve returncode 0.
-    """
+    """Comprueba si una ruta en un perfil rclone es accesible."""
     if not ruta:
         return False
     try:
@@ -817,7 +1125,7 @@ def verificar_ruta_rclone_accesible(perfil: str, ruta: str, timeout: int = 5) ->
 
 
 # ============================================================================
-# LÓGICA DE INICIALIZACIÓN (orquestación del flujo main)
+# LÓGICA DE INICIALIZACIÓN
 # ============================================================================
 
 def configurar_perfiles_smb_si_faltan(
@@ -825,18 +1133,14 @@ def configurar_perfiles_smb_si_faltan(
     credenciales_smb: dict,
     perfiles_configurados: list,
 ) -> list:
-    """
-    Crea los perfiles rclone SMB que falten y devuelve la lista actualizada.
-    """
+    """Crea los perfiles rclone SMB que falten y devuelve la lista actualizada."""
     shares_no_configurados = [
         share for share in shares_accesibles
         if f"{credenciales_smb['usuario']}-smbmount-{share['host']}"
         not in perfiles_configurados
     ]
-
     if not shares_no_configurados:
         return perfiles_configurados
-
     for share in shares_accesibles:
         nombre_perfil = f"{credenciales_smb['usuario']}-smbmount-{share['host']}"
         if nombre_perfil not in perfiles_configurados:
@@ -848,7 +1152,6 @@ def configurar_perfiles_smb_si_faltan(
                 password=credenciales_smb["password"],
             )
             print(f"Rclone profile created for share {share['name']}: {nombre_perfil}")
-
     return obtener_perfiles_rclone_config()
 
 
@@ -857,9 +1160,7 @@ def montar_shares_seleccionados(
     recursos_cifs_dict: dict,
     mounts_activos: list,
 ) -> list[str]:
-    """
-    Monta los shares seleccionados y devuelve lista de los que fallaron.
-    """
+    """Monta los shares seleccionados y devuelve lista de los que fallaron."""
     fallidos = []
     for recurso in recursos_seleccionados:
         datos = recursos_cifs_dict[recurso]
@@ -878,24 +1179,16 @@ def montar_shares_seleccionados(
     return fallidos
 
 
-def construir_recursos_cifs_dict(
-    shares: list,
-    usuario_actual: str,
-) -> dict:
-    """
-    Construye el diccionario de recursos CIFS con sus datos de montaje.
-
-    Returns:
-        {nombre_share: {"nombre_perfil", "punto_montaje", "remote_path", "remote_host"}}
-    """
+def construir_recursos_cifs_dict(shares: list, usuario_actual: str) -> dict:
+    """Construye el diccionario de recursos CIFS con sus datos de montaje."""
     resultado = {}
     for share in shares:
         nombre_share = share["name"]
-        remote_host = share["host"]
+        remote_host  = share["host"]
         resultado[nombre_share] = {
             "nombre_perfil": f"{usuario_actual}-smbmount-{remote_host}",
-            "punto_montaje": generar_punto_montaje(usuario_actual, nombre_share),
-            "remote_path": nombre_share,
-            "remote_host": remote_host,
+            "punto_montaje":  generar_punto_montaje(usuario_actual, nombre_share),
+            "remote_path":    nombre_share,
+            "remote_host":    remote_host,
         }
     return resultado
