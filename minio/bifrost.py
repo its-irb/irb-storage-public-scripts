@@ -469,6 +469,12 @@ def seleccionar_servidor_minio(root, shares, perfiles_configurados) -> dict:
 
     ttk.Button(ventana, text="Continue", command=continuar).pack(pady=15)
 
+    def cerrar():
+        if messagebox.askokcancel("Exit", "No server selected. Exit application?"):
+            ventana.destroy()
+            root.quit()
+
+    ventana.protocol("WM_DELETE_WINDOW", cerrar)
     _centrar_ventana(ventana)
     ventana.transient(root)
     ventana.grab_set()
@@ -522,6 +528,12 @@ def prompt_credenciales_renovar(root, tiempo_restante: str) -> dict:
     tk.Button(frame_botones, text="Keep current", width=12, command=mantener).grid(row=0, column=0, padx=10)
     tk.Button(frame_botones, text="Renew",         width=12, command=renovar).grid(row=0, column=1, padx=10)
 
+    def cerrar():
+        if messagebox.askokcancel("Exit", "No action selected. Exit application?"):
+            ventana.destroy()
+            root.quit()
+
+    ventana.protocol("WM_DELETE_WINDOW", cerrar)
     _centrar_ventana(ventana)
     ventana.transient(root)
     ventana.grab_set()
@@ -870,8 +882,14 @@ def main():
             root, "Enter your username", "Enter your username:",
             None if PERMITIR_USUARIO_CUSTOM else getpass.getuser(),
         )
+        if credenciales_ldap is None:
+            # Usuario cerró la ventana o canceló
+            root.quit()
+            return
         if backend.validar_credenciales_ldap(credenciales_ldap):
             usuario_ldap = credenciales_ldap["usuario"]
+        else:
+            messagebox.showerror("Authentication failed", "Invalid credentials, please try again.")
     print(f"LDAP credentials obtained. User: {usuario_ldap}")
 
     # ── Paso 2: Grupos y privilegios ────────────────────────────────────────
@@ -929,6 +947,11 @@ def main():
         servidor_s3_rcloneconfig = eleccion["perfil"]
         endpoint               = eleccion["endpoint"]
 
+        if not servidor_s3_rcloneconfig or not endpoint:
+            messagebox.showerror("Error", "No MinIO server was selected. Closing.")
+            root.quit()
+            return
+
         check_rclone_installation()
 
         current_session_token   = backend.get_rclone_session_token(servidor_s3_rcloneconfig)
@@ -939,6 +962,11 @@ def main():
         )
 
         respuesta = prompt_credenciales_renovar(root, current_expiration_time)
+
+        if respuesta["accion"] is None:
+            messagebox.showerror("Error", "No action was selected. Closing.")
+            root.quit()
+            return
 
         if respuesta["accion"] == "renovar":
             credentials = backend.get_credentials(
