@@ -38,15 +38,16 @@ jobs:
         run: |
           mkdir -p minio/rclone-bin
 
+          RCLONE_VERSION="v1.71.0"
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            curl -L "https://downloads.rclone.org/rclone-current-windows-amd64.zip" -o rclone.zip
+            curl -L "https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-windows-amd64.zip" -o rclone.zip
             unzip -j rclone.zip "*/rclone.exe" -d minio/rclone-bin/
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            curl -L "https://downloads.rclone.org/rclone-current-osx-amd64.zip" -o rclone.zip
+            curl -L "https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-osx-amd64.zip" -o rclone.zip
             unzip -j rclone.zip "*/rclone" -d minio/rclone-bin/
             chmod +x minio/rclone-bin/rclone
           elif [[ "$RUNNER_OS" == "Linux" ]]; then
-            curl -L "https://downloads.rclone.org/rclone-current-linux-amd64.zip" -o rclone.zip
+            curl -L "https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.zip" -o rclone.zip
             unzip -j rclone.zip "*/rclone" -d minio/rclone-bin/
             chmod +x minio/rclone-bin/rclone
           fi
@@ -122,7 +123,7 @@ jobs:
     steps:
       - name: Instalar dependencias básicas
         run: |
-          dnf install -y python3 python3-pip python3-devel gcc make glibc-devel python3-tkinter unzip
+          dnf install -y python3 python3-pip python3-devel gcc make glibc-devel python3-tkinter unzip curl
           pip3 install --upgrade pip setuptools wheel pyinstaller
 
       - name: Checkout repo
@@ -136,7 +137,7 @@ jobs:
       - name: Descargar rclone para Linux (cluster)
         run: |
           mkdir -p minio/rclone-bin
-          curl -L "https://downloads.rclone.org/rclone-current-linux-amd64.zip" -o rclone.zip
+          curl -L "https://downloads.rclone.org/v1.71.0/rclone-v1.71.0-linux-amd64.zip" -o rclone.zip
           unzip -j rclone.zip "*/rclone" -d minio/rclone-bin/
           chmod +x minio/rclone-bin/rclone
           echo "Rclone downloaded:"

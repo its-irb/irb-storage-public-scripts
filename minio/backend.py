@@ -501,7 +501,6 @@ def get_credentials(endpoint: str, username: str, password: str, durationseconds
         credentials[tag] = el.text
     return credentials
 
-
 def configure_rclone(
     aws_access_key_id: str,
     aws_secret_access_key: str,
