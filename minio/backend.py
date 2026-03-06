@@ -134,10 +134,11 @@ def check_update_version(force_update: bool = False) -> str | None:
     Returns:
         Tag de la versión más reciente si hay actualización, None en caso contrario.
     """
-    if force_update:
-        print("⚠️ Force update mode enabled (--update flag detected)")
-        print("Simulating new version available: 999.999.999")
-        return "v999.999.999"
+    # Por si se quiere probar el update manualmente durante el desarrollo sin necesidad de subir una nueva release:
+    # if force_update:
+    #     print("⚠️ Force update mode enabled (--update flag detected)")
+    #     print("Simulating new version available: 999.999.999")
+    #     return "v999.999.999"
 
     print(f"Version of this executable: {__version__}")
     try:
