@@ -1,3 +1,379 @@
+
+
+name: Build Multiple Executables and Upload to GitHub Releases on: push: paths: - "minio/*.py" # Se ejecuta si cualquier script Python cambia # - "minio/windows-gui/*.py" # Se ejecuta si cualquier script Python cambia branches: - main - release -
+
+pasted
+
+
+from __future__ import annotations """ IRB MinIO Rclone Data Transfer Tool — BACKEND ============================================== Contiene toda la lógica de negocio sin dependencias de GUI (tkinter). Módulos cubiertos: - Constantes y versión - Comprobación de versión / actualizaciones
+
+pasted
+
+
+from __future__ import annotations """ IRB MinIO Rclone Data Transfer Tool — FRONTEND =============================================== Contiene toda la interfaz gráfica (tkinter). No contiene lógica de negocio: delega en backend.py. Flujo de ventanas: main() → check_and_handle_upd
+
+pasted
+
+
+""" Script para generar credenciales temporales de acceso al servidor de Minio de IRB Barcelona. Si se pasa el flag -r o --rclone, se generará un perfil en el fichero de configuración de rclone En caso contrario, se generarán variables de entorno para AWS CLI y s5cmd. """ import backend impo
+
+pasted
+
+Hola!! Mira tengo un repo y quiero hacer un cambio, y es que no dependa del rclone que tenga el propio usuario en su local. Para eso, le quiero pasar los .zips para cada uno Mac, Linux y Windows, que los descomprima y que ejecute esa version de rclone. Como lo ves? Crees que lo puedes hacer?
+
+12:34 PM
+Hola! Sí, perfectamente viable. La idea sería:
+
+Empaquetar el binario de rclone junto con el ejecutable (ya sea bundleándolo dentro del PyInstaller o descargándolo en runtime)
+En runtime, detectar si hay un rclone "embebido" y priorizarlo sobre el del sistema
+Antes de decidir el approach, déjame hacerte un par de preguntas:
+
+Uy, parece que se cerró sin selección. Déjame plantearlo en texto:
+
+Opción A — Bundleado con PyInstaller (--add-data rclone.exe;.): el ejecutable final lo lleva todo dentro, pero los builds de CI necesitan descargar el rclone correcto para cada plataforma antes de compilar. Resultado: un único archivo autocontenido. ✅ Más cómodo para el usuario final.
+
+Opción B — Descarga en runtime: al arrancar, si no detecta rclone en el PATH, lo descarga de rclone.org y lo guarda en ~/.config/irb-tools/rclone (o similar). Similar a lo que ya tienes con el auto-update del propio bifrost.
+
+Opción C — ZIP al lado del ejecutable: el usuario descarga bifrost + rclone-vX.zip desde la Release, y bifrost los extrae al primer uso. Más transparente pero más pasos para el usuario.
+
+Mi recomendación sería Opción A para bifrost (GUI) ya que simplifica muchísimo la experiencia de usuario, y si quieres también para los CLIs. El workflow de CI ya descarga cosas, solo habría que añadir un step que descargue el rclone apropiado para cada matrix.os antes del PyInstaller.
+
+¿Qué opción prefieres, y afecta a todos los scripts o solo a bifrost?
+
+P: ¿Cómo quieres distribuir el binario de rclone?
+R: Bundleado dentro del .exe/.bin (PyInstaller lo incluye)
+
+P: ¿Qué herramientas están afectadas? (Selecciona todas las opciones aplicables)
+R: Todos los scripts del repo
+
+12:35 PM
+Perfecto! Entonces el plan es:
+
+En CI: antes de PyInstaller, descargar el rclone apropiado para cada plataforma (windows, linux, macos) + para build-rocky (linux también)
+En backend.py: modificar detect_rclone_installed() y todas las llamadas a rclone para que primero busquen el rclone bundleado (extraído junto al ejecutable) y si no, fallen con un mensaje claro
+En PyInstaller: usar --add-data para incluir el zip/binario de rclone
+Vamos a ello. Los cambios son en dos archivos: el workflow de CI y backend.py.
+
+Cambios en backend.py
+El cambio clave es añadir una función get_rclone_executable() que resuelva la ruta correcta, y usarla en todas las llamadas a subprocess con rclone.
+
+
+Leer el skill de frontend por si acaso, pero en realidad esto es backend puro
+Leer el skill de frontend por si acaso, pero en realidad esto es backend puro
+Bien, sin skills relevantes aquí. Vamos directamente a los cambios:
+
+1. backend.py — añadir get_rclone_executable() y parchear todas las llamadas
+El diff relevante es:
+
+python
+# AÑADIR justo después de los imports, antes de CONSTANTES
+def get_rclone_executable() -> str:
+    """
+    Devuelve la ruta al ejecutable rclone.
+    Prioridad:
+      1. Bundleado junto al ejecutable compilado (PyInstaller sys._MEIPASS o directorio del exe)
+      2. rclone en el PATH del sistema
+    """
+    # 1. Si estamos en un binario compilado con PyInstaller
+    if getattr(sys, 'frozen', False):
+        base = Path(sys._MEIPASS)  # directorio temporal donde PyInstaller extrae los datos
+        rclone_name = "rclone.exe" if sys_platform == "win32" else "rclone"
+        bundled = base / rclone_name
+        if bundled.exists():
+            return str(bundled)
+
+    # 2. Fallback: rclone en el PATH
+    import shutil
+    rclone_in_path = shutil.which("rclone")
+    if rclone_in_path:
+        return rclone_in_path
+
+    raise EnvironmentError(
+        "rclone not found. Bundle it alongside this executable or install it from https://rclone.org/downloads/"
+    )
+Luego hay que sustituir todas las apariciones de ["rclone", ...] por [get_rclone_executable(), ...] y "rclone" suelto en los subprocess por la función. Son bastantes ocurrencias — lo hago con el archivo completo:
+
+
+Backend.py con get_rclone_executable() y todas las llamadas a subprocess parcheadas
+Backend.py con get_rclone_executable() y todas las llamadas a subprocess parcheadas
+Ahora el workflow de CI:
+
+
+Archivo creado, ejecutó un comando
+Archivo creado, ejecutó un comando
+Todo correcto. Copio a outputs:
+
+
+Ejecutó un comando, leyó un archivo
+Ejecutó un comando, leyó un archivo
+Aquí tienes los dos archivos. Resumen de qué cambió exactamente:
+
+backend.py — nueva función get_rclone_executable() al principio del fichero, con 3 niveles de fallback:
+
+sys._MEIPASS — el directorio temporal donde PyInstaller extrae los --add-data en runtime
+Directorio del propio ejecutable — útil si alguien pone rclone al lado manualmente
+PATH del sistema — fallback para cuando se ejecuta como script Python en desarrollo
+Todas las llamadas a subprocess con "rclone" usan ahora get_rclone_executable() en lugar del string hardcodeado.
+
+build-and-release.yml — dos cambios:
+
+Nuevo step "Descargar rclone para la plataforma actual" (antes del build) que descarga el zip oficial de rclone.org y extrae solo el binario a minio/rclone-bin/
+El step de PyInstaller añade --add-data "rclone-bin/rclone:." (o rclone.exe;. en Windows) para bundlearlo dentro del .exe/.bin
+Un detalle importante: en build-rocky también he añadido unzip y curl al dnf install del contenedor, que antes no estaban y harían fallar el nuevo step de descarga.
+
+Backend
+PY 
+Build and release
+YML 
+que cojones es getattr??
+
+12:53 PM
+getattr es una función built-in de Python para acceder a atributos de un objeto dinámicamente, como si usaras la notación de punto pero con un string.
+
+python
+getattr(objeto, "atributo", valor_por_defecto)
+# equivale a:
+objeto.atributo  # pero si no existe, devuelve valor_por_defecto en vez de explotar
+En el código concreto:
+
+python
+if getattr(sys, "frozen", False):
+Esto es lo mismo que sys.frozen, pero sys.frozen no existe normalmente — solo lo añade PyInstaller cuando compila el ejecutable. Si intentaras hacer sys.frozen directamente y el script se ejecuta como Python normal, te daría AttributeError. Con getattr(..., False) le dices "si no existe, dame False".
+
+Es la forma estándar de detectar si estás dentro de un binario compilado con PyInstaller. Lo verás en casi todo proyecto que usa PyInstaller.
+
+que ha pasado aqui? está usando mi rclone de mi local o el que se descarga con el ejecutable? (venv) PS C:\Users\operez\irb-storage-public-scripts> python3 minio/bifrost.py
+BACKEND PATH: C:\Users\operez\irb-storage-public-scripts\minio\backend.py
+ℹ️ Running as Python script (not compiled). Skipping update check.
+LDAP credentials obtained. User: operez
+User's LDAP groups: ['its', 'gsync_irbstaff', 'mt_users']
+Using ITS admin privileges: False
+SMB user: operez
+Using rclone config path: C:\Users\operez\AppData\Roaming\rclone\rclone.conf
+Accessible shares: ['admin', 'backup', 'DocSign_its', 'images', 'its', 'lmb', 'sbo_hr', 'sbo_test_hr', 'software', 'sysadm', 'www_moumut']
+Configured rclone profiles: ['irbminio', 'operez-smbmount-filer12-nas1.sc.irbbarcelona.org']
+Rclone is installed
+Perfil 'minio-archive' no encontrado en C:\Users\operez\AppData\Roaming\rclone\rclone.conf
+[STS] HTTP 200
+C:\Users\operez\AppData\Roaming\rclone\rclone.conf
+Rclone config file exist
+Creating profile in rclone config file.
+C:\Users\operez\AppData\Roaming\rclone\rclone.conf
+(venv) PS C:\Users\operez\irb-storage-public-scripts>
+
+Mostrar más
+12:56 PM
+Está usando el rclone de tu local, que es exactamente lo que debe pasar.
+
+Recuerda la lógica de get_rclone_executable():
+
+sys.frozen → solo existe en el binario compilado con PyInstaller ❌ (estás ejecutando con python3)
+rclone al lado del script → no hay ningún rclone.exe en minio/ ❌
+rclone en el PATH del sistema → ✅ lo encuentra y lo usa
+Cuando compiles con PyInstaller y distribuyas el .exe, el bundleado estará en sys._MEIPASS y tendrá prioridad. En desarrollo siempre caerá al PATH, que es el comportamiento correcto — no necesitas tener el rclone descargado localmente en el repo para desarrollar.
+
+oye no me sale el build-rocky, me ha salido este error Run dnf install -y python3 python3-pip python3-devel gcc make glibc-devel python3-tkinter unzip curl
+Rocky Linux 9 - BaseOS                           31 MB/s |  16 MB     00:00
+Rocky Linux 9 - AppStream                        29 MB/s |  16 MB     00:00
+Rocky Linux 9 - Extras                           78 kB/s |  17 kB     00:00
+Package python3-3.9.18-1.el9_3.x86_64 is already installed.
+Error:
+(try to add '--allowerasing' to command line to replace conflicting packages or '--skip-broken' to skip uninstallable packages or '--nobest' to use not only best candidate packages)
+ Problem: problem with installed package curl-minimal-7.76.1-26.el9_3.2.0.1.x86_64
+  - package curl-minimal-7.76.1-26.el9_3.2.0.1.x86_64 from @System conflicts with curl provided by curl-7.76.1-35.el9_7.3.x86_64 from baseos
+  - package curl-minimal-7.76.1-34.el9.x86_64 from baseos conflicts with curl provided by curl-7.76.1-35.el9_7.3.x86_64 from baseos
+  - package curl-minimal-7.76.1-35.el9_7.3.x86_64 from baseos conflicts with curl provided by curl-7.76.1-35.el9_7.3.x86_64 from baseos
+  - cannot install the best candidate for the job
+Error: Process completed with exit code 1. Tengo un colega que me dice que no hace falta instalar curl? como lo ves
+
+Mostrar más
+1:04 PM
+Tu colega tiene razón. Rocky Linux 9 ya tiene curl-minimal instalado que hace exactamente lo mismo para descargar el zip. El problema es que curl (full) y curl-minimal entran en conflicto.
+
+Simplemente quita curl del dnf install:
+
+yaml
+- name: Instalar dependencias básicas
+  run: |
+    dnf install -y python3 python3-pip python3-devel gcc make glibc-devel python3-tkinter unzip
+    pip3 install --upgrade pip setuptools wheel pyinstaller
+curl-minimal ya está disponible en el contenedor y el comando curl -L ... del step de descarga de rclone funcionará igual.
+
+esto es necesario? 
+
+      - name: Descargar rclone para Linux (cluster)
+        run: |
+          mkdir -p minio/rclone-bin
+          curl -L "https://downloads.rclone.org/rclone-current-linux-amd64.zip" -o rclone.zip
+          unzip -j rclone.zip "*/rclone" -d minio/rclone-bin/
+          chmod +x minio/rclone-bin/rclone
+          echo "Rclone downloaded:"
+          ls -lah minio/rclone-bin/
+Mostrar más
+1:08 PM
+Sí, es necesario. El build-rocky corre en un contenedor Rocky Linux 9 aislado, así que no tiene acceso al rclone que descargó el job build-cli. Cada job parte de cero.
+
+Si no lo descargas aquí, el --add-data "rclone-bin/rclone:." del PyInstaller fallará porque el fichero no existe.
+
+oye ahora cuando hago un push en mi rama no se crean los ejecutables en Actions .((( que hago??
+
+1:13 PM
+El workflow solo se ejecuta en estas ramas:
+
+yaml
+branches:
+  - main
+  - release
+  - develop
+  - feature/*
+¿En qué rama estás trabajando? Si es algo como operez/fix-rclone o similar, no matchea ningún patrón. Tienes dos opciones:
+
+También puedes lanzarlo manualmente ahora mismo sin tocar nada — en GitHub Actions tienes el botón "Run workflow" porque el workflow_dispatch ya está configurado. ¿Cuál prefieres?
+
+estoy en feature/desacoplar-front
+
+1:14 PM
+Entonces sí debería matchear feature/*... El problema debe ser otro.
+
+¿Los archivos .py que modificaste están dentro de minio/? Porque el trigger también tiene este filtro:
+
+yaml
+paths:
+  - "minio/*.py"
+Si hiciste cambios en archivos fuera de minio/ (o en subdirectorios como minio/windows-gui/), el workflow no se dispara. ¿Qué archivos tocaste en el último push?
+
+no, dentro de minio/ hay backend.py, bifrost.py y minio-sts-credentials-requests.py. Y fuera del minio, en .github\workflows hay el "main.yml" qye lo he cambiado
+
+1:15 PM
+Ahí está el problema — solo cambiaste el .yml del workflow, no ningún .py dentro de minio/. Y el trigger solo escucha cambios en minio/*.py, así que no se disparó.
+
+Soluciones:
+
+Toca cualquier .py de minio/ en el próximo commit (aunque sea añadir un comentario)
+O lánzalo manualmente ahora mismo — en GitHub Actions, entra al workflow y dale a "Run workflow" → selecciona tu rama feature/desacoplar-front. Ya tienes workflow_dispatch configurado para esto exactamente.
+La opción 2 es la más rápida ahora mismo.
+
+oye me ha vuelto a fallar el rocky Run mkdir -p minio/rclone-bin
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  3 26.8M    3  896k    0     0   716k      0  0:00:38  0:00:01  0:00:37  716k
+ 76 26.8M   76 20.6M    0     0  9562k      0  0:00:02  0:00:02 --:--:-- 9558k
+100 26.8M  100 26.8M    0     0  11.3M      0  0:00:02  0:00:02 --:--:-- 11.3M
+/__w/_temp/991202ae-9cad-48e5-963b-6072cad15c37.sh: line 3: unzip: command not found
+Error: Process completed with exit code 127.
+
+Mostrar más
+1:18 PM
+Falta unzip en el dnf install. Al quitar curl te cargaste también unzip por error. Añádelo:
+
+yaml
+- name: Instalar dependencias básicas
+  run: |
+    dnf install -y python3 python3-pip python3-devel gcc make glibc-devel python3-tkinter unzip
+    pip3 install --upgrade pip setuptools wheel pyinstaller
+hola, es que en la version de antes se tiene que instalar fuse-t me ha dicho mi compi. Antes hacia esto. def check_rclone_installation():
+    # Compruebo si está instalado rclone y si está en el path ###########################################################
+    try:
+        subprocess.check_call(["rclone", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as error:
+        print("rclone is not installed")
+        if platform == "linux" or platform == "linux2":
+            # linux
+            print("linux")
+            sys.exit("Linux is not supported yet. Please install rclone and fuse-t manually")
+        elif platform == "darwin":
+            if not is_brew_installed():
+                from tkinter import messagebox
+                messagebox.showerror("Rclone is not installed", "❌ Rclone is not installed, and Homebrew is not installed also. Please, install hombrew and run again this program to install rclone on your computer. To install homebrew, follow the guide at https://brew.sh/")
+                sys.exit("❌ Rclone is not installed, and Homebrew is not installed also. Please, install hombrew and run again this program to install rclone on your computer. To install homebrew, follow the guide at https://brew.sh/")
+            # OS X
+            print("OS X")
+            # instalamos fuse-t
+            print("brew tap macos-fuse-t/homebrew-cask")
+            call = os.system("brew tap macos-fuse-t/homebrew-cask")
+            print("brew install fuse-t")
+            call = os.system("brew install fuse-t")
+            # instalamos rclone
+            print("sudo -v ; curl https://rclone.org/install.sh | sudo bash")
+            call = os.system("sudo -v ; curl https://rclone.org/install.sh | sudo bash")
+        elif platform == "win32":
+            print("Windows...")
+            from tkinter import messagebox
+            messagebox.showerror("Rclone.exe not found", "Download, uncompress zip file and put rclone.exe in the same folder as this executable file. Download rclone from https://rclone.org/downloads/.\r Also download and install winsfp from https://winfsp.dev/rel/")
+            sys.exit("Download, uncompress zip file and put rclone.exe in the same folder as this executable file. Download rclone from https://rclone.org/downloads/.\r Also download and install winsfp from https://winfsp.dev/rel/")
+            # Windows...
+    else:
+        print("Rclone is installed") eS QUE ESTAMOS TENIENDO PROBLEMAS CON FUSE CON UN MAC
+
+Mostrar más
+1:32 PM
+Entiendo — antes instalaba fuse-t automáticamente si rclone no estaba, pero ahora que rclone va bundleado, check_rclone_installation() en bifrost.py ya no se llega a ejecutar porque detect_rclone_installed() siempre devuelve True (encuentra el bundleado).
+
+El problema es que fuse-t es independiente de rclone — se necesita para que rclone mount funcione en macOS, y ahora nadie lo instala.
+
+La solución es añadir en backend.py una función que compruebe e instale fuse-t en macOS, y llamarla desde bifrost.py antes de intentar montar. Algo así:
+
+python
+def ensure_fuse_macos() -> None:
+    """Instala fuse-t en macOS si no está presente."""
+    if _check_fuse_macos():
+        return
+    if not is_brew_installed():
+        raise EnvironmentError(
+            "macFUSE not detected and Homebrew is not installed. "
+            "Please install Homebrew first: https://brew.sh/"
+        )
+    print("fuse-t not detected, installing via Homebrew...")
+    os.system("brew tap macos-fuse-t/homebrew-cask")
+    os.system("brew install fuse-t")
+    if not _check_fuse_macos():
+        raise EnvironmentError(
+            "fuse-t installation failed. Please install it manually: "
+            "brew tap macos-fuse-t/homebrew-cask && brew install fuse-t"
+        )
+Y en bifrost.py, dentro de iniciar_aplicacion(), después de check_rclone_installation():
+
+python
+if sys.platform == "darwin":
+    try:
+        backend.ensure_fuse_macos()
+    except EnvironmentError as e:
+        messagebox.showerror("FUSE not available", str(e))
+        os._exit(1)
+¿Quieres que te genere los dos archivos actualizados con este cambio?
+
+reazme el backend y el bifrost porfi y asi hago copia pega
+
+1:34 PM
+
+Visualizó un archivo, archivo editado
+Visualizó un archivo, archivo editado
+Ahora el bifrost. Lo tengo en el documento original del contexto, lo genero completo con el cambio:
+
+
+Archivo creado, leyó un archivo
+Archivo creado, leyó un archivo
+Los cambios concretos respecto a la versión anterior:
+
+backend.py — nueva función ensure_fuse_macos() justo después de install_rclone_macos(). Comprueba si fuse-t está instalado con _check_fuse_macos() (que ya existía), y si no lo está intenta instalarlo vía Homebrew. Si tampoco hay Homebrew, lanza un EnvironmentError con instrucciones claras.
+
+bifrost.py — check_rclone_installation() ahora tiene un bloque al final que, independientemente de si rclone estaba bundleado o en el PATH, llama a backend.ensure_fuse_macos() en macOS. Así fuse-t siempre se comprueba/instala antes de que el usuario pueda intentar montar nada. También he renombrado el comentario del paso 5 en iniciar_aplicacion para que quede más claro.
+
+Backend
+PY 
+Bifrost
+PY 
+
+
+
+
+
+Claude es IA y puede cometer errores. Por favor, verifica las respuestas.
+Bifrost · PY
+Copiar
+
 from __future__ import annotations
 
 """
@@ -35,7 +411,6 @@ import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, filedialog
 
 import backend
-# afegeix això a bifrost.py just després de "import backend"
 print("BACKEND PATH:", backend.__file__)
 
 
@@ -176,39 +551,47 @@ exit /b 1
 
 def check_rclone_installation() -> None:
     """
-    Comprueba si rclone está instalado. Si no lo está, intenta instalarlo
-    (macOS vía Homebrew) o muestra un error con instrucciones (Windows/Linux).
+    Comprueba si rclone está disponible (bundleado o en PATH).
+    En macOS, además instala fuse-t si no está presente.
     """
-    if backend.detect_rclone_installed():
-        print("Rclone is installed")
-        return
+    if not backend.detect_rclone_installed():
+        print("rclone is not installed")
+        sistema = sys.platform
 
-    print("rclone is not installed")
-    sistema = sys.platform
+        if sistema in ("linux", "linux2"):
+            sys.exit("Linux is not supported yet. Please install rclone and fuse-t manually")
 
-    if sistema in ("linux", "linux2"):
-        sys.exit("Linux is not supported yet. Please install rclone and fuse-t manually")
+        elif sistema == "darwin":
+            if not backend.is_brew_installed():
+                messagebox.showerror(
+                    "Rclone is not installed",
+                    "❌ Rclone is not installed, and Homebrew is not installed either. "
+                    "Please install Homebrew first and run this program again. "
+                    "Guide: https://brew.sh/",
+                )
+                sys.exit("❌ Rclone not found and Homebrew not available.")
+            print("Installing rclone via Homebrew...")
+            backend.install_rclone_macos()
 
-    elif sistema == "darwin":
-        if not backend.is_brew_installed():
+        elif sistema == "win32":
             messagebox.showerror(
-                "Rclone is not installed",
-                "❌ Rclone is not installed, and Homebrew is not installed either. "
-                "Please install Homebrew first and run this program again. "
-                "Guide: https://brew.sh/",
+                "Rclone.exe not found",
+                "Download, uncompress the zip file and put rclone.exe in the same folder "
+                "as this executable. Download rclone from https://rclone.org/downloads/\r\n"
+                "Also download and install WinFsp from https://winfsp.dev/rel/",
             )
-            sys.exit("❌ Rclone not found and Homebrew not available.")
-        print("Installing rclone via Homebrew...")
-        backend.install_rclone_macos()
+            sys.exit("Download rclone.exe and place it in the same folder as this executable.")
 
-    elif sistema == "win32":
-        messagebox.showerror(
-            "Rclone.exe not found",
-            "Download, uncompress the zip file and put rclone.exe in the same folder "
-            "as this executable. Download rclone from https://rclone.org/downloads/\r\n"
-            "Also download and install WinFsp from https://winfsp.dev/rel/",
-        )
-        sys.exit("Download rclone.exe and place it in the same folder as this executable.")
+    else:
+        print("Rclone is installed")
+
+    # Aunque rclone esté bundleado, en macOS fuse-t es necesario para montar
+    if sys.platform == "darwin":
+        try:
+            backend.ensure_fuse_macos()
+        except EnvironmentError as e:
+            messagebox.showerror("fuse-t not available", str(e))
+            sys.exit(1)
 
 
 def show_error(message: str) -> None:
@@ -226,6 +609,7 @@ def alert_gui(version: str) -> None:
         f"Version {version} is now available.\n"
         f"Download it from GitHub: https://github.com/{backend.REPO}/releases/latest.",
     )
+
 
 # ============================================================================
 # DIÁLOGOS GENÉRICOS
@@ -873,6 +1257,7 @@ def main():
             messagebox.showerror("Error", "No MinIO server was selected. Closing.")
             os._exit(0)
 
+        # Paso 5: Verificar rclone y fuse-t (macOS)
         check_rclone_installation()
 
         current_session_token   = backend.get_rclone_session_token(servidor_s3_rcloneconfig)

@@ -321,11 +321,40 @@ def detect_rclone_installed() -> bool:
     except Exception:
         return False
 
+
 def install_rclone_macos() -> None:
     """Instala rclone y fuse-t en macOS vía Homebrew (llamadas bloqueantes)."""
     os.system("brew tap macos-fuse-t/homebrew-cask")
     os.system("brew install fuse-t")
     os.system("sudo -v ; curl https://rclone.org/install.sh | sudo bash")
+
+
+def ensure_fuse_macos() -> None:
+    """
+    Comprueba si fuse-t está instalado en macOS y lo instala vía Homebrew si no.
+
+    Raises:
+        EnvironmentError: si fuse-t no está y no se puede instalar.
+    """
+    if _check_fuse_macos():
+        print("✅ fuse-t already installed.")
+        return
+    print("⚠️ fuse-t not detected. Installing via Homebrew...")
+    if not is_brew_installed():
+        raise EnvironmentError(
+            "macFUSE/fuse-t not detected and Homebrew is not installed. "
+            "Please install Homebrew first: https://brew.sh/ — "
+            "then run: brew tap macos-fuse-t/homebrew-cask && brew install fuse-t"
+        )
+    os.system("brew tap macos-fuse-t/homebrew-cask")
+    os.system("brew install fuse-t")
+    if not _check_fuse_macos():
+        raise EnvironmentError(
+            "fuse-t installation failed. Please install it manually:\n"
+            "  brew tap macos-fuse-t/homebrew-cask\n"
+            "  brew install fuse-t"
+        )
+
 
 def open_file(path: str) -> None:
     """Abre un directorio en el explorador de archivos del SO."""
