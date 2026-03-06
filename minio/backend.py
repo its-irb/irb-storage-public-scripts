@@ -425,20 +425,12 @@ def _check_winfsp_windows() -> bool:
 
 
 def _check_fuse_macos() -> bool:
-    """Detecta macFUSE / osxfuse en macOS."""
-    if any(p.exists() for p in (
-        Path("/Library/Filesystems/macfuse.fs"),
-        Path("/Library/Filesystems/osxfuse.fs"),
-        Path("/usr/local/lib/libfuse.dylib"),
-    )):
-        return True
-    try:
-        result = subprocess.run(["kextstat"], capture_output=True, text=True, timeout=5)
-        if "fuse" in result.stdout.lower():
-            return True
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-    return False
+    """Detecta específicamente fuse-t en macOS (no macFUSE ni osxfuse)."""
+    return any(p.exists() for p in (
+        Path("/usr/local/lib/libfuse-t.dylib"),
+        Path("/Library/Filesystems/fuse-t.fs"),
+        Path("/usr/local/include/fuse-t"),
+    ))
 
 
 def _check_fuse_linux() -> bool:
