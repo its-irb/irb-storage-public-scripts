@@ -321,13 +321,11 @@ def detect_rclone_installed() -> bool:
     except Exception:
         return False
 
-
 def install_rclone_macos() -> None:
     """Instala rclone y fuse-t en macOS vía Homebrew (llamadas bloqueantes)."""
     os.system("brew tap macos-fuse-t/homebrew-cask")
     os.system("brew install fuse-t")
     os.system("sudo -v ; curl https://rclone.org/install.sh | sudo bash")
-
 
 def open_file(path: str) -> None:
     """Abre un directorio en el explorador de archivos del SO."""
