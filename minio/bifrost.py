@@ -227,7 +227,6 @@ def alert_gui(version: str) -> None:
         f"Download it from GitHub: https://github.com/{backend.REPO}/releases/latest.",
     )
 
-
 # ============================================================================
 # DIÁLOGOS GENÉRICOS
 # ============================================================================
