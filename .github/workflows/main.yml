@@ -3,14 +3,13 @@ name: Build Multiple Executables and Upload to GitHub Releases
 on:
   push:
     paths:
-      - "minio/*.py"  # Se ejecuta si cualquier script Python cambia
-      # - "minio/windows-gui/*.py"  # Se ejecuta si cualquier script Python cambia
+      - "minio/*.py"
     branches:
       - main
       - release
       - develop
       - feature/*
-  workflow_dispatch:  # Permite ejecución manual
+  workflow_dispatch:
 
 jobs:
   build-cli:
@@ -34,6 +33,27 @@ jobs:
           pip install -r minio/pip-requirements.txt
           pip install pyinstaller
 
+      - name: Descargar rclone para la plataforma actual
+        shell: bash
+        run: |
+          mkdir -p minio/rclone-bin
+
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            curl -L "https://downloads.rclone.org/rclone-current-windows-amd64.zip" -o rclone.zip
+            unzip -j rclone.zip "*/rclone.exe" -d minio/rclone-bin/
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            curl -L "https://downloads.rclone.org/rclone-current-osx-amd64.zip" -o rclone.zip
+            unzip -j rclone.zip "*/rclone" -d minio/rclone-bin/
+            chmod +x minio/rclone-bin/rclone
+          elif [[ "$RUNNER_OS" == "Linux" ]]; then
+            curl -L "https://downloads.rclone.org/rclone-current-linux-amd64.zip" -o rclone.zip
+            unzip -j rclone.zip "*/rclone" -d minio/rclone-bin/
+            chmod +x minio/rclone-bin/rclone
+          fi
+
+          echo "Rclone downloaded:"
+          ls -lah minio/rclone-bin/
+
       - name: Depurar nombre de rama
         shell: bash
         run: |
@@ -55,21 +75,30 @@ jobs:
           cd minio
           echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
 
+          # Determinar el nombre del binario de rclone y el separador --add-data según OS
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            RCLONE_BIN="rclone-bin/rclone.exe"
+            ADD_DATA="rclone-bin/rclone.exe;."
+          else
+            RCLONE_BIN="rclone-bin/rclone"
+            ADD_DATA="rclone-bin/rclone:."
+          fi
+
           for script in *.py; do
             script_name=$(basename "$script" .py)
 
             if [[ "$script" == "version.py" || "$script" == "minio-sts-credentials-request.py" ]]; then
-              continue  # omite version.py
+              continue
             fi
 
             if [[ "$RUNNER_OS" == "Windows" ]] && [[ ! "$script" == *functions* ]]; then
-              pyinstaller --onefile "$script" --distpath ../dist
+              pyinstaller --onefile "$script" --add-data "$ADD_DATA" --distpath ../dist
               mv "../dist/$script_name.exe" "../dist/${script_name}-${BRANCH_SUFFIX}-windows.exe"
             elif [[ "$RUNNER_OS" == "Linux" ]] && [[ ! "$script" == *-gui.py ]] && [[ ! "$script" == *functions* ]]; then
-              pyinstaller --onefile "$script" --distpath ../dist
+              pyinstaller --onefile "$script" --add-data "$ADD_DATA" --distpath ../dist
               mv "../dist/$script_name" "../dist/${script_name}-${BRANCH_SUFFIX}-linux"
             elif [[ "$RUNNER_OS" == "macOS" ]] && [[ ! "$script" == *functions* ]]; then
-              pyinstaller --onefile "$script" --distpath ../dist
+              pyinstaller --onefile "$script" --add-data "$ADD_DATA" --distpath ../dist
               mv "../dist/$script_name" "../dist/${script_name}-${BRANCH_SUFFIX}-macos"
             fi
           done
@@ -89,11 +118,11 @@ jobs:
   build-rocky:
     runs-on: ubuntu-latest
     container:
-      image: rockylinux:9  
+      image: rockylinux:9
     steps:
       - name: Instalar dependencias básicas
         run: |
-          dnf install -y python3 python3-pip python3-devel gcc make glibc-devel python3-tkinter
+          dnf install -y python3 python3-pip python3-devel gcc make glibc-devel python3-tkinter unzip curl
           pip3 install --upgrade pip setuptools wheel pyinstaller
 
       - name: Checkout repo
@@ -103,6 +132,15 @@ jobs:
         run: |
           pip install -r minio/pip-requirements.txt
           pip install pyinstaller
+
+      - name: Descargar rclone para Linux (cluster)
+        run: |
+          mkdir -p minio/rclone-bin
+          curl -L "https://downloads.rclone.org/rclone-current-linux-amd64.zip" -o rclone.zip
+          unzip -j rclone.zip "*/rclone" -d minio/rclone-bin/
+          chmod +x minio/rclone-bin/rclone
+          echo "Rclone downloaded:"
+          ls -lah minio/rclone-bin/
 
       - name: Limpia nombre de rama para artefactos
         id: clean_branch
@@ -115,9 +153,9 @@ jobs:
           mkdir -p dist
           cd minio
           echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
-          pyinstaller --onefile bifrost.py --distpath ../dist
+          pyinstaller --onefile bifrost.py --add-data "rclone-bin/rclone:." --distpath ../dist
           mv ../dist/bifrost ../dist/bifrost-${BRANCH_SUFFIX}-cluster
-        
+
       - name: Verificar archivos generados
         shell: bash
         run: |
@@ -142,7 +180,7 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: dist  # Descarga los ejecutables generados en la carpeta dist
+          path: dist
 
       - name: Verificar archivos descargados
         run: ls -lah dist
@@ -167,7 +205,6 @@ jobs:
           for file in dist/*; do
             [[ -f "$file" ]] || continue
             base=$(basename "$file")
-            # Elimina SOLO "-${BRANCH_SUFFIX}" (una vez) y conserva el resto (-windows, -linux, -cluster, .exe, etc.)
             new_name="${base/-${BRANCH_SUFFIX}/}"
             if [[ "$base" != "$new_name" ]]; then
               mv "$file" "dist/$new_name"

@@ -47,6 +47,48 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 # ============================================================================
+# RCLONE EXECUTABLE RESOLUTION
+# ============================================================================
+
+def get_rclone_executable() -> str:
+    """
+    Devuelve la ruta al ejecutable rclone.
+
+    Prioridad:
+      1. Bundleado en sys._MEIPASS (PyInstaller --add-data)
+      2. Directorio del propio ejecutable (útil en desarrollo)
+      3. rclone en el PATH del sistema (fallback)
+
+    Raises:
+        EnvironmentError: si no se encuentra rclone en ninguno de los lugares.
+    """
+    rclone_name = "rclone.exe" if sys_platform == "win32" else "rclone"
+
+    # 1. PyInstaller frozen bundle
+    if getattr(sys, "frozen", False):
+        bundled = Path(sys._MEIPASS) / rclone_name
+        if bundled.exists():
+            return str(bundled)
+
+    # 2. Junto al script / ejecutable (dev o distribución manual)
+    exe_dir = Path(sys.argv[0]).resolve().parent
+    alongside = exe_dir / rclone_name
+    if alongside.exists():
+        return str(alongside)
+
+    # 3. PATH del sistema
+    import shutil
+    in_path = shutil.which("rclone")
+    if in_path:
+        return in_path
+
+    raise EnvironmentError(
+        "rclone not found. It should be bundled with this application. "
+        "If running from source, install rclone from https://rclone.org/downloads/"
+    )
+
+
+# ============================================================================
 # CONSTANTES Y VERSIÓN
 # ============================================================================
 
@@ -208,8 +250,9 @@ def get_rclone_paths(servidor_s3_rcloneconfig: str) -> tuple[str, str, str]:
 
 def obtener_ruta_rclone_conf() -> Path:
     """Ejecuta `rclone config file` y devuelve la ruta absoluta al rclone.conf activo."""
+    rclone = get_rclone_executable()
     out = subprocess.check_output(
-        ["rclone", "config", "file"],
+        [rclone, "config", "file"],
         text=True,
         stderr=subprocess.STDOUT,
     ).strip()
@@ -263,10 +306,14 @@ def is_brew_installed() -> bool:
 
 
 def detect_rclone_installed() -> bool:
-    """Devuelve True si rclone está disponible en el PATH."""
+    """
+    Devuelve True si rclone está disponible (bundleado o en el PATH).
+    Usa get_rclone_executable() internamente para respetar la prioridad de búsqueda.
+    """
     try:
+        rclone = get_rclone_executable()
         subprocess.check_call(
-            ["rclone", "--version"],
+            [rclone, "--version"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -339,7 +386,7 @@ def _check_winfsp_windows() -> bool:
     # 3. Registro de Windows (más fiable: el instalador siempre escribe aquí)
     for hive, key_path in (
         (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WinFsp"),
-        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\WinFsp"),  # instalación 32-bit en sistema 64-bit
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\WinFsp"),
     ):
         try:
             winreg.OpenKey(hive, key_path).Close()
@@ -352,14 +399,12 @@ def _check_winfsp_windows() -> bool:
 
 def _check_fuse_macos() -> bool:
     """Detecta macFUSE / osxfuse en macOS."""
-    # Filesystem bundles o librerías
     if any(p.exists() for p in (
         Path("/Library/Filesystems/macfuse.fs"),
         Path("/Library/Filesystems/osxfuse.fs"),
         Path("/usr/local/lib/libfuse.dylib"),
     )):
         return True
-    # Módulo del kernel cargado
     try:
         result = subprocess.run(["kextstat"], capture_output=True, text=True, timeout=5)
         if "fuse" in result.stdout.lower():
@@ -372,10 +417,8 @@ def _check_fuse_macos() -> bool:
 def _check_fuse_linux() -> bool:
     """Detecta FUSE en Linux."""
     import shutil
-    # fusermount (FUSE 2) o fusermount3 (FUSE 3)
     if shutil.which("fusermount") or shutil.which("fusermount3"):
         return True
-    # Módulo del kernel o dispositivo
     try:
         result = subprocess.run(["lsmod"], capture_output=True, text=True, timeout=5)
         if "fuse" in result.stdout.lower():
@@ -538,20 +581,24 @@ def get_expiration_from_session_token(session_token: str):
 
 def mount_rclone_S3_bucket_to_folder(mount_point_folder: str, servidor_s3_rcloneconfig: str, bucket: str) -> None:
     """Monta un bucket S3/MinIO completo en una carpeta local."""
+    rclone = get_rclone_executable()
     print(f"Mounting {servidor_s3_rcloneconfig}:{bucket} to {mount_point_folder}")
     subprocess.Popen([
-        "rclone", "mount",
+        rclone, "mount",
         servidor_s3_rcloneconfig + ":" + bucket,
         mount_point_folder,
         "--allow-non-empty",
         "--read-only",
     ])
 
+
 def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> None:
     import shutil
 
-    if not shutil.which("rclone"):
-        raise EnvironmentError("rclone not found in PATH. Download from: https://rclone.org/downloads/")
+    try:
+        rclone = get_rclone_executable()
+    except EnvironmentError as e:
+        raise EnvironmentError(str(e))
 
     sistema = platform.system()
     if sistema == "Darwin":
@@ -573,27 +620,23 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     prefix_sanitizado = s3_prefix.strip("/").replace("/", "_")
     mount_point = mount_base / prefix_sanitizado
 
-    # Netejar carpeta buida residual d'intents anteriors
     if mount_point.exists() and not os.path.ismount(mount_point):
         try:
             mount_point.rmdir()
         except OSError as e:
             raise EnvironmentError(f"Mount point {mount_point} already exists and could not be removed: {e}") from e
 
-    # En Windows, WinFSP requiere que el directorio NO exista
-    # En Linux/macOS, FUSE permite montar en directorio existente
     if sistema != "Windows":
         mount_point.mkdir(parents=True, exist_ok=True)
     else:
         mount_point.parent.mkdir(parents=True, exist_ok=True)
 
-    comando = ["rclone", "mount", f"{rclone_profile}:{s3_prefix}", str(mount_point), "--read-only", "--links"]
+    comando = [rclone, "mount", f"{rclone_profile}:{s3_prefix}", str(mount_point), "--read-only", "--links"]
     if sistema != "Windows":
         comando.append("--allow-non-empty")
 
     subprocess.Popen(comando)
 
-    # Esperar un poco a que rclone termine de montar antes de abrir el explorador
     import time
     time.sleep(1)
 
@@ -772,6 +815,7 @@ def crear_perfil_rclone_smb(
     password: str,
 ) -> None:
     """Crea (o reemplaza) un perfil SMB en rclone.conf."""
+    rclone = get_rclone_executable()
     config_path = obtener_ruta_rclone_conf()
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config = configparser.ConfigParser()
@@ -783,7 +827,7 @@ def crear_perfil_rclone_smb(
         "domain": "IRBBARCELONA",
         "host":   host,
         "user":   username,
-        "pass":   subprocess.getoutput(f"rclone obscure {password}"),
+        "pass":   subprocess.getoutput(f"{shlex.quote(rclone)} obscure {shlex.quote(password)}"),
     }
     with open(config_path, "w") as f:
         config.write(f)
@@ -795,6 +839,7 @@ def actualizar_password_perfiles_rclone(
     rclone_config_path: str | None = None,
 ) -> None:
     """Actualiza la contraseña de todos los perfiles SMB del usuario."""
+    rclone = get_rclone_executable()
     print(f"Actualizando contraseña para perfiles rclone tipo '{usuario}-smbmount-*'...")
     if not rclone_config_path:
         rclone_config_path = obtener_ruta_rclone_conf()
@@ -802,7 +847,7 @@ def actualizar_password_perfiles_rclone(
     config.read(rclone_config_path)
     try:
         resultado = subprocess.run(
-            ["rclone", "obscure", nueva_password],
+            [rclone, "obscure", nueva_password],
             capture_output=True, text=True, check=True,
         )
         password_obscurecida = resultado.stdout.strip()
@@ -867,6 +912,7 @@ def montar_share_rclone(
     mounts_activos: list,
 ) -> bool:
     """Monta un share SMB con rclone."""
+    rclone = get_rclone_executable()
     rclone_config_path = obtener_ruta_rclone_conf()
     sistema = platform.system()
     if sistema != "Windows":
@@ -874,7 +920,7 @@ def montar_share_rclone(
     if os.path.ismount(punto_montaje):
         return True
     comando = [
-        "rclone", "mount",
+        rclone, "mount",
         f"{nombre_perfil}:/{share_path}", str(punto_montaje),
         "--vfs-cache-mode", "off",
         "--read-only",
@@ -983,11 +1029,12 @@ def ejecutar_rclone_copy(
     on_finish=None,
 ) -> None:
     """Lanza rclone copy en un hilo separado."""
+    rclone = get_rclone_executable()
     tag_string   = construir_tag_string(metadatos_dict)
     header_value = f"x-amz-tagging:{tag_string}"
 
     comando = [
-        "rclone", "copy",
+        rclone, "copy",
         origen,
         f"{destino_perfil}:/{destino_path}",
         "--config", rclone_config_path,
@@ -1036,9 +1083,10 @@ def ejecutar_rclone_copy(
 
 def es_directorio_rclone(ruta_rclone: str, config_path: str) -> bool:
     """Devuelve True si la ruta rclone apunta a un directorio."""
+    rclone = get_rclone_executable()
     try:
         resultado = subprocess.run(
-            ["rclone", "lsjson", ruta_rclone, "--config", config_path],
+            [rclone, "lsjson", ruta_rclone, "--config", config_path],
             capture_output=True,
             check=True,
             encoding="utf-8",
@@ -1118,6 +1166,7 @@ def ejecutar_rclone_check(
     on_finish=None,
 ) -> None:
     """Lanza rclone check en un hilo separado."""
+    rclone = get_rclone_executable()
     origen_ajustado, fichero = preparar_origen_para_check(
         origen, mounts_activos, rclone_config_path
     )
@@ -1125,7 +1174,7 @@ def ejecutar_rclone_check(
     combined_path.parent.mkdir(parents=True, exist_ok=True)
 
     comando = [
-        "rclone", "check",
+        rclone, "check",
         origen_ajustado,
         f"{destino_perfil}:/{destino_path}",
         "--config", rclone_config_path,
@@ -1181,8 +1230,9 @@ def verificar_ruta_rclone_accesible(perfil: str, ruta: str, timeout: int = 5) ->
     if not ruta:
         return False
     try:
+        rclone = get_rclone_executable()
         result = subprocess.run(
-            ["rclone", "ls", f"{perfil}:{ruta}"],
+            [rclone, "ls", f"{perfil}:{ruta}"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=timeout,
