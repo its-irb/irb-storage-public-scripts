@@ -40,13 +40,3 @@ brew uninstall macfuse
 python3 bifrost.py
 ```
 
-Para iniciar sesión con un usuario distinto al del sistema:
-```bash
-python3 bifrost.py --customuser
-```
-
-Para lanzar forzar la auto-actualización:
-```bash
-python3 bifrost.py --update
-```
-
