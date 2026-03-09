@@ -159,7 +159,6 @@ def check_update_version(force_update: bool = False) -> str | None:
         print(f"⚠️ Error verifying update: {e}")
     return None
 
-
 def should_check_for_updates() -> bool:
     """
     Determina si se debe comprobar actualizaciones en el entorno actual.
