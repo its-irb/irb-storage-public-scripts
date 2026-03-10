@@ -1,237 +1,234 @@
 from __future__ import annotations
 
 """
-IRB MinIO Rclone Data Transfer Tool — FRONTEND
-===============================================
+IRB MinIO Rclone Data Transfer Tool — FRONTEND (Flet)
+=====================================================
 
-Contiene toda la interfaz gráfica (tkinter).
-No contiene lógica de negocio: delega en backend.py.
+Migración de tkinter a Flet.
+Soporta modo desktop y modo web (--web).
 
-Flujo de ventanas:
-  main()
-    → check_and_handle_update
-    → pedir_credenciales (LDAP)
-    → seleccionar_shares_montar
-    → seleccionar_servidor_minio
-    → prompt_credenciales_renovar
-    → abrir_interfaz_copia
+Uso:
+    python bifrost_flet.py          # desktop
+    python bifrost_flet.py --web    # Open OnDemand / cluster (Rocky Linux)
 
-TODO: migrar interfaz a Flet
+Flujo de vistas:
+    view_update → view_login → view_shares → view_minio
+    → view_credentials → view_copy
+
+Fixes aplicados respecto al piloto inicial:
+  - Thread-safety: toda modificación de UI desde hilos usa ui_call(page, fn)
+  - Import circular eliminado (check_rclone_installation_flet se llama directamente)
+  - Cierre por X registra on_window_event para desmontar shares
+  - Spinner de carga entre login y vista de shares
+  - FilePicker instanciado una sola vez (no se acumula en overlay)
+  - Log usa ft.ListView con auto_scroll=True en lugar de TextField
+  - ft.Ref[str] reemplazado por dict simple
+  - Vista de shares vacíos muestra mensaje explicativo
+  - atexit eliminado; el cierre limpio se gestiona via on_window_event y do_close()
 """
 
 import os
 import sys
 import stat
-import atexit
 import getpass
-import signal
 import tempfile
 import subprocess
 import threading
-import queue
 from datetime import datetime
+from typing import Callable
 
-import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext, filedialog
+import flet as ft
 
 import backend
-print("BACKEND PATH:", backend.__file__)
+
+# ============================================================================
+# MODO DE EJECUCIÓN
+# ============================================================================
+
+IS_WEB = "--web" in sys.argv
+
+# ============================================================================
+# HELPER THREAD-SAFE PARA ACTUALIZAR UI
+# ============================================================================
+
+def ui_call(page: ft.Page, fn: Callable) -> None:
+    """
+    Ejecuta fn() de forma thread-safe y llama page.update().
+
+    Flet gestiona internamente un lock por sesión (page._lock en desktop,
+    websocket en web), por lo que page.update() es seguro desde cualquier
+    hilo secundario. NO usar page.run_thread(): en Windows desktop encola
+    otro hilo en lugar de postear al event loop de Flutter, causando que
+    la ventana no se repinte hasta que el usuario la mueva.
+    """
+    fn()
+    page.update()
 
 
 # ============================================================================
-# ACTUALIZACIÓN AUTOMÁTICA — GUI
+# PALETA DE COLORES Y HELPERS DE ESTILO
 # ============================================================================
 
-def check_and_handle_update(parent_window=None) -> bool:
-    """
-    Comprueba si hay actualizaciones y muestra popup al usuario si las hay.
-    """
-    if not backend.should_check_for_updates():
-        return True
-
-    ultima_version = backend.check_update_version(force_update="--update" in sys.argv)
-
-    if ultima_version:
-        _mostrar_aviso_version_nueva(ultima_version, "bifrost", parent_window)
-
-    return True
-
-
-def _mostrar_aviso_version_nueva(ultima_version: str, file_name: str, parent_window=None) -> bool:
-    """
-    Muestra un popup informando de la nueva versión disponible.
-    """
-    ventana = tk.Toplevel(parent_window) if parent_window else tk.Tk()
-    ventana.title("New version available")
-    ventana.geometry("450x180")
-
-    tk.Label(
-        ventana,
-        text=f"There is a new version available:\n{ultima_version}",
-        font=("Arial", 11),
-    ).pack(pady=(20, 10))
-
-    resultado = {"eleccion": None}
-
-    def actualizar_wrapper():
-        try:
-            _actualizar_y_reiniciar(ventana, file_name)
-        except Exception as e:
-            messagebox.showerror("Error", f"Could not update:\n{str(e)}")
-        resultado["eleccion"] = "update"
-
-    def cancelar():
-        resultado["eleccion"] = "cancel"
-        ventana.destroy()
-
-    frame_botones = tk.Frame(ventana)
-    frame_botones.pack(pady=(0, 15))
-    tk.Button(frame_botones, text="Update now", command=actualizar_wrapper).pack(side=tk.LEFT, padx=5)
-    tk.Button(frame_botones, text="Continue",   command=cancelar).pack(side=tk.LEFT, padx=5)
-
-    ventana.wait_window()
-    return resultado["eleccion"] != "cancel"
+C_BG       = "#0D1117"
+C_SURFACE  = "#161B22"
+C_SURFACE2 = "#21262D"
+C_BORDER   = "#30363D"
+C_PRIMARY  = "#58A6FF"
+C_ACCENT   = "#3FB950"
+C_WARNING  = "#D29922"
+C_ERROR    = "#F85149"
+C_TEXT     = "#E6EDF3"
+C_TEXT_DIM = "#8B949E"
+C_OVERLAY  = "#1C2128"
+FONT_MONO  = "Courier New"
 
 
-def _actualizar_y_reiniciar(ventana_parent, file_name: str) -> None:
-    """
-    Descarga el nuevo binario y reemplaza el ejecutable actual.
-    En macOS/Linux hace os.execv para relanzar. En Windows lanza un .bat.
-    """
-    ruta_actual = os.path.abspath(sys.argv[0])
-    print(f"Current executable path: {ruta_actual}")
-
-    try:
-        nueva_ruta = backend.download_new_binary(file_name)
-
-        if sys.platform == "win32":
-            _escribir_y_lanzar_updater_windows(ruta_actual, nueva_ruta)
-        else:
-            os.replace(nueva_ruta, ruta_actual)
-            os.chmod(ruta_actual, os.stat(ruta_actual).st_mode | stat.S_IEXEC)
-            messagebox.showinfo(
-                "Update completed",
-                "The application will now restart with the new version.",
-            )
-            args_relanzar = [arg for arg in sys.argv[1:] if arg != "--update"]
-            os.execv(ruta_actual, [ruta_actual] + args_relanzar)
-
-    except Exception as e:
-        messagebox.showerror("Error", f"Could not update:\n{str(e)}")
+def btn_primary(text: str, on_click=None, width=None, disabled=False) -> ft.ElevatedButton:
+    return ft.ElevatedButton(
+        text=text,
+        on_click=on_click,
+        disabled=disabled,
+        width=width,
+        style=ft.ButtonStyle(
+            bgcolor={
+                ft.ControlState.DEFAULT:  C_PRIMARY,
+                ft.ControlState.HOVERED:  "#79B8FF",
+                ft.ControlState.DISABLED: C_BORDER,
+            },
+            color={
+                ft.ControlState.DEFAULT:  "#0D1117",
+                ft.ControlState.DISABLED: C_TEXT_DIM,
+            },
+            shape=ft.RoundedRectangleBorder(radius=6),
+            padding=ft.padding.symmetric(horizontal=20, vertical=12),
+        ),
+    )
 
 
-def _escribir_y_lanzar_updater_windows(ruta_actual: str, nueva_ruta: str) -> None:
-    """
-    En Windows escribe un .bat que reemplaza el exe tras cerrarse y lo lanza.
-    """
-    updater_code = f"""@echo off
-setlocal
-set "OLD_EXE={ruta_actual}"
-set "NEW_EXE={nueva_ruta}"
+def btn_secondary(text: str, on_click=None, width=None) -> ft.OutlinedButton:
+    return ft.OutlinedButton(
+        text=text,
+        on_click=on_click,
+        width=width,
+        style=ft.ButtonStyle(
+            color=C_TEXT,
+            side=ft.BorderSide(1, C_BORDER),
+            shape=ft.RoundedRectangleBorder(radius=6),
+            padding=ft.padding.symmetric(horizontal=20, vertical=12),
+        ),
+    )
 
-echo Waiting for the application to close...
 
-set /a i=0
-:waitloop
-if %i% geq 30 goto timeout_err
-del /f "%OLD_EXE%" >nul 2>&1
-if not exist "%OLD_EXE%" goto do_move
-timeout /t 1 /nobreak >nul
-set /a i+=1
-goto waitloop
+def card(content: ft.Control, padding=20) -> ft.Container:
+    return ft.Container(
+        content=content,
+        bgcolor=C_SURFACE,
+        border=ft.border.all(1, C_BORDER),
+        border_radius=10,
+        padding=padding,
+    )
 
-:do_move
-move /y "%NEW_EXE%" "%OLD_EXE%"
-if errorlevel 1 (
-    echo ERROR: Could not replace the executable.
-    pause
-    exit /b 1
-)
-echo.
-echo  Update completed successfully!
-echo  Please reopen the application manually.
-echo.
-pause
-exit /b 0
 
-:timeout_err
-echo ERROR: Could not delete the old executable after 30 seconds.
-pause
-exit /b 1
-"""
-    with tempfile.NamedTemporaryFile(
-        delete=False, suffix=".bat", mode="w", encoding="utf-8"
-    ) as f:
-        f.write(updater_code)
-        updater_path = f.name
+def section_title(text: str) -> ft.Text:
+    return ft.Text(
+        text,
+        size=11,
+        weight=ft.FontWeight.W_600,
+        color=C_TEXT_DIM,
+        font_family=FONT_MONO,
+    )
 
-    subprocess.Popen(["cmd.exe", "/c", "start", "", updater_path], shell=False)
-    os._exit(0)
+
+def field_label(text: str) -> ft.Text:
+    return ft.Text(text, size=12, color=C_TEXT_DIM, weight=ft.FontWeight.W_500)
+
+
+def styled_field(
+    label: str,
+    password: bool = False,
+    value: str = "",
+    disabled: bool = False,
+    hint: str = "",
+    on_change=None,
+    multiline: bool = False,
+    min_lines: int = 1,
+    max_lines: int = 1,
+) -> tuple[ft.TextField, ft.Column]:
+    tf = ft.TextField(
+        value=value,
+        password=password,
+        can_reveal_password=password,
+        disabled=disabled,
+        hint_text=hint,
+        on_change=on_change,
+        multiline=multiline,
+        min_lines=min_lines,
+        max_lines=max_lines,
+        bgcolor=C_SURFACE2,
+        border_color=C_BORDER,
+        focused_border_color=C_PRIMARY,
+        color=C_TEXT,
+        hint_style=ft.TextStyle(color=C_TEXT_DIM),
+        border_radius=6,
+        content_padding=ft.padding.symmetric(horizontal=12, vertical=10),
+        text_size=13,
+    )
+    col = ft.Column([field_label(label), tf], spacing=4, tight=True)
+    return tf, col
+
+
+def status_badge(text: str, color: str) -> ft.Container:
+    return ft.Container(
+        content=ft.Text(text, size=11, color=color, weight=ft.FontWeight.W_600),
+        bgcolor=f"{color}22",
+        border=ft.border.all(1, f"{color}55"),
+        border_radius=20,
+        padding=ft.padding.symmetric(horizontal=10, vertical=4),
+    )
+
+
+def divider() -> ft.Divider:
+    return ft.Divider(height=1, color=C_BORDER)
 
 
 # ============================================================================
-# COMPROBACIÓN E INSTALACIÓN DE RCLONE — GUI
+# HEADER COMÚN
 # ============================================================================
 
-def check_rclone_installation() -> None:
-    """
-    Comprueba si rclone está disponible (bundleado o en PATH).
-    En macOS, además instala fuse-t si no está presente.
-    """
-    if not backend.detect_rclone_installed():
-        print("rclone is not installed")
-        sistema = sys.platform
-
-        if sistema in ("linux", "linux2"):
-            sys.exit("Linux is not supported yet. Please install rclone and fuse-t manually")
-
-        elif sistema == "darwin":
-            if not backend.is_brew_installed():
-                messagebox.showerror(
-                    "Rclone is not installed",
-                    "❌ Rclone is not installed, and Homebrew is not installed either. "
-                    "Please install Homebrew first and run this program again. "
-                    "Guide: https://brew.sh/",
-                )
-                sys.exit("❌ Rclone not found and Homebrew not available.")
-            print("Installing rclone via Homebrew...")
-            backend.install_rclone_macos()
-
-        elif sistema == "win32":
-            messagebox.showerror(
-                "Rclone.exe not found",
-                "Download, uncompress the zip file and put rclone.exe in the same folder "
-                "as this executable. Download rclone from https://rclone.org/downloads/\r\n"
-                "Also download and install WinFsp from https://winfsp.dev/rel/",
-            )
-            sys.exit("Download rclone.exe and place it in the same folder as this executable.")
-
-    else:
-        print("Rclone is installed")
-
-    # Aunque rclone esté bundleado, en macOS fuse-t es necesario para montar
-    if sys.platform == "darwin":
-        try:
-            backend.ensure_fuse_macos()
-        except EnvironmentError as e:
-            messagebox.showerror("fuse-t not available", str(e))
-            sys.exit(1)
-
-
-def show_error(message: str) -> None:
-    """Muestra un messagebox de error y termina el proceso."""
-    messagebox.showerror("Error", message)
-    sys.exit(1)
-
-
-def alert_gui(version: str) -> None:
-    """Muestra un messagebox informando de una nueva versión."""
-    root = tk.Tk()
-    root.withdraw()
-    messagebox.showinfo(
-        "New version available",
-        f"Version {version} is now available.\n"
-        f"Download it from GitHub: https://github.com/{backend.REPO}/releases/latest.",
+def build_header(subtitle: str = "") -> ft.Container:
+    version_str = f"v{backend.__version__}" if hasattr(backend, "__version__") else ""
+    return ft.Container(
+        content=ft.Row(
+            [
+                ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                ft.Text(
+                                    "BIFROST",
+                                    size=22,
+                                    weight=ft.FontWeight.W_700,
+                                    color=C_PRIMARY,
+                                    font_family=FONT_MONO,
+                                ),
+                                ft.Container(width=8),
+                                status_badge("WEB" if IS_WEB else "DESKTOP", C_WARNING),
+                            ],
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Text(subtitle or "IRB Data Transfer Tool", size=12, color=C_TEXT_DIM),
+                    ],
+                    spacing=2,
+                    expand=True,
+                ),
+                ft.Text(version_str, size=11, color=C_TEXT_DIM, font_family=FONT_MONO),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        bgcolor=C_SURFACE,
+        border=ft.border.only(bottom=ft.BorderSide(1, C_BORDER)),
+        padding=ft.padding.symmetric(horizontal=24, vertical=16),
     )
 
 
@@ -239,261 +236,832 @@ def alert_gui(version: str) -> None:
 # DIÁLOGOS GENÉRICOS
 # ============================================================================
 
-def pedir_credenciales(
-    root,
-    titulo: str,
-    pregunta: str,
-    usuario_prefijado: str | None = None,
-) -> dict | None:
-    """
-    Diálogo para solicitar credenciales (usuario + password).
+def show_dialog(
+    page: ft.Page,
+    title: str,
+    message: str,
+    color: str = C_TEXT,
+    actions: list | None = None,
+):
+    def close(e=None):
+        dlg.open = False
+        page.update()
 
-    Returns:
-        {"usuario": str, "password": str} o None si se cancela.
-    """
-    resultado = {"usuario": None, "password": None}
+    if not actions:
+        actions = [btn_primary("OK", on_click=close)]
 
-    ventana = tk.Toplevel(root)
-    ventana.title(titulo)
-    ventana.geometry("350x180")
+    icon = (
+        ft.Icons.CHECK_CIRCLE_OUTLINE if color == C_ACCENT else
+        ft.Icons.ERROR_OUTLINE        if color == C_ERROR  else
+        ft.Icons.WARNING_AMBER_OUTLINED if color == C_WARNING else
+        ft.Icons.INFO_OUTLINE
+    )
 
-    tk.Label(ventana, text=pregunta).pack(pady=(10, 5))
+    dlg = ft.AlertDialog(
+        modal=True,
+        title=ft.Row(
+            [
+                ft.Icon(icon, color=color, size=20),
+                ft.Text(title, color=C_TEXT, size=15, weight=ft.FontWeight.W_600),
+            ],
+            spacing=8,
+        ),
+        content=ft.Text(message, color=C_TEXT_DIM, size=13),
+        actions=actions,
+        bgcolor=C_OVERLAY,
+        shape=ft.RoundedRectangleBorder(radius=10),
+    )
+    page.overlay.append(dlg)
+    dlg.open = True
+    page.update()
 
-    tk.Label(ventana, text="Username:").pack()
-    usuario_var = tk.StringVar(value=usuario_prefijado or "")
-    entry_user = ttk.Entry(ventana, textvariable=usuario_var)
-    entry_user.pack(pady=(0, 5))
-    if usuario_prefijado:
-        entry_user.configure(state="disabled")
 
-    tk.Label(ventana, text="Password:").pack()
-    password_var = tk.StringVar()
-    entry_pass = ttk.Entry(ventana, textvariable=password_var, show="*")
-    entry_pass.pack(pady=(0, 10))
-    entry_pass.focus_set()
+def show_confirm(
+    page: ft.Page,
+    title: str,
+    message: str,
+    on_yes: Callable,
+    on_no: Callable | None = None,
+):
+    def yes(e):
+        dlg.open = False
+        page.update()
+        on_yes()
 
-    def confirmar():
-        usuario  = usuario_var.get().strip()
-        password = password_var.get().strip()
-        if not usuario or not password:
-            messagebox.showerror("Error", "Username and password are required.")
+    def no(e):
+        dlg.open = False
+        page.update()
+        if on_no:
+            on_no()
+
+    dlg = ft.AlertDialog(
+        modal=True,
+        title=ft.Text(title, color=C_TEXT, size=15, weight=ft.FontWeight.W_600),
+        content=ft.Text(message, color=C_TEXT_DIM, size=13),
+        actions=[btn_secondary("No", on_click=no), btn_primary("Yes", on_click=yes)],
+        bgcolor=C_OVERLAY,
+        shape=ft.RoundedRectangleBorder(radius=10),
+    )
+    page.overlay.append(dlg)
+    dlg.open = True
+    page.update()
+
+
+# ============================================================================
+# VISTA: LOADING INTERMEDIO
+# ============================================================================
+
+
+
+# ============================================================================
+# VISTA: ACTUALIZACIÓN
+# ============================================================================
+
+def _build_update_content(page: ft.Page, on_continue: Callable) -> ft.View:
+    status_text = ft.Text("Checking for updates...", color=C_TEXT_DIM, size=13)
+    progress    = ft.ProgressBar(color=C_PRIMARY, bgcolor=C_SURFACE2, width=300)
+    update_btn  = btn_primary("Update now")
+    skip_btn    = btn_secondary("Continue anyway")
+    update_btn.visible = False
+    skip_btn.visible   = False
+
+    def check():
+        try:
+            ultima = backend.check_update_version(force_update="--update" in sys.argv)
+            if ultima:
+                def _show_update():
+                    status_text.value   = f"New version available: {ultima}"
+                    status_text.color   = C_WARNING
+                    progress.visible    = False
+                    update_btn.visible  = True
+                    skip_btn.visible    = True
+                ui_call(page, _show_update)
+            else:
+                def _show_ok():
+                    status_text.value  = "✓ You are using the latest version."
+                    status_text.color  = C_ACCENT
+                    progress.visible   = False
+                ui_call(page, _show_ok)
+                import time; time.sleep(1)
+                ui_call(page, on_continue)
+        except Exception as e:
+            def _show_err():
+                status_text.value  = f"Could not check updates: {e}"
+                status_text.color  = C_TEXT_DIM
+                progress.visible   = False
+            ui_call(page, _show_err)
+            import time; time.sleep(0.5)
+            ui_call(page, on_continue)
+
+    def do_update(e):
+        update_btn.disabled     = True
+        progress.visible        = True
+        status_text.value       = "Downloading update..."
+        status_text.color       = C_TEXT_DIM
+        page.update()
+
+        def _download():
+            try:
+                nueva_ruta  = backend.download_new_binary("bifrost")
+                ruta_actual = os.path.abspath(sys.argv[0])
+                if sys.platform == "win32":
+                    _escribir_y_lanzar_updater_windows(ruta_actual, nueva_ruta)
+                else:
+                    os.replace(nueva_ruta, ruta_actual)
+                    os.chmod(ruta_actual, os.stat(ruta_actual).st_mode | stat.S_IEXEC)
+                    ui_call(page, lambda: show_dialog(
+                        page, "Updated",
+                        "Restart the application to use the new version.",
+                        C_ACCENT,
+                    ))
+            except Exception as ex:
+                ui_call(page, lambda: show_dialog(page, "Update failed", str(ex), C_ERROR))
+
+        threading.Thread(target=_download, daemon=True).start()
+
+    skip_btn.on_click   = lambda e: ui_call(page, on_continue)
+    update_btn.on_click = do_update
+
+    content = ft.Column(
+        [
+            build_header("Checking for updates"),
+            ft.Container(expand=True),
+            ft.Column(
+                [
+                    ft.Icon(ft.Icons.SYNC, color=C_PRIMARY, size=48),
+                    ft.Text("BIFROST", size=32, weight=ft.FontWeight.W_700,
+                            color=C_TEXT, font_family=FONT_MONO),
+                    ft.Text("IRB Data Transfer Tool", size=14, color=C_TEXT_DIM),
+                    ft.Container(height=24),
+                    progress,
+                    status_text,
+                    ft.Container(height=16),
+                    ft.Row([update_btn, skip_btn],
+                           alignment=ft.MainAxisAlignment.CENTER, spacing=12),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=8,
+            ),
+            ft.Container(expand=True),
+        ],
+        expand=True,
+        spacing=0,
+    )
+
+    if backend.should_check_for_updates():
+        threading.Thread(target=check, daemon=True).start()
+    else:
+        # No hay que comprobar updates: ir al login tras un tick para que
+        # la vista de update se renderice antes de hacer push del login.
+        def _skip():
+            import time
+            time.sleep(0.1)
+            ui_call(page, on_continue)
+        threading.Thread(target=_skip, daemon=True).start()
+
+    return content
+
+
+# ============================================================================
+# VISTA: LOGIN LDAP
+# ============================================================================
+
+def _build_login_content(
+    page: ft.Page,
+    on_success: Callable,
+    allow_custom_user: bool = False,
+) -> ft.View:
+
+    default_user = None if allow_custom_user else getpass.getuser()
+
+    user_tf, user_col = styled_field(
+        "Username",
+        value=default_user or "",
+        disabled=(not allow_custom_user and default_user is not None),
+        hint="your.username",
+    )
+    pass_tf, pass_col = styled_field("Password", password=True, hint="••••••••")
+    error_text = ft.Text("", color=C_ERROR, size=12, visible=False)
+    loading    = ft.ProgressRing(width=18, height=18, stroke_width=2,
+                                  color=C_PRIMARY, visible=False)
+    login_btn  = btn_primary("Authenticate", width=280)
+
+    def do_login(e=None):
+        user = (user_tf.value or "").strip()
+        pwd  = (pass_tf.value or "").strip()
+        if not user or not pwd:
+            error_text.value   = "Username and password are required."
+            error_text.visible = True
+            page.update()
             return
-        resultado["usuario"]  = usuario
-        resultado["password"] = password
-        ventana.destroy()
 
-    def cancelar():
-        ventana.destroy()
+        login_btn.disabled = True
+        loading.visible    = True
+        error_text.visible = False
+        page.update()
 
-    ventana.bind("<Return>", lambda e: confirmar())
-    ventana.bind("<Escape>", lambda e: cancelar())
+        def _auth():
+            creds = {"usuario": user, "password": pwd}
+            ok    = backend.validar_credenciales_ldap(creds)
+            if ok:
+                ui_call(page, lambda: on_success(creds))
+            else:
+                def _fail():
+                    error_text.value   = "Invalid credentials. Please try again."
+                    error_text.visible = True
+                    login_btn.disabled = False
+                    loading.visible    = False
+                ui_call(page, _fail)
 
-    frame_botones = ttk.Frame(ventana)
-    frame_botones.pack(pady=(0, 10))
-    ttk.Button(frame_botones, text="Cancel", command=cancelar).pack(side=tk.LEFT,  padx=10)
-    ttk.Button(frame_botones, text="OK",     command=confirmar).pack(side=tk.RIGHT, padx=10)
+        threading.Thread(target=_auth, daemon=True).start()
 
-    ventana.wait_window()
-    return resultado if resultado["usuario"] and resultado["password"] else None
+    login_btn.on_click = do_login
+    pass_tf.on_submit  = do_login
+    user_tf.on_submit  = lambda e: pass_tf.focus()
+
+    content = ft.Column(
+        [
+            build_header("Authentication"),
+            ft.Container(expand=True),
+            ft.Row(
+                [
+                    ft.Container(
+                        content=ft.Column(
+                            [
+                                ft.Icon(ft.Icons.LOCK_OUTLINE, color=C_PRIMARY, size=32),
+                                ft.Container(height=8),
+                                ft.Text("LDAP Authentication", size=18,
+                                        weight=ft.FontWeight.W_600, color=C_TEXT),
+                                ft.Text("Use your IRB network credentials",
+                                        size=12, color=C_TEXT_DIM),
+                                ft.Container(height=24),
+                                user_col,
+                                ft.Container(height=12),
+                                pass_col,
+                                ft.Container(height=8),
+                                error_text,
+                                ft.Container(height=16),
+                                ft.Row(
+                                    [loading, login_btn],
+                                    alignment=ft.MainAxisAlignment.CENTER,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    spacing=12,
+                                ),
+                            ],
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            spacing=0,
+                            width=360,
+                        ),
+                        bgcolor=C_SURFACE,
+                        border=ft.border.all(1, C_BORDER),
+                        border_radius=12,
+                        padding=36,
+                    )
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+            ),
+            ft.Container(expand=True),
+        ],
+        expand=True,
+        spacing=0,
+    )
+
+    return content
 
 
 # ============================================================================
-# DIÁLOGO: SELECCIÓN Y MONTAJE DE SHARES CIFS
+# VISTA: SELECCIÓN DE SHARES CIFS
 # ============================================================================
 
-def seleccionar_shares_montar(
-    root,
+def _build_shares_content(
+    page: ft.Page,
     shares: list,
     usuario_actual: str,
     mounts_activos: list,
-    es_admin_its: bool = False,
-) -> None:
-    """
-    Diálogo con checkboxes para seleccionar qué shares CIFS montar.
-    """
+    es_admin_its: bool,
+    credenciales_ldap: dict,
+    on_continue: Callable,
+) -> ft.View:
+
     recursos_cifs_dict = backend.construir_recursos_cifs_dict(shares, usuario_actual)
 
-    ventana = tk.Toplevel(root)
-    ventana.title(f"Select CIFS shares to mount as {usuario_actual}")
-    tk.Label(ventana, text="Available SMB/CIFS resources:").pack(pady=(10, 5))
-
-    frame_scroll = ttk.Frame(ventana)
-    frame_scroll.pack(pady=(0, 10), fill="both", expand=True)
-
-    canvas    = tk.Canvas(frame_scroll)
-    scrollbar = ttk.Scrollbar(frame_scroll, orient="vertical", command=canvas.yview)
-    canvas.configure(yscrollcommand=scrollbar.set)
-    scrollbar.pack(side="right", fill="y")
-    canvas.pack(side="left", fill="both", expand=True)
-
-    frame_cifs = ttk.Frame(canvas)
-    canvas.create_window((0, 0), window=frame_cifs, anchor="nw", tags="frame_cifs")
-
-    def ajustar_scroll(event=None):
-        canvas.configure(scrollregion=canvas.bbox("all"))
-        canvas.itemconfig("frame_cifs", width=canvas.winfo_width())
-
-    frame_cifs.bind("<Configure>", ajustar_scroll)
-    canvas.bind("<Configure>",    ajustar_scroll)
-
-    shares_seleccionados = {}
-    filas_por_columna    = 15
-
-    for idx, share in enumerate(shares):
-        nombre_share = share["name"]
-        var = tk.BooleanVar(value=False)
-        shares_seleccionados[nombre_share] = var
-        fila    = idx % filas_por_columna
-        columna = idx // filas_por_columna
-        tk.Checkbutton(frame_cifs, text=nombre_share, variable=var, anchor="w").grid(
-            row=fila, column=columna, sticky="w", padx=10, pady=2
+    # ── Sin shares ─────────────────────────────────────────────────────────
+    if not shares:
+        content = ft.Column(
+            [
+                build_header(f"CIFS Shares — {usuario_actual}"),
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Container(expand=True),
+                            ft.Column(
+                                [
+                                    ft.Icon(ft.Icons.FOLDER_OFF_OUTLINED,
+                                            color=C_TEXT_DIM, size=48),
+                                    ft.Text("No accessible shares found.",
+                                            size=16, color=C_TEXT),
+                                    ft.Text(
+                                        "This may be due to network issues or lack of permissions.\n"
+                                        "Contact ITS if you believe this is an error.",
+                                        size=12, color=C_TEXT_DIM,
+                                        text_align=ft.TextAlign.CENTER,
+                                    ),
+                                    ft.Container(height=24),
+                                    btn_primary("Continue without shares →",
+                                                on_click=lambda e: on_continue(),
+                                                width=260),
+                                ],
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                spacing=12,
+                            ),
+                            ft.Container(expand=True),
+                        ],
+                        expand=True,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    expand=True,
+                    padding=ft.padding.symmetric(horizontal=24, vertical=16),
+                ),
+            ],
+            expand=True,
+            spacing=0,
         )
+        return content
 
-    def continuar():
-        seleccionados = [n for n, v in shares_seleccionados.items() if v.get()]
-        fallidos = backend.montar_shares_seleccionados(
-            seleccionados, recursos_cifs_dict, mounts_activos
+    # ── Con shares ─────────────────────────────────────────────────────────
+    checkboxes: dict[str, ft.Checkbox] = {}
+    checkbox_controls = []
+    for share in shares:
+        cb = ft.Checkbox(
+            label=share["name"],
+            value=False,
+            active_color=C_PRIMARY,
+            label_style=ft.TextStyle(color=C_TEXT, size=13),
         )
-        for nombre in fallidos:
-            datos = recursos_cifs_dict[nombre]
-            messagebox.showerror(
-                "Error mounting SMB resource",
-                f"Could not mount {datos['nombre_perfil']} on {datos['punto_montaje']} "
-                "after 30 seconds.",
+        checkboxes[share["name"]] = cb
+        checkbox_controls.append(cb)
+
+    col_size = 15
+    columns  = []
+    for i in range(0, len(checkbox_controls), col_size):
+        columns.append(ft.Column(checkbox_controls[i:i + col_size], spacing=4, tight=True))
+
+    loading_spin = ft.ProgressRing(width=16, height=16, stroke_width=2,
+                                    color=C_PRIMARY, visible=False)
+    loading_text = ft.Text("Mounting shares...", color=C_TEXT_DIM, size=12, visible=False)
+    error_text   = ft.Text("", color=C_ERROR, size=12, visible=False)
+    continue_btn = btn_primary("Continue →", width=200)
+
+    def do_continue(e):
+        seleccionados        = [n for n, cb in checkboxes.items() if cb.value]
+        continue_btn.disabled = True
+        loading_spin.visible  = True
+        loading_text.visible  = True
+        error_text.visible    = False
+        page.update()
+
+        def _mount():
+            fallidos = backend.montar_shares_seleccionados(
+                seleccionados, recursos_cifs_dict, mounts_activos
             )
-        ventana.destroy()
 
-    def on_actualizar_credenciales_smb():
-        resultado = pedir_credenciales(
-            ventana, "Update SMB Credentials",
-            "Enter new SMB credentials for user:", usuario_actual,
-        )
-        if not resultado:
-            messagebox.showinfo("Cancelled", "Credentials were not updated.")
+            def _after():
+                loading_spin.visible  = False
+                loading_text.visible  = False
+                continue_btn.disabled = False
+                if fallidos:
+                    error_text.value   = f"Could not mount: {', '.join(fallidos)}"
+                    error_text.visible = True
+                    page.update()
+                else:
+                    on_continue()
+
+            ui_call(page, _after)
+
+        threading.Thread(target=_mount, daemon=True).start()
+
+    continue_btn.on_click = do_continue
+
+    def update_smb_creds(e):
+        _show_smb_cred_dialog(page, usuario_actual, es_admin_its, credenciales_ldap)
+
+    content = ft.Column(
+        [
+            build_header(f"CIFS Shares — {usuario_actual}"),
+            # Sin expand=True aquí — dejamos que el Column crezca naturalmente
+            ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Container(height=8),
+                        section_title("SELECT SHARES TO MOUNT"),
+                        ft.Container(height=12),
+                        # Card sin scroll interno — el scroll lo gestiona la View
+                        ft.Container(
+                            content=ft.Column(
+                                [ft.Row(columns, spacing=32, wrap=True)],
+                                spacing=0,
+                                tight=True,
+                            ),
+                            bgcolor=C_SURFACE,
+                            border=ft.border.all(1, C_BORDER),
+                            border_radius=10,
+                            padding=16,
+                        ),
+                        ft.Container(height=16),
+                        ft.Row(
+                            [
+                                btn_secondary("Update SMB credentials",
+                                              on_click=update_smb_creds),
+                                ft.Container(expand=True),
+                                ft.Column(
+                                    [
+                                        error_text,
+                                        ft.Row([loading_spin, loading_text], spacing=8),
+                                        continue_btn,
+                                    ],
+                                    horizontal_alignment=ft.CrossAxisAlignment.END,
+                                    spacing=8,
+                                    tight=True,
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Container(height=16),
+                    ],
+                    spacing=0,
+                    tight=True,   # <-- clave: no expand, tamaño natural
+                ),
+                padding=ft.padding.symmetric(horizontal=24, vertical=8),
+            ),
+        ],
+        spacing=0,
+        tight=True,   # <-- clave: no expand en el Column raíz
+    )
+
+    return content
+
+
+def _show_smb_cred_dialog(
+    page: ft.Page,
+    usuario_actual: str,
+    es_admin_its: bool,
+    credenciales_ldap: dict,
+) -> None:
+    pass_tf, pass_col = styled_field("New SMB Password", password=True)
+    err = ft.Text("", color=C_ERROR, size=12, visible=False)
+
+    def save(e):
+        pwd = (pass_tf.value or "").strip()
+        if not pwd:
+            err.value = "Password required."
+            err.visible = True
+            page.update()
             return
-        if not es_admin_its and not backend.validar_credenciales_ldap(resultado):
-            messagebox.showinfo("Cancelled", "Credentials not valid.")
+        creds = {"usuario": usuario_actual, "password": pwd}
+        if not es_admin_its and not backend.validar_credenciales_ldap(creds):
+            err.value = "Invalid credentials."
+            err.visible = True
+            page.update()
             return
         try:
-            backend.actualizar_password_perfiles_rclone(resultado["usuario"], resultado["password"])
-            messagebox.showinfo(
-                "Success",
-                f"Credentials have been updated for all profiles of {resultado['usuario']}.",
-            )
-        except Exception as e:
-            messagebox.showerror("Error", f"Could not update credentials:\n{e}")
+            backend.actualizar_password_perfiles_rclone(usuario_actual, pwd)
+            dlg.open = False
+            page.update()
+            show_dialog(page, "Success",
+                        f"Credentials updated for all profiles of {usuario_actual}.",
+                        C_ACCENT)
+        except Exception as ex:
+            err.value   = str(ex)
+            err.visible = True
+            page.update()
 
-    ttk.Button(ventana, text="Update SMB credentials", command=on_actualizar_credenciales_smb).pack(pady=(5, 0))
-    ttk.Button(ventana, text="Continue", command=continuar).pack(pady=15)
+    def cancel(e):
+        dlg.open = False
+        page.update()
 
-    ventana.wait_window()
+    dlg = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("Update SMB Credentials", color=C_TEXT, size=15,
+                      weight=ft.FontWeight.W_600),
+        content=ft.Column(
+            [
+                ft.Text(f"User: {usuario_actual}", color=C_TEXT_DIM, size=12),
+                ft.Container(height=12),
+                pass_col,
+                err,
+            ],
+            spacing=6,
+            tight=True,
+            width=320,
+        ),
+        actions=[btn_secondary("Cancel", on_click=cancel), btn_primary("Save", on_click=save)],
+        bgcolor=C_OVERLAY,
+        shape=ft.RoundedRectangleBorder(radius=10),
+    )
+    page.overlay.append(dlg)
+    dlg.open = True
+    page.update()
 
 
 # ============================================================================
-# DIÁLOGO: SELECCIÓN DE SERVIDOR MINIO
+# VISTA: SELECCIÓN DE SERVIDOR MINIO
 # ============================================================================
 
-def seleccionar_servidor_minio(root, shares, perfiles_configurados) -> dict:
-    """
-    Diálogo para seleccionar el servidor MinIO.
+def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.View:
+    servers  = list(backend.MINIO_SERVERS.keys())
+    # FIX: usar dict simple en lugar de ft.Ref[str] (Ref es para controles, no para estado)
+    selected = {"current": servers[0]}
 
-    Returns:
-        {"servidor": str, "perfil": str, "endpoint": str}
-    """
-    resultado = {"servidor": None, "perfil": None, "endpoint": None}
+    server_cards: dict[str, ft.Container] = {}
 
-    ventana = tk.Toplevel(root)
-    ventana.title("Select MinIO server")
+    def make_server_card(srv_name: str) -> ft.Container:
+        info   = backend.MINIO_SERVERS[srv_name]["IRB"]
+        is_sel = srv_name == selected["current"]
+        c = ft.Container(
+            content=ft.Row(
+                [
+                    ft.Radio(value=srv_name, active_color=C_PRIMARY),
+                    ft.Column(
+                        [
+                            ft.Text(srv_name, size=14, weight=ft.FontWeight.W_600,
+                                    color=C_TEXT),
+                            ft.Text(info["endpoint"], size=11, color=C_TEXT_DIM,
+                                    font_family=FONT_MONO),
+                        ],
+                        spacing=2,
+                        tight=True,
+                        expand=True,
+                    ),
+                    ft.Icon(ft.Icons.STORAGE,
+                            color=C_PRIMARY if is_sel else C_BORDER, size=20),
+                ],
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=12,
+            ),
+            bgcolor=C_SURFACE2 if is_sel else C_SURFACE,
+            border=ft.border.all(2 if is_sel else 1,
+                                  C_PRIMARY if is_sel else C_BORDER),
+            border_radius=8,
+            padding=ft.padding.symmetric(horizontal=16, vertical=12),
+        )
+        server_cards[srv_name] = c
+        return c
 
-    ttk.Label(ventana, text="Select the MinIO server:").pack(pady=(10, 5))
-    servidor_var = tk.StringVar(value=list(backend.MINIO_SERVERS.keys())[0])
-    ttk.Combobox(
-        ventana,
-        textvariable=servidor_var,
-        values=list(backend.MINIO_SERVERS.keys()),
-        state="readonly",
-        width=30,
-    ).pack(pady=(0, 10))
+    rg = ft.RadioGroup(
+        content=ft.Column([make_server_card(s) for s in servers], spacing=8),
+        value=servers[0],
+    )
 
-    def continuar():
-        servidor = servidor_var.get()
-        resultado.update({
-            "servidor": servidor,
-            "perfil":   backend.MINIO_SERVERS[servidor]["IRB"]["profile"],
-            "endpoint": backend.MINIO_SERVERS[servidor]["IRB"]["endpoint"],
+    def on_radio_change(e):
+        selected["current"] = rg.value
+        for srv, card_c in server_cards.items():
+            is_sel = srv == selected["current"]
+            card_c.bgcolor = C_SURFACE2 if is_sel else C_SURFACE
+            card_c.border  = ft.border.all(2 if is_sel else 1,
+                                             C_PRIMARY if is_sel else C_BORDER)
+            card_c.content.controls[2].color = C_PRIMARY if is_sel else C_BORDER
+        page.update()
+
+    rg.on_change = on_radio_change
+
+    def do_continue(e):
+        srv = selected["current"]
+        on_continue({
+            "servidor": srv,
+            "perfil":   backend.MINIO_SERVERS[srv]["IRB"]["profile"],
+            "endpoint": backend.MINIO_SERVERS[srv]["IRB"]["endpoint"],
         })
-        ventana.destroy()
 
-    ttk.Button(ventana, text="Continue", command=continuar).pack(pady=15)
-    ventana.wait_window()
-    return resultado
+    content = ft.Column(
+        [
+            build_header("MinIO Server"),
+            ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Container(height=8),
+                        section_title("SELECT DESTINATION SERVER"),
+                        ft.Container(height=12),
+                        card(rg, padding=16),
+                        ft.Container(height=24),
+                        ft.Row(
+                            [btn_primary("Continue →", on_click=do_continue, width=200)],
+                            alignment=ft.MainAxisAlignment.END,
+                        ),
+                    ],
+                    spacing=0,
+                ),
+                expand=True,
+                padding=ft.padding.symmetric(horizontal=24, vertical=16),
+            ),
+        ],
+        expand=True,
+        spacing=0,
+    )
 
-
-# ============================================================================
-# DIÁLOGO: RENOVACIÓN DE CREDENCIALES STS
-# ============================================================================
-
-def prompt_credenciales_renovar(root, tiempo_restante) -> dict:
-    """
-    Diálogo para decidir si renovar credenciales S3 temporales (STS).
-
-    Returns:
-        {"accion": "renovar"|"mantener"|None, "dias": int|None}
-    """
-    resultado = {"accion": None, "dias": None}
-
-    ventana = tk.Toplevel(root)
-    ventana.title("Minio S3 credentials renewal")
-
-    tk.Label(ventana, text="Remaining lifespan for current credentials:", font=("Arial", 12)).pack(pady=(15, 5))
-    tk.Label(ventana, text=str(tiempo_restante), fg="blue", font=("Arial", 10, "bold")).pack(pady=(0, 10))
-
-    frame_dropdown = tk.Frame(ventana)
-    frame_dropdown.pack(pady=(5, 10))
-    tk.Label(frame_dropdown, text="Select lifespan for new STS credentials (days):").pack(side=tk.LEFT, padx=5)
-    dias_var = tk.StringVar(value="7")
-    ttk.Combobox(
-        frame_dropdown, textvariable=dias_var,
-        values=[str(i) for i in range(1, 31)], width=4, state="readonly",
-    ).pack(side=tk.LEFT)
-
-    def mantener():
-        resultado["accion"] = "mantener"
-        ventana.destroy()
-
-    def renovar():
-        resultado["accion"] = "renovar"
-        resultado["dias"]   = int(dias_var.get())
-        ventana.destroy()
-
-    frame_botones = tk.Frame(ventana)
-    frame_botones.pack(pady=10)
-    tk.Button(frame_botones, text="Keep current", width=12, command=mantener).grid(row=0, column=0, padx=10)
-    tk.Button(frame_botones, text="Renew",        width=12, command=renovar).grid(row=0, column=1, padx=10)
-
-    ventana.wait_window()
-    return resultado
+    return content
 
 
 # ============================================================================
-# INTERFAZ PRINCIPAL DE TRANSFERENCIA
+# VISTA: CREDENCIALES STS / RENOVACIÓN
 # ============================================================================
 
-def abrir_interfaz_copia(root, perfil_rclone: str, mounts_activos: list) -> None:
-    """Ventana principal de copia y verificación de datos con rclone."""
+def _build_credentials_content(
+    page: ft.Page,
+    perfil_rclone: str,
+    endpoint: str,
+    credenciales_ldap: dict,
+    on_continue: Callable,
+) -> ft.View:
+
+    token_actual = backend.get_rclone_session_token(perfil_rclone)
+    if token_actual:
+        tiempo     = backend.get_expiration_from_session_token(token_actual)
+        expiry_str = str(tiempo) if tiempo else "Unknown"
+        has_token  = True
+    else:
+        expiry_str = "No credentials configured yet."
+        has_token  = False
+
+    dias_var = ft.Dropdown(
+        options=[ft.dropdown.Option(str(i)) for i in range(1, 31)],
+        value="7",
+        bgcolor=C_SURFACE2,
+        border_color=C_BORDER,
+        focused_border_color=C_PRIMARY,
+        color=C_TEXT,
+        border_radius=6,
+        width=100,
+        text_size=13,
+    )
+
+    error_text   = ft.Text("", color=C_ERROR, size=12, visible=False)
+    loading_spin = ft.ProgressRing(width=18, height=18, stroke_width=2,
+                                    color=C_PRIMARY, visible=False)
+    renew_btn = btn_primary("Renew credentials", width=220)
+    keep_btn  = btn_secondary("Keep current", width=180) if has_token else None
+
+    def do_renew(e):
+        renew_btn.disabled   = True
+        loading_spin.visible = True
+        error_text.visible   = False
+        if keep_btn:
+            keep_btn.disabled = True
+        page.update()
+
+        def _renew():
+            dias  = int(dias_var.value) * 86400
+            creds = backend.get_credentials(
+                endpoint,
+                credenciales_ldap["usuario"],
+                credenciales_ldap["password"],
+                dias,
+            )
+            if creds is None:
+                def _fail():
+                    loading_spin.visible = False
+                    renew_btn.disabled   = False
+                    if keep_btn:
+                        keep_btn.disabled = False
+                    error_text.value   = "Invalid credentials or server error. Contact ITS."
+                    error_text.visible = True
+                ui_call(page, _fail)
+            else:
+                backend.configure_rclone(
+                    creds["AccessKeyId"],
+                    creds["SecretAccessKey"],
+                    creds["SessionToken"],
+                    endpoint,
+                    perfil_rclone,
+                )
+                ui_call(page, on_continue)
+
+        threading.Thread(target=_renew, daemon=True).start()
+
+    def do_keep(e):
+        on_continue()
+
+    renew_btn.on_click = do_renew
+    if keep_btn:
+        keep_btn.on_click = do_keep
+
+    if has_token:
+        token_status = ft.Row(
+            [
+                ft.Icon(ft.Icons.ACCESS_TIME, color=C_WARNING, size=16),
+                ft.Text("Current credentials expire in:", size=12, color=C_TEXT_DIM),
+                ft.Text(expiry_str, size=12, color=C_WARNING,
+                        weight=ft.FontWeight.W_600, font_family=FONT_MONO),
+            ],
+            spacing=8,
+        )
+    else:
+        token_status = ft.Row(
+            [
+                ft.Icon(ft.Icons.WARNING_AMBER_OUTLINED, color=C_ERROR, size=16),
+                ft.Text("No credentials configured. Renewal required.",
+                        size=12, color=C_ERROR),
+            ],
+            spacing=8,
+        )
+
+    buttons_row_controls = [
+        ft.Row([loading_spin, renew_btn],
+               vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+    ]
+    if keep_btn:
+        buttons_row_controls.insert(0, keep_btn)
+
+    content = ft.Column(
+        [
+            build_header("S3 Credentials"),
+            ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Container(height=8),
+                        section_title("STS CREDENTIALS — " + perfil_rclone.upper()),
+                        ft.Container(height=12),
+                        card(
+                            ft.Column(
+                                [
+                                    token_status,
+                                    ft.Container(height=16),
+                                    divider(),
+                                    ft.Container(height=16),
+                                    ft.Row(
+                                        [
+                                            ft.Text("New credential lifespan:",
+                                                    size=13, color=C_TEXT),
+                                            dias_var,
+                                            ft.Text("days", size=13, color=C_TEXT_DIM),
+                                        ],
+                                        spacing=12,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    ),
+                                ],
+                                spacing=0,
+                            ),
+                        ),
+                        ft.Container(height=8),
+                        error_text,
+                        ft.Container(height=16),
+                        ft.Row(
+                            buttons_row_controls,
+                            alignment=ft.MainAxisAlignment.END,
+                            spacing=12,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                    ],
+                    spacing=0,
+                ),
+                expand=True,
+                padding=ft.padding.symmetric(horizontal=24, vertical=16),
+            ),
+        ],
+        expand=True,
+        spacing=0,
+    )
+
+    return content
+
+
+# ============================================================================
+# VISTA: INTERFAZ PRINCIPAL DE COPIA
+# ============================================================================
+
+def _build_copy_content(
+    page: ft.Page,
+    perfil_rclone: str,
+    mounts_activos: list,
+    on_close: Callable,
+) -> ft.View:
+
     num_cores = backend.obtener_num_cpus()
     _, rclone_config_path, _ = backend.get_rclone_paths(perfil_rclone)
 
-    ventana = tk.Toplevel(root)
-    ventana.title("Copy and verify data with rclone")
-    ventana.geometry("1024x768")
+    # ── Campos de origen / destino ─────────────────────────────────────────
+    origen_tf, origen_col = styled_field(
+        "Source path" + (" (server path)" if IS_WEB else " (local path or rclone remote)"),
+        hint="/path/to/data" if IS_WEB else "/local/path  or  profile:/path",
+    )
+    destino_tf, destino_col = styled_field(
+        f"Destination path (bucket in {perfil_rclone})",
+        hint="bucket-name/subpath",
+    )
+    flags_tf, flags_col = styled_field(
+        "Additional rclone flags (advanced)",
+        value=f"--transfers={num_cores} --checkers={num_cores} --s3-no-check-bucket",
+    )
+
+    ruta_label = ft.Text(
+        "Destination: [incomplete]",
+        size=12,
+        color=C_TEXT_DIM,
+        font_family=FONT_MONO,
+    )
 
     # ── Metadatos ──────────────────────────────────────────────────────────
-    frame_metadata = ttk.LabelFrame(ventana, text="Metadata to attach to the copied objects")
-    frame_metadata.pack(padx=10, pady=(15, 5), fill=tk.X)
-    frame_metadata.columnconfigure(1, weight=1)
-
-    labels = [
+    meta_labels = [
         ("Project",          "project_name"),
         ("Host machine",     "compute_node"),
         ("Sample type",      "sample_type"),
@@ -502,195 +1070,163 @@ def abrir_interfaz_copia(root, perfil_rclone: str, mounts_activos: list) -> None
         ("Requested by",     "requested_by"),
         ("Research group",   "research_group"),
     ]
-    metadata_vars = {}
-    for idx, (label_text, var_name) in enumerate(labels):
-        ttk.Label(frame_metadata, text=label_text).grid(row=idx, column=0, sticky="w", padx=5, pady=2)
-        entry = ttk.Entry(frame_metadata)
-        entry.grid(row=idx, column=1, padx=5, pady=2, sticky="ew")
-        metadata_vars[var_name] = entry
+    meta_fields: dict[str, ft.TextField] = {}
+    meta_controls = []
+    for label, key in meta_labels:
+        tf, col = styled_field(label)
+        meta_fields[key] = tf
+        meta_controls.append(col)
 
-    # ── Rutas ──────────────────────────────────────────────────────────────
-    frame_rutas = ttk.Frame(ventana)
-    frame_rutas.pack(fill=tk.X, padx=10, pady=(15, 10))
-    frame_rutas.columnconfigure(0, weight=1)
+    meta_left  = ft.Column(meta_controls[:4], spacing=10, expand=True)
+    meta_right = ft.Column(meta_controls[4:], spacing=10, expand=True)
+    meta_grid  = ft.Row([meta_left, meta_right], spacing=16, expand=True)
 
-    ttk.Label(frame_rutas, text="Source path (local or rclone profile):").grid(
-        row=0, column=0, columnspan=3, sticky="w"
+    # ── Log: ListView con auto_scroll ──────────────────────────────────────
+    # FIX: usar ListView en lugar de TextField para scroll automático al final
+    log_list = ft.ListView(
+        expand=True,
+        auto_scroll=True,
+        spacing=0,
+        padding=ft.padding.all(12),
     )
-    entrada_origen = ttk.Entry(frame_rutas, width=60)
-    entrada_origen.grid(row=1, column=0, sticky="ew", padx=(0, 5))
-
-    def seleccionar_archivo():
-        ruta = backend.traducir_ruta_a_remote(
-            filedialog.askopenfilename(title="Select source file"), mounts_activos
-        )
-        if ruta:
-            entrada_origen.delete(0, tk.END)
-            entrada_origen.insert(0, ruta)
-            actualizar_ruta_resultante()
-
-    def seleccionar_carpeta():
-        ruta = backend.traducir_ruta_a_remote(
-            filedialog.askdirectory(title="Select source folder"), mounts_activos
-        )
-        if ruta:
-            entrada_origen.delete(0, tk.END)
-            entrada_origen.insert(0, ruta)
-            actualizar_ruta_resultante()
-
-    ttk.Button(frame_rutas, text="📄 File",   command=seleccionar_archivo).grid(row=1, column=1, padx=(0, 5))
-    ttk.Button(frame_rutas, text="📁 Folder", command=seleccionar_carpeta).grid(row=1, column=2)
-
-    ttk.Label(frame_rutas, text=f"Destination path (bucket in profile {perfil_rclone}):").grid(
-        row=2, column=0, columnspan=3, sticky="w", pady=(10, 0)
+    log_container = ft.Container(
+        content=log_list,
+        bgcolor=C_BG,
+        border=ft.border.all(1, C_BORDER),
+        border_radius=6,
+        height=280,
     )
-    entrada_destino = tk.Entry(frame_rutas)
-    entrada_destino.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(0, 10))
 
-    label_ruta_resultante = ttk.Label(
-        frame_rutas, text="Files will be copied into: [incomplete]", wraplength=750, justify="left"
-    )
-    label_ruta_resultante.grid(row=4, column=0, columnspan=3, sticky="w", pady=(0, 10))
-
-    ttk.Label(frame_rutas, text="Advanced (experts only): Additional flags for rclone:").grid(
-        row=5, column=0, columnspan=3, sticky="w", pady=(10, 0)
-    )
-    entry_flags = ttk.Entry(frame_rutas)
-    entry_flags.insert(0, f"--transfers={num_cores} --checkers={num_cores} --s3-no-check-bucket")
-    entry_flags.grid(row=6, column=0, columnspan=3, sticky="ew")
-
-    # ── Debounce verificación ruta destino ─────────────────────────────────
-    debounce_timer = None
-
-    def actualizar_ruta_resultante(*args):
-        origen  = entrada_origen.get().strip()
-        destino = entrada_destino.get().strip().rstrip("/")
-        if not destino:
-            label_ruta_resultante.configure(text="Files will be copied into: [incomplete]")
-            return
-        label_ruta_resultante.configure(text=f"Files will be copied into: {destino}/")
-
-    def comprobar_ruta_accesible(event=None):
-        nonlocal debounce_timer
-        if debounce_timer:
-            debounce_timer.cancel()
-        debounce_timer = threading.Timer(0.5, _verificar_ruta_en_hilo)
-        debounce_timer.start()
-
-    def _verificar_ruta_en_hilo():
-        ruta      = entrada_destino.get().strip()
-        accesible = backend.verificar_ruta_rclone_accesible(perfil_rclone, ruta)
-        color     = "#d6f5d6" if accesible else "#f5d6d6"
-        if ruta:
-            ventana.after(0, lambda: entrada_destino.configure(background=color))
-
-    def manejar_evento_destino(event=None):
-        comprobar_ruta_accesible()
-        actualizar_ruta_resultante()
-
-    entrada_destino.bind("<KeyRelease>", manejar_evento_destino)
-    entrada_origen.bind("<KeyRelease>",  actualizar_ruta_resultante)
+    def log(msg: str):
+        """Thread-safe: añade líneas al log con auto-scroll."""
+        def _add():
+            for line in msg.splitlines(keepends=True):
+                if line.strip():
+                    color = (
+                        C_ACCENT   if line.startswith("✅") else
+                        C_ERROR    if line.startswith("❌") else
+                        C_WARNING  if line.startswith("⚠️") else
+                        C_PRIMARY  if line.startswith("🔍") or line.startswith("🧾") else
+                        C_TEXT
+                    )
+                    log_list.controls.append(
+                        ft.Text(line.rstrip("\n"),
+                                size=11, color=color,
+                                font_family=FONT_MONO, selectable=True)
+                    )
+        ui_call(page, _add)
 
     # ── Botones de acción ──────────────────────────────────────────────────
-    frame_botones = ttk.Frame(ventana)
-    frame_botones.pack(pady=(15, 0))
+    copy_btn  = btn_primary("▶  Copy data")
+    check_btn = btn_primary("✓  Check data", disabled=True)
+    mount_btn = btn_secondary("⊞  Mount destination")
+    save_btn  = btn_secondary("↓  Save log")
+    close_btn = btn_secondary("✕  Close")
 
-    boton_copiar  = ttk.Button(frame_botones, text="Copy data")
-    boton_check   = ttk.Button(frame_botones, text="Check data")
-    boton_montar  = ttk.Button(frame_botones, text="Mount destination folder")
-    boton_guardar = ttk.Button(frame_botones, text="Save Log…")
+    def enable_btn(btn: ft.ElevatedButton | ft.OutlinedButton):
+        """Thread-safe: reactiva un botón."""
+        def _do():
+            btn.disabled = False
+            btn.update()
+        ui_call(page, _do)
 
-    boton_copiar.grid( row=0, column=0, padx=10)
-    boton_check.grid(  row=0, column=1, padx=10)
-    boton_montar.grid( row=0, column=2, padx=10)
-    boton_guardar.grid(row=0, column=3, padx=10)
+    # ── FilePicker (solo desktop) — instanciados UNA VEZ ──────────────────
+    # FIX: instanciar fuera del callback para no acumularlos en page.overlay
+    if not IS_WEB:
+        file_picker   = ft.FilePicker()
+        folder_picker = ft.FilePicker()
+        save_picker   = ft.FilePicker()
+        page.overlay.extend([file_picker, folder_picker, save_picker])
 
-    # ── Log ────────────────────────────────────────────────────────────────
-    log_text  = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, height=25)
-    log_text.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+        def on_file_picked(e: ft.FilePickerResultEvent):
+            if e.files:
+                ruta = backend.traducir_ruta_a_remote(e.files[0].path, mounts_activos)
+                origen_tf.value = ruta
+                actualizar_ruta_label()
+                page.update()
 
-    log_queue = queue.Queue()
+        def on_folder_picked(e: ft.FilePickerResultEvent):
+            if e.path:
+                ruta = backend.traducir_ruta_a_remote(e.path, mounts_activos)
+                origen_tf.value = ruta
+                actualizar_ruta_label()
+                page.update()
 
-    def procesar_queue():
-        try:
-            while True:
-                item = log_queue.get_nowait()
-                if isinstance(item, tuple):
-                    tipo, valor = item
-                    if tipo == "enable_button":
-                        {"copiar": boton_copiar, "check": boton_check}[valor].config(state="normal")
-                else:
-                    log_text.insert(tk.END, item)
-                    log_text.see(tk.END)
-        except queue.Empty:
-            pass
-        ventana.after(100, procesar_queue)
+        def on_save_result(ev: ft.FilePickerResultEvent):
+            if ev.path:
+                contenido = "\n".join(
+                    c.value for c in log_list.controls
+                    if isinstance(c, ft.Text) and c.value
+                )
+                try:
+                    with open(ev.path, "w", encoding="utf-8") as f:
+                        f.write(contenido)
+                    show_dialog(page, "Log saved", f"Saved to:\n{ev.path}", C_ACCENT)
+                except Exception as ex:
+                    show_dialog(page, "Error", str(ex), C_ERROR)
 
-    # ── Guardar log ────────────────────────────────────────────────────────
-    def guardar_log():
-        ahora    = datetime.now()
-        filename = f"bifrost-{ahora.strftime('%Y-%m-%d_%H-%M-%S')}.log"
-        contenido = (
-            f"### Log saved at: {ahora.strftime('%Y-%m-%d %H:%M:%S')} ###\n\n"
-            "### Log Output ###\n"
-            + log_text.get("1.0", tk.END).rstrip()
-        )
-        if not contenido.strip():
-            messagebox.showinfo("Save Log", "There is no log content to save.")
-            return
-        ruta = filedialog.asksaveasfilename(
-            title="Save log as…",
-            defaultextension=".log",
-            initialfile=filename,
-            filetypes=[("Log files", "*.log"), ("Text files", "*.txt"), ("All files", "*.*")],
-        )
+        file_picker.on_result   = on_file_picked
+        folder_picker.on_result = on_folder_picked
+        save_picker.on_result   = on_save_result
+
+        pick_file_btn   = btn_secondary("📄 File",
+                                        on_click=lambda e: file_picker.pick_files())
+        pick_folder_btn = btn_secondary("📁 Folder",
+                                        on_click=lambda e: folder_picker.get_directory_path())
+        pick_row = ft.Row([pick_file_btn, pick_folder_btn], spacing=8)
+    else:
+        pick_row    = ft.Text("Enter the full server path above.", size=11, color=C_TEXT_DIM)
+        save_picker = None
+
+    # ── Verificación destino con debounce ──────────────────────────────────
+    _debounce = {"timer": None}
+
+    def actualizar_ruta_label(*_):
+        destino = (destino_tf.value or "").strip().rstrip("/")
+        ruta_label.value = f"→ {destino}/" if destino else "Destination: [incomplete]"
+        ruta_label.update()
+
+    def _check_dest_thread():
+        ruta = (destino_tf.value or "").strip()
         if not ruta:
             return
-        try:
-            with open(ruta, "w", encoding="utf-8") as f:
-                f.write(contenido)
-            messagebox.showinfo("Save Log", f"Log saved successfully to:\n{ruta}")
-        except Exception as e:
-            messagebox.showerror("Save Log", f"Error saving log:\n{str(e)}")
+        ok = backend.verificar_ruta_rclone_accesible(perfil_rclone, ruta)
+        def _update_border():
+            destino_tf.border_color = C_ACCENT if ok else C_ERROR
+            destino_tf.update()
+        ui_call(page, _update_border)
 
-    boton_guardar.config(command=guardar_log)
+    def on_destino_change(e=None):
+        actualizar_ruta_label()
+        if _debounce["timer"]:
+            _debounce["timer"].cancel()
+        _debounce["timer"] = threading.Timer(0.6, _check_dest_thread)
+        _debounce["timer"].start()
 
-    # ── Montar destino ─────────────────────────────────────────────────────
-    def lanzar_montaje():
-        ruta_destino = entrada_destino.get().strip()
-        if not ruta_destino:
-            messagebox.showerror("Error", "You must specify a destination path to mount.")
-            return
-        try:
-            backend.mount_rclone_S3_prefix_to_folder(perfil_rclone, ruta_destino)
-        except EnvironmentError as e:
-            messagebox.showerror("FUSE / WinFSP not detected", str(e))
-        except Exception as e:
-            messagebox.showerror("Error mounting", f"Could not mount the prefix:\n{str(e)}")
-
-    boton_montar.config(command=lanzar_montaje)
+    destino_tf.on_change = on_destino_change
+    origen_tf.on_change  = lambda e: actualizar_ruta_label()
 
     # ── Copiar ─────────────────────────────────────────────────────────────
-    def lanzar_copia():
-        origen  = entrada_origen.get().strip()
-        destino = entrada_destino.get().strip()
+    def do_copy(e):
+        origen  = (origen_tf.value  or "").strip()
+        destino = (destino_tf.value or "").strip()
         if not origen or not destino:
-            messagebox.showerror("Error", "You must enter both source and destination.")
+            show_dialog(page, "Error", "Source and destination are required.", C_ERROR)
             return
 
-        metadatos_dict    = {k: e.get().strip() for k, e in metadata_vars.items()}
-        flags_adicionales = entry_flags.get().strip().split()
+        metadatos = {k: (tf.value or "").strip() for k, tf in meta_fields.items()}
+        flags     = (flags_tf.value or "").strip().split()
 
-        boton_copiar.config(state="disabled")
-        boton_check.config(state="disabled")
+        copy_btn.disabled  = True
+        check_btn.disabled = True
+        page.update()
 
         ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_text.insert(tk.END, f"### Copy operation started at {ahora} ###\n")
-        log_text.insert(tk.END, "### Metadata ###\n")
-        for k, v in metadatos_dict.items():
-            log_text.insert(tk.END, f"{k}: {v}\n")
-        log_text.insert(tk.END, "\n")
-        log_text.insert(tk.END, f"Executing: rclone copy {origen} {perfil_rclone}:/{destino}\n")
+        log(f"### Copy started at {ahora} ###\n")
+        log("### Metadata ###\n")
+        for k, v in metadatos.items():
+            log(f"  {k}: {v}\n")
+        log("\n")
 
         threading.Thread(
             target=backend.ejecutar_rclone_copy,
@@ -699,32 +1235,28 @@ def abrir_interfaz_copia(root, perfil_rclone: str, mounts_activos: list) -> None
                 destino_perfil=perfil_rclone,
                 destino_path=destino,
                 rclone_config_path=rclone_config_path,
-                metadatos_dict=metadatos_dict,
-                flags_adicionales=flags_adicionales,
+                metadatos_dict=metadatos,
+                flags_adicionales=flags,
                 num_cores=num_cores,
-                log_fn=log_queue.put,
-                on_success=lambda: log_queue.put(("enable_button", "check")),
-                on_finish=lambda: log_queue.put(("enable_button", "copiar")),
+                log_fn=log,
+                on_success=lambda: enable_btn(check_btn),
+                on_finish=lambda: enable_btn(copy_btn),
             ),
             daemon=True,
         ).start()
 
-    boton_copiar.config(command=lanzar_copia)
-
     # ── Check ──────────────────────────────────────────────────────────────
-    def lanzar_check():
-        origen  = entrada_origen.get().strip()
-        destino = entrada_destino.get().strip()
+    def do_check(e):
+        origen  = (origen_tf.value  or "").strip()
+        destino = (destino_tf.value or "").strip()
         if not origen or not destino:
-            messagebox.showerror("Error", "You must enter both source and destination.")
+            show_dialog(page, "Error", "Source and destination are required.", C_ERROR)
             return
 
-        flags_adicionales = entry_flags.get().strip().split()
-        boton_check.config(state="disabled")
-        log_text.insert(
-            tk.END,
-            f"\n🔍 Verifying with: rclone check {origen} {perfil_rclone}:/{destino}\n\n",
-        )
+        flags = (flags_tf.value or "").strip().split()
+        check_btn.disabled = True
+        page.update()
+        log(f"\n🔍 Verifying: rclone check {origen} → {perfil_rclone}:/{destino}\n\n")
 
         threading.Thread(
             target=backend.ejecutar_rclone_check,
@@ -733,199 +1265,491 @@ def abrir_interfaz_copia(root, perfil_rclone: str, mounts_activos: list) -> None
                 destino_perfil=perfil_rclone,
                 destino_path=destino,
                 rclone_config_path=rclone_config_path,
-                flags_adicionales=flags_adicionales,
+                flags_adicionales=flags,
                 mounts_activos=mounts_activos,
-                log_fn=log_queue.put,
-                on_finish=lambda: log_queue.put(("enable_button", "check")),
+                log_fn=log,
+                on_finish=lambda: enable_btn(check_btn),
             ),
             daemon=True,
         ).start()
 
-    boton_check.config(command=lanzar_check)
+    # ── Montar destino ─────────────────────────────────────────────────────
+    def do_mount(e):
+        ruta = (destino_tf.value or "").strip()
+        if not ruta:
+            show_dialog(page, "Error", "Specify a destination path to mount.", C_ERROR)
+            return
+        try:
+            backend.mount_rclone_S3_prefix_to_folder(perfil_rclone, ruta)
+        except EnvironmentError as ex:
+            show_dialog(page, "FUSE / WinFSP not detected", str(ex), C_ERROR)
+        except Exception as ex:
+            show_dialog(page, "Mount error", str(ex), C_ERROR)
+
+    # ── Guardar log ────────────────────────────────────────────────────────
+    def do_save_log(e):
+        contenido = "\n".join(
+            c.value for c in log_list.controls
+            if isinstance(c, ft.Text) and c.value
+        )
+        if not contenido.strip():
+            show_dialog(page, "Save log", "No log content to save.", C_WARNING)
+            return
+        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        if IS_WEB:
+            fname = f"bifrost-{ts}.log"
+            try:
+                with open(fname, "w", encoding="utf-8") as f:
+                    f.write(contenido)
+                show_dialog(page, "Log saved", f"Saved as {fname} on the server.", C_ACCENT)
+            except Exception as ex:
+                show_dialog(page, "Error", str(ex), C_ERROR)
+        else:
+            # FIX: save_picker ya está en overlay — solo llamar save_file
+            save_picker.save_file(file_name=f"bifrost-{ts}.log")
 
     # ── Cierre ─────────────────────────────────────────────────────────────
-    def cerrar_aplicacion():
-        log_queue.put("\n🧹 Unmounting mount points...\n")
-        ruta_destino = entrada_destino.get().strip()
-        if ruta_destino:
-            mount_point = backend.resolver_mount_point_destino(perfil_rclone, ruta_destino)
-            backend.desmontar_punto_montaje(mount_point, log_fn=log_queue.put)
-        log_queue.put("✅ Unmount completed. Closing application.\n")
-        os._exit(0)
+    def _do_close_cleanup():
+        log("\n🧹 Unmounting mount points...\n")
+        ruta_dest = (destino_tf.value or "").strip()
+        if ruta_dest:
+            mp = backend.resolver_mount_point_destino(perfil_rclone, ruta_dest)
+            backend.desmontar_punto_montaje(mp, log_fn=log)
+        log("✅ Done.\n")
+        ui_call(page, on_close)
 
-    ventana.protocol("WM_DELETE_WINDOW", cerrar_aplicacion)
-    procesar_queue()
-    ventana.wait_window()
+    def do_close(e):
+        show_confirm(
+            page,
+            "Close BIFROST",
+            "This will unmount all mount points and close the application.",
+            on_yes=lambda: threading.Thread(
+                target=_do_close_cleanup, daemon=True
+            ).start(),
+        )
+
+    copy_btn.on_click  = do_copy
+    check_btn.on_click = do_check
+    mount_btn.on_click = do_mount
+    save_btn.on_click  = do_save_log
+    close_btn.on_click = do_close
+
+    # ── Layout ────────────────────────────────────────────────────────────
+    content = ft.Column(
+        [
+            build_header(f"Copy & Verify — {perfil_rclone}"),
+            ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Container(height=8),
+                        section_title("PATHS"),
+                        ft.Container(height=10),
+                        card(
+                            ft.Column(
+                                [
+                                    origen_col,
+                                    ft.Container(height=4),
+                                    pick_row,
+                                    ft.Container(height=12),
+                                    destino_col,
+                                    ft.Container(height=6),
+                                    ruta_label,
+                                    ft.Container(height=12),
+                                    flags_col,
+                                ],
+                                spacing=0,
+                            ),
+                        ),
+                        ft.Container(height=16),
+                        section_title("METADATA"),
+                        ft.Container(height=10),
+                        card(meta_grid),
+                        ft.Container(height=16),
+                        ft.Row(
+                            [copy_btn, check_btn, mount_btn, save_btn,
+                             ft.Container(expand=True), close_btn],
+                            spacing=8,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            wrap=True,
+                        ),
+                        ft.Container(height=12),
+                        section_title("LOG OUTPUT"),
+                        ft.Container(height=8),
+                        log_container,
+                        ft.Container(height=16),
+                    ],
+                    spacing=0,
+                    expand=True,
+                ),
+                expand=True,
+                padding=ft.padding.symmetric(horizontal=24, vertical=8),
+            ),
+        ],
+        expand=True,
+        spacing=0,
+        scroll=ft.ScrollMode.AUTO,
+    )
+
+    return content
 
 
 # ============================================================================
-# UTILIDAD INTERNA DE CENTRADO
+# VERIFICACIÓN DE RCLONE EN DESKTOP
 # ============================================================================
 
-def _centrar_ventana(ventana) -> None:
-    """Centra una ventana Toplevel en la pantalla."""
-    ventana.update_idletasks()
-    ancho = ventana.winfo_reqwidth() + 20
-    alto  = ventana.winfo_reqheight()
-    x = ventana.winfo_screenwidth()  // 2 - ancho // 2
-    y = ventana.winfo_screenheight() // 2 - alto  // 2
-    ventana.geometry(f"{ancho}x{alto}+{x}+{y}")
+def check_rclone_installation_flet(page: ft.Page) -> None:
+    """
+    Comprueba si rclone está disponible y gestiona instalación si falta.
+    Sin import circular: está definida en el mismo módulo y se llama directamente.
+    """
+    if not backend.detect_rclone_installed():
+        sistema = sys.platform
+        if sistema == "darwin":
+            if not backend.is_brew_installed():
+                show_dialog(
+                    page,
+                    "Rclone not found",
+                    "Rclone is not installed and Homebrew is not available.\n"
+                    "Install Homebrew first: https://brew.sh/",
+                    C_ERROR,
+                )
+                sys.exit(1)
+            backend.install_rclone_macos()
+        elif sistema == "win32":
+            show_dialog(
+                page,
+                "Rclone.exe not found",
+                "Download rclone.exe and place it in the same folder as this executable.\n"
+                "https://rclone.org/downloads/\n\n"
+                "Also install WinFsp from https://winfsp.dev/rel/",
+                C_ERROR,
+            )
+            sys.exit(1)
+
+    if sys.platform == "darwin":
+        try:
+            backend.ensure_fuse_macos()
+        except EnvironmentError as e:
+            show_dialog(page, "fuse-t not available", str(e), C_ERROR)
+            sys.exit(1)
+
+
+# ============================================================================
+# UPDATER WINDOWS
+# ============================================================================
+
+def _escribir_y_lanzar_updater_windows(ruta_actual: str, nueva_ruta: str) -> None:
+    updater_code = f"""@echo off
+setlocal
+set "OLD_EXE={ruta_actual}"
+set "NEW_EXE={nueva_ruta}"
+echo Waiting for the application to close...
+set /a i=0
+:waitloop
+if %i% geq 30 goto timeout_err
+del /f "%OLD_EXE%" >nul 2>&1
+if not exist "%OLD_EXE%" goto do_move
+timeout /t 1 /nobreak >nul
+set /a i+=1
+goto waitloop
+:do_move
+move /y "%NEW_EXE%" "%OLD_EXE%"
+if errorlevel 1 (echo ERROR: Could not replace executable. & pause & exit /b 1)
+echo Update completed! Please reopen the application.
+pause
+exit /b 0
+:timeout_err
+echo ERROR: Timeout waiting for old executable.
+pause
+exit /b 1
+"""
+    with tempfile.NamedTemporaryFile(
+        delete=False, suffix=".bat", mode="w", encoding="utf-8"
+    ) as f:
+        f.write(updater_code)
+        updater_path = f.name
+    subprocess.Popen(["cmd.exe", "/c", "start", "", updater_path], shell=False)
+    os._exit(0)
 
 
 # ============================================================================
 # FUNCIÓN PRINCIPAL
 # ============================================================================
 
-def main():
-    """Punto de entrada. Orquesta el flujo completo delegando lógica en backend."""
-    EXCEPCION_FILERS        = backend.EXCEPCION_FILERS
-    PERMITIR_USUARIO_CUSTOM = "--customuser" in sys.argv or "-c" in sys.argv
+def main(page: ft.Page):
+    page.title             = "BIFROST — IRB Data Transfer"
+    page.bgcolor           = C_BG
+    page.window.width      = 1100
+    page.window.height     = 820
+    page.window.min_width  = 800
+    page.window.min_height = 600
+    page.theme             = ft.Theme(color_scheme_seed=C_PRIMARY)
+    page.theme_mode        = ft.ThemeMode.DARK
+    page.padding           = 0
 
-    mounts_activos = []
+    # ── Estado de sesión ───────────────────────────────────────────────────
+    state = {
+        "credenciales_ldap":     None,
+        "grupos_ldap":           [],
+        "usar_privilegios":      False,
+        "credenciales_admin":    None,
+        "credenciales_smb":      None,
+        "shares_accesibles":     [],
+        "perfiles_configurados": [],
+        "mounts_activos":        [],
+        "servidor_minio":        None,
+        "perfil_rclone":         None,
+        "endpoint":              None,
+    }
 
-    root = tk.Tk()
-    root.withdraw()
+    ALLOW_CUSTOM_USER = "--customuser" in sys.argv or "-c" in sys.argv
 
-    # ── Signal handlers ────────────────────────────────────────────────────
-    _saliendo = {"valor": False}
+    # ── Navegación por CONTAINER SWAP (evita bug de Flutter desktop) ───────
+    #
+    # En lugar de page.views (Navigator stack de Flutter), usamos un único
+    # ft.Container cuyo .content se reemplaza en cada "pantalla".
+    # Esto elimina el bug de render en blanco en Windows desktop donde
+    # Flutter no repinta la ventana al hacer push de una nueva View.
+    # Ref: github.com/flet-dev/flet/issues/3031 y #2363
+    #
+    body = ft.Container(expand=True, bgcolor=C_BG)
+    page.scroll = ft.ScrollMode.AUTO
+    page.add(body)
+    page.update()
 
-    def salir(signum=None, frame=None):
-        if _saliendo["valor"]:
+    def show_screen(content: ft.Control):
+        """Reemplaza el contenido visible. Thread-safe."""
+        body.content = content
+        page.update()
+
+    def show_loading(message: str = "Loading..."):
+        show_screen(
+            ft.Column(
+                [
+                    ft.Container(expand=True),
+                    ft.Column(
+                        [
+                            ft.ProgressRing(color=C_PRIMARY, width=48, height=48, stroke_width=4),
+                            ft.Container(height=16),
+                            ft.Text(message, size=14, color=C_TEXT_DIM),
+                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=0,
+                    ),
+                    ft.Container(expand=True),
+                ],
+                expand=True,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            )
+        )
+
+    # ── Cierre limpio (X de ventana) ───────────────────────────────────────
+    if not IS_WEB:
+        page.window.prevent_close = True
+
+        def on_window_event(e: ft.WindowEvent):
+            if e.data == "close":
+                usuario = (
+                    (state["credenciales_smb"] or {}).get("usuario")
+                    or getpass.getuser()
+                )
+                backend.desmontar_todos_los_shares(usuario)
+                page.window.destroy()
+
+        page.window.on_event = on_window_event
+
+    # ── Flujo de pantallas ─────────────────────────────────────────────────
+
+    def go_login():
+        show_screen(_build_login_content(page, on_success=on_login_success,
+                                          allow_custom_user=ALLOW_CUSTOM_USER))
+
+    def on_login_success(creds: dict):
+        state["credenciales_ldap"] = creds
+        show_loading("Fetching LDAP groups...")
+
+        def _load_groups():
+            grupos = backend.get_ldap_groups(creds["usuario"])
+            state["grupos_ldap"] = grupos
+
+            if "its" in grupos and not IS_WEB:
+                def _ask_privileges():
+                    show_confirm(
+                        page,
+                        "ITS Administrator Privileges",
+                        "Do you want to use ITS administrator privileges for CIFS shares?",
+                        on_yes=_ask_admin_creds,
+                        on_no=_after_privileges,
+                    )
+                ui_call(page, _ask_privileges)
+            else:
+                state["usar_privilegios"] = False
+                ui_call(page, _after_privileges)
+
+        threading.Thread(target=_load_groups, daemon=True).start()
+
+    def _ask_admin_creds():
+        admin_user = "admin_" + state["credenciales_ldap"]["usuario"]
+        admin_tf, admin_col = styled_field("Admin password", password=True)
+        err = ft.Text("", color=C_ERROR, size=12, visible=False)
+
+        def confirm(e):
+            pwd = (admin_tf.value or "").strip()
+            if not pwd:
+                err.value = "Password required."
+                err.visible = True
+                page.update()
+                return
+            state["usar_privilegios"]   = True
+            state["credenciales_admin"] = {"usuario": admin_user, "password": pwd}
+            dlg.open = False
+            page.update()
+            _after_privileges()
+
+        def cancel(e):
+            state["usar_privilegios"]   = False
+            state["credenciales_admin"] = None
+            dlg.open = False
+            page.update()
+            _after_privileges()
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Admin Credentials", color=C_TEXT, size=15,
+                          weight=ft.FontWeight.W_600),
+            content=ft.Column(
+                [
+                    ft.Text(f"Username: {admin_user}", color=C_TEXT_DIM, size=12),
+                    ft.Container(height=10),
+                    admin_col,
+                    err,
+                ],
+                spacing=6, tight=True, width=300,
+            ),
+            actions=[
+                btn_secondary("Cancel", on_click=cancel),
+                btn_primary("Confirm",  on_click=confirm),
+            ],
+            bgcolor=C_OVERLAY,
+            shape=ft.RoundedRectangleBorder(radius=10),
+        )
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
+    def _after_privileges():
+        creds_ldap = state["credenciales_ldap"]
+        try:
+            state["credenciales_smb"] = backend.construir_credenciales_smb(
+                creds_ldap,
+                state["usar_privilegios"],
+                state["credenciales_admin"],
+            )
+        except ValueError as ex:
+            show_dialog(page, "Error", str(ex), C_ERROR)
             return
-        _saliendo["valor"] = True
-        print("\n🛑 Interrupted. Exiting...")
-        backend.desmontar_todos_los_shares(getpass.getuser())
-        os._exit(0)
 
-    def check_signals():
-        root.after(200, check_signals)
+        show_loading("Loading accessible shares...")
 
-    signal.signal(signal.SIGINT, salir)
-    signal.signal(signal.SIGTERM, salir)
-
-    # ── Flujo principal ────────────────────────────────────────────────────
-    def iniciar_aplicacion():
-        # Paso 0: Actualizaciones
-        check_and_handle_update(root)
-
-        # Paso 1: Autenticación LDAP
-        usuario_ldap = None
-        while not usuario_ldap:
-            credenciales_ldap = pedir_credenciales(
-                root, "Enter your username", "Enter your username:",
-                None if PERMITIR_USUARIO_CUSTOM else getpass.getuser(),
+        def _load_shares():
+            perfiles = backend.obtener_perfiles_rclone_config()
+            shares   = backend.obtener_shares_accesibles(
+                state["grupos_ldap"],
+                creds_ldap["usuario"],
+                creds_ldap["password"],
+                state["credenciales_smb"]["usuario"],
+                backend.EXCEPCION_FILERS,
+                state["usar_privilegios"],
             )
-            if credenciales_ldap is None:
-                os._exit(0)
-            if backend.validar_credenciales_ldap(credenciales_ldap):
-                usuario_ldap = credenciales_ldap["usuario"]
-            else:
-                messagebox.showerror("Authentication failed", "Invalid credentials, please try again.")
-        print(f"LDAP credentials obtained. User: {usuario_ldap}")
-
-        # Paso 2: Grupos y privilegios
-        grupos_ldap = backend.get_ldap_groups(usuario_ldap)
-        print("User's LDAP groups:", grupos_ldap)
-
-        usar_privilegios   = False
-        credenciales_admin = None
-
-        if "its" in grupos_ldap:
-            usar_privilegios = messagebox.askyesno(
-                "Confirmation",
-                "Do you want to use ITS administrator privileges for CIFS shares?",
+            perfiles = backend.configurar_perfiles_smb_si_faltan(
+                shares, state["credenciales_smb"], perfiles
             )
-            if usar_privilegios:
-                credenciales_admin = pedir_credenciales(
-                    root, "Enter your username", "Enter your username:", "admin_" + usuario_ldap
+            state["shares_accesibles"]     = shares
+            state["perfiles_configurados"] = perfiles
+
+            def _show():
+                show_screen(_build_shares_content(
+                    page,
+                    shares=shares,
+                    usuario_actual=state["credenciales_smb"]["usuario"],
+                    mounts_activos=state["mounts_activos"],
+                    es_admin_its=state["usar_privilegios"],
+                    credenciales_ldap=creds_ldap,
+                    on_continue=go_minio,
+                ))
+            ui_call(page, _show)
+
+        threading.Thread(target=_load_shares, daemon=True).start()
+
+    def go_minio():
+        show_screen(_build_minio_content(page, on_continue=on_minio_selected))
+
+    def on_minio_selected(eleccion: dict):
+        state["servidor_minio"] = eleccion["servidor"]
+        state["perfil_rclone"]  = eleccion["perfil"]
+        state["endpoint"]       = eleccion["endpoint"]
+
+        if not IS_WEB:
+            check_rclone_installation_flet(page)
+
+        show_screen(_build_credentials_content(
+            page,
+            perfil_rclone=state["perfil_rclone"],
+            endpoint=state["endpoint"],
+            credenciales_ldap=state["credenciales_ldap"],
+            on_continue=go_copy,
+        ))
+
+    def go_copy():
+        show_screen(_build_copy_content(
+            page,
+            perfil_rclone=state["perfil_rclone"],
+            mounts_activos=state["mounts_activos"],
+            on_close=do_close,
+        ))
+
+    def do_close():
+        usuario = (state["credenciales_smb"] or {}).get("usuario") or getpass.getuser()
+        backend.desmontar_todos_los_shares(usuario)
+        if IS_WEB:
+            show_screen(
+                ft.Column(
+                    [
+                        ft.Container(expand=True),
+                        ft.Column(
+                            [
+                                ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, color=C_ACCENT, size=56),
+                                ft.Text("Session closed", size=24, color=C_TEXT,
+                                        weight=ft.FontWeight.W_600),
+                                ft.Text("You can close this browser tab.",
+                                        size=14, color=C_TEXT_DIM),
+                            ],
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            spacing=12,
+                        ),
+                        ft.Container(expand=True),
+                    ],
+                    expand=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 )
-                atexit.register(lambda: backend.desmontar_todos_los_shares(credenciales_admin["usuario"]))
-            else:
-                atexit.register(lambda: backend.desmontar_todos_los_shares(usuario_ldap))
+            )
         else:
-            atexit.register(lambda: backend.desmontar_todos_los_shares(usuario_ldap))
+            page.window.destroy()
 
-        credenciales_smb = backend.construir_credenciales_smb(
-            credenciales_ldap, usar_privilegios, credenciales_admin
-        )
-        print("Using ITS admin privileges:", usar_privilegios)
-        print("SMB user:", credenciales_smb["usuario"])
+    # ── Arranque ───────────────────────────────────────────────────────────
+    show_screen(_build_update_content(page, on_continue=go_login))
 
-        # Paso 3: Perfiles rclone y shares
-        perfiles_configurados = backend.obtener_perfiles_rclone_config()
-        shares_accesibles = backend.obtener_shares_accesibles(
-            grupos_ldap,
-            credenciales_ldap["usuario"],
-            credenciales_ldap["password"],
-            credenciales_smb["usuario"],
-            EXCEPCION_FILERS,
-            usar_privilegios,
-        )
-        print("Accessible shares:", [s["name"] for s in shares_accesibles])
 
-        perfiles_configurados = backend.configurar_perfiles_smb_si_faltan(
-            shares_accesibles, credenciales_smb, perfiles_configurados
-        )
-        print("Configured rclone profiles:", perfiles_configurados)
-
-        # Paso 4: Ventanas de selección
-        seleccionar_shares_montar(
-            root, shares_accesibles, credenciales_smb["usuario"], mounts_activos, usar_privilegios
-        )
-
-        eleccion                 = seleccionar_servidor_minio(root, shares_accesibles, perfiles_configurados)
-        servidor_s3_rcloneconfig = eleccion["perfil"]
-        endpoint                 = eleccion["endpoint"]
-
-        if not servidor_s3_rcloneconfig or not endpoint:
-            messagebox.showerror("Error", "No MinIO server was selected. Closing.")
-            os._exit(0)
-
-        # Paso 5: Verificar rclone y fuse-t (macOS)
-        check_rclone_installation()
-
-        current_session_token   = backend.get_rclone_session_token(servidor_s3_rcloneconfig)
-        current_expiration_time = (
-            "There are no current credentials configured, let's configure it now."
-            if current_session_token == ""
-            else backend.get_expiration_from_session_token(current_session_token)
-        )
-
-        respuesta = prompt_credenciales_renovar(root, current_expiration_time)
-
-        if respuesta["accion"] is None:
-            messagebox.showerror("Error", "No action was selected. Closing.")
-            os._exit(0)
-
-        if respuesta["accion"] == "renovar":
-            credentials = backend.get_credentials(
-                endpoint,
-                credenciales_ldap["usuario"],
-                credenciales_ldap["password"],
-                int(respuesta["dias"]) * 86400,
-            )
-            if credentials is None:
-                messagebox.showerror(
-                    "Bad Credentials",
-                    "Provided credentials are not correct, please try again or contact ITS",
-                )
-                os._exit(0)
-            backend.configure_rclone(
-                credentials["AccessKeyId"],
-                credentials["SecretAccessKey"],
-                credentials["SessionToken"],
-                endpoint,
-                servidor_s3_rcloneconfig,
-            )
-        elif respuesta["accion"] == "mantener":
-            print("User chose to keep the current credentials.")
-
-        abrir_interfaz_copia(root, servidor_s3_rcloneconfig, mounts_activos)
-
-    root.after(100, iniciar_aplicacion)
-    root.after(200, check_signals)
-    root.mainloop()
-
+# ============================================================================
+# ENTRY POINT
+# ============================================================================
 
 if __name__ == "__main__":
-    main()
+    if IS_WEB:
+        ft.app(
+            target=main,
+            view=ft.AppView.WEB_BROWSER,
+            port=int(os.environ.get("BIFROST_PORT", "8080")),
+        )
+    else:
+        ft.app(target=main)
