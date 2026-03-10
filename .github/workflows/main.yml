@@ -88,7 +88,7 @@ jobs:
           for script in *.py; do
             script_name=$(basename "$script" .py)
 
-            if [[ "$script" == "version.py" || "$script" == "minio-sts-credentials-request.py" || "$script" == "backend.py" || "$script" == "test_bifrost_flet.py" ]]; then
+            if [[ "$script" == "version.py" || "$script" == "minio-sts-credentials-request.py" || "$script" == "backend.py" || "$script" == "test_bifrost_flet.py" || "$script" == "bifrost.py" ]]; then
               continue
             fi
 
@@ -154,7 +154,13 @@ jobs:
           mkdir -p dist
           cd minio
           echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
-          pyinstaller --onefile bifrost.py --add-data "rclone-bin/rclone:." --distpath ../dist
+          pyinstaller --onefile bifrost.py \
+            --add-data "rclone-bin/rclone:." \
+            --collect-all flet \
+            --collect-all flet_core \
+            --hidden-import flet.fastapi \
+            --hidden-import uvicorn \
+            --distpath ../dist
           mv ../dist/bifrost ../dist/bifrost-${BRANCH_SUFFIX}-cluster
 
       - name: Verificar archivos generados
