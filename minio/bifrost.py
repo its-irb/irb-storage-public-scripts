@@ -1120,6 +1120,7 @@ def _build_copy_content(
     copy_btn  = btn_primary("▶  Copy data")
     check_btn = btn_primary("✓  Check data", disabled=True)
     mount_btn = btn_secondary("⊞  Mount destination")
+    mount_btn.visible = not IS_WEB
     save_btn  = btn_secondary("↓  Save log")
     close_btn = btn_secondary("✕  Close")
 
@@ -1392,6 +1393,7 @@ def _build_copy_content(
 
     return content
 
+
 # ============================================================================
 # VERIFICACIÓN DE RCLONE EN DESKTOP
 # ============================================================================
@@ -1544,18 +1546,23 @@ def main(page: ft.Page):
 
     # ── Cierre limpio (X de ventana) ───────────────────────────────────────
     if not IS_WEB:
-        page.window.prevent_close = True
-
-        def on_window_event(e: ft.WindowEvent):
-            if e.data == "close":
+        # Cleanup al cerrar con la X: sin prevent_close (causa el bug de
+        # ventana colgada en Flet >= 0.23.2 en Windows).
+        # Usamos page.on_close que se dispara cuando Flutter ya ha cerrado
+        # la ventana, y lanzamos el desmontaje en un daemon thread.
+        def on_close(e):
+            if state["mounts_activos"]:
                 usuario = (
                     (state["credenciales_smb"] or {}).get("usuario")
                     or getpass.getuser()
                 )
-                backend.desmontar_todos_los_shares(usuario)
-                page.window.destroy()
+                threading.Thread(
+                    target=backend.desmontar_todos_los_shares,
+                    args=(usuario,),
+                    daemon=True,
+                ).start()
 
-        page.window.on_event = on_window_event
+        page.on_close = on_close
 
     # ── Flujo de pantallas ─────────────────────────────────────────────────
 
@@ -1709,7 +1716,12 @@ def main(page: ft.Page):
 
     def do_close():
         usuario = (state["credenciales_smb"] or {}).get("usuario") or getpass.getuser()
-        backend.desmontar_todos_los_shares(usuario)
+        # Lanzar desmontaje en background para no bloquear la UI
+        threading.Thread(
+            target=backend.desmontar_todos_los_shares,
+            args=(usuario,),
+            daemon=True,
+        ).start()
         if IS_WEB:
             show_screen(
                 ft.Column(
@@ -1733,7 +1745,7 @@ def main(page: ft.Page):
                 )
             )
         else:
-            page.window.destroy()
+            page.window.close()
 
     # ── Arranque ───────────────────────────────────────────────────────────
     show_screen(_build_update_content(page, on_continue=go_login))
