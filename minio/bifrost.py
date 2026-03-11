@@ -25,8 +25,9 @@ Fixes aplicados respecto al piloto inicial:
   - ft.Ref[str] reemplazado por dict simple
   - Vista de shares vacíos muestra mensaje explicativo
   - atexit eliminado; el cierre limpio se gestiona via on_window_event y do_close()
-  - Sin hint de asteriscos en campo password
-  - Espaciado aumentado entre header y contenedores
+  - Sin hint de asteriscos en campos password
+  - Espaciado (margin bottom) entre header y contenido de cada vista
+  - safe_thread: todos los hilos capturan excepciones y las muestran en diálogo
 """
 
 import os
@@ -36,6 +37,7 @@ import getpass
 import tempfile
 import subprocess
 import threading
+import traceback
 from datetime import datetime
 from typing import Callable
 
@@ -54,17 +56,37 @@ IS_WEB = "--web" in sys.argv
 # ============================================================================
 
 def ui_call(page: ft.Page, fn: Callable) -> None:
-    """
-    Ejecuta fn() de forma thread-safe y llama page.update().
-
-    Flet gestiona internamente un lock por sesión (page._lock en desktop,
-    websocket en web), por lo que page.update() es seguro desde cualquier
-    hilo secundario. NO usar page.run_thread(): en Windows desktop encola
-    otro hilo en lugar de postear al event loop de Flutter, causando que
-    la ventana no se repinte hasta que el usuario la mueva.
-    """
     fn()
     page.update()
+
+
+# ============================================================================
+# WRAPPER SEGURO PARA HILOS — captura excepciones y las muestra en diálogo
+# ============================================================================
+
+def safe_thread(page: ft.Page, target: Callable, daemon: bool = True) -> threading.Thread:
+    """
+    Crea un Thread que captura cualquier excepción no controlada y la muestra
+    en un diálogo de error en lugar de matar el proceso silenciosamente.
+    Esto evita que el ejecutable compilado se cierre sin explicación.
+    """
+    def _wrapper():
+        try:
+            target()
+        except Exception as exc:
+            tb = traceback.format_exc()
+            print(f"[safe_thread] Unhandled exception:\n{tb}")
+            def _show():
+                show_dialog(
+                    page,
+                    "Unexpected error",
+                    f"{type(exc).__name__}: {exc}\n\nCheck console or contact ITS.",
+                    C_ERROR,
+                )
+            ui_call(page, _show)
+
+    t = threading.Thread(target=_wrapper, daemon=daemon)
+    return t
 
 
 # ============================================================================
@@ -195,6 +217,7 @@ def divider() -> ft.Divider:
 
 # ============================================================================
 # HEADER COMÚN
+# FIX: margin=ft.margin.only(bottom=24) añade espacio entre header y contenido
 # ============================================================================
 
 def build_header(subtitle: str = "") -> ft.Container:
@@ -231,7 +254,7 @@ def build_header(subtitle: str = "") -> ft.Container:
         bgcolor=C_SURFACE,
         border=ft.border.only(bottom=ft.BorderSide(1, C_BORDER)),
         padding=ft.padding.symmetric(horizontal=24, vertical=16),
-        margin=ft.margin.only(bottom=24),  # <-- espaciado entre header y contenido
+        margin=ft.margin.only(bottom=24),  # ← espacio entre header y el contenido
     )
 
 
@@ -254,8 +277,8 @@ def show_dialog(
         actions = [btn_primary("OK", on_click=close)]
 
     icon = (
-        ft.Icons.CHECK_CIRCLE_OUTLINE if color == C_ACCENT else
-        ft.Icons.ERROR_OUTLINE        if color == C_ERROR  else
+        ft.Icons.CHECK_CIRCLE_OUTLINE   if color == C_ACCENT  else
+        ft.Icons.ERROR_OUTLINE          if color == C_ERROR   else
         ft.Icons.WARNING_AMBER_OUTLINED if color == C_WARNING else
         ft.Icons.INFO_OUTLINE
     )
@@ -311,16 +334,10 @@ def show_confirm(
 
 
 # ============================================================================
-# VISTA: LOADING INTERMEDIO
-# ============================================================================
-
-
-
-# ============================================================================
 # VISTA: ACTUALIZACIÓN
 # ============================================================================
 
-def _build_update_content(page: ft.Page, on_continue: Callable) -> ft.View:
+def _build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
     status_text = ft.Text("Checking for updates...", color=C_TEXT_DIM, size=13)
     progress    = ft.ProgressBar(color=C_PRIMARY, bgcolor=C_SURFACE2, width=300)
     update_btn  = btn_primary("Update now")
@@ -333,34 +350,34 @@ def _build_update_content(page: ft.Page, on_continue: Callable) -> ft.View:
             ultima = backend.check_update_version(force_update="--update" in sys.argv)
             if ultima:
                 def _show_update():
-                    status_text.value   = f"New version available: {ultima}"
-                    status_text.color   = C_WARNING
-                    progress.visible    = False
-                    update_btn.visible  = True
-                    skip_btn.visible    = True
+                    status_text.value  = f"New version available: {ultima}"
+                    status_text.color  = C_WARNING
+                    progress.visible   = False
+                    update_btn.visible = True
+                    skip_btn.visible   = True
                 ui_call(page, _show_update)
             else:
                 def _show_ok():
-                    status_text.value  = "✓ You are using the latest version."
-                    status_text.color  = C_ACCENT
-                    progress.visible   = False
+                    status_text.value = "✓ You are using the latest version."
+                    status_text.color = C_ACCENT
+                    progress.visible  = False
                 ui_call(page, _show_ok)
                 import time; time.sleep(1)
                 ui_call(page, on_continue)
         except Exception as e:
             def _show_err():
-                status_text.value  = f"Could not check updates: {e}"
-                status_text.color  = C_TEXT_DIM
-                progress.visible   = False
+                status_text.value = f"Could not check updates: {e}"
+                status_text.color = C_TEXT_DIM
+                progress.visible  = False
             ui_call(page, _show_err)
             import time; time.sleep(0.5)
             ui_call(page, on_continue)
 
     def do_update(e):
-        update_btn.disabled     = True
-        progress.visible        = True
-        status_text.value       = "Downloading update..."
-        status_text.color       = C_TEXT_DIM
+        update_btn.disabled  = True
+        progress.visible     = True
+        status_text.value    = "Downloading update..."
+        status_text.color    = C_TEXT_DIM
         page.update()
 
         def _download():
@@ -380,7 +397,7 @@ def _build_update_content(page: ft.Page, on_continue: Callable) -> ft.View:
             except Exception as ex:
                 ui_call(page, lambda: show_dialog(page, "Update failed", str(ex), C_ERROR))
 
-        threading.Thread(target=_download, daemon=True).start()
+        safe_thread(page, _download).start()
 
     skip_btn.on_click   = lambda e: ui_call(page, on_continue)
     update_btn.on_click = do_update
@@ -412,15 +429,13 @@ def _build_update_content(page: ft.Page, on_continue: Callable) -> ft.View:
     )
 
     if backend.should_check_for_updates():
-        threading.Thread(target=check, daemon=True).start()
+        safe_thread(page, check).start()
     else:
-        # No hay que comprobar updates: ir al login tras un tick para que
-        # la vista de update se renderice antes de hacer push del login.
         def _skip():
             import time
             time.sleep(0.1)
             ui_call(page, on_continue)
-        threading.Thread(target=_skip, daemon=True).start()
+        safe_thread(page, _skip).start()
 
     return content
 
@@ -433,7 +448,7 @@ def _build_login_content(
     page: ft.Page,
     on_success: Callable,
     allow_custom_user: bool = False,
-) -> ft.View:
+) -> ft.Control:
 
     default_user = None if allow_custom_user else getpass.getuser()
 
@@ -443,8 +458,9 @@ def _build_login_content(
         disabled=(not allow_custom_user and default_user is not None),
         hint="your.username",
     )
-    # FIX: sin hint de asteriscos en el campo password
+    # FIX: sin hint — evita los asteriscos flotantes cuando el campo está vacío
     pass_tf, pass_col = styled_field("Password", password=True)
+
     error_text = ft.Text("", color=C_ERROR, size=12, visible=False)
     loading    = ft.ProgressRing(width=18, height=18, stroke_width=2,
                                   color=C_PRIMARY, visible=False)
@@ -477,7 +493,7 @@ def _build_login_content(
                     loading.visible    = False
                 ui_call(page, _fail)
 
-        threading.Thread(target=_auth, daemon=True).start()
+        safe_thread(page, _auth).start()
 
     login_btn.on_click = do_login
     pass_tf.on_submit  = do_login
@@ -545,7 +561,7 @@ def _build_shares_content(
     es_admin_its: bool,
     credenciales_ldap: dict,
     on_continue: Callable,
-) -> ft.View:
+) -> ft.Control:
 
     recursos_cifs_dict = backend.construir_recursos_cifs_dict(shares, usuario_actual)
 
@@ -617,7 +633,7 @@ def _build_shares_content(
     continue_btn = btn_primary("Continue →", width=200)
 
     def do_continue(e):
-        seleccionados        = [n for n, cb in checkboxes.items() if cb.value]
+        seleccionados         = [n for n, cb in checkboxes.items() if cb.value]
         continue_btn.disabled = True
         loading_spin.visible  = True
         loading_text.visible  = True
@@ -642,7 +658,7 @@ def _build_shares_content(
 
             ui_call(page, _after)
 
-        threading.Thread(target=_mount, daemon=True).start()
+        safe_thread(page, _mount).start()
 
     continue_btn.on_click = do_continue
 
@@ -709,20 +725,20 @@ def _show_smb_cred_dialog(
     es_admin_its: bool,
     credenciales_ldap: dict,
 ) -> None:
-    # FIX: sin hint de asteriscos en el campo password
+    # FIX: sin hint en campo password
     pass_tf, pass_col = styled_field("New SMB Password", password=True)
     err = ft.Text("", color=C_ERROR, size=12, visible=False)
 
     def save(e):
         pwd = (pass_tf.value or "").strip()
         if not pwd:
-            err.value = "Password required."
+            err.value   = "Password required."
             err.visible = True
             page.update()
             return
         creds = {"usuario": usuario_actual, "password": pwd}
         if not es_admin_its and not backend.validar_credenciales_ldap(creds):
-            err.value = "Invalid credentials."
+            err.value   = "Invalid credentials."
             err.visible = True
             page.update()
             return
@@ -770,7 +786,7 @@ def _show_smb_cred_dialog(
 # VISTA: SELECCIÓN DE SERVIDOR MINIO
 # ============================================================================
 
-def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.View:
+def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
     servers  = list(backend.MINIO_SERVERS.keys())
     selected = {"current": servers[0]}
 
@@ -852,7 +868,7 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.View:
                     spacing=0,
                 ),
                 expand=True,
-                padding=ft.padding.symmetric(horizontal=24, vertical=16),
+                padding=ft.padding.symmetric(horizontal=24, vertical=8),
             ),
         ],
         expand=True,
@@ -872,7 +888,7 @@ def _build_credentials_content(
     endpoint: str,
     credenciales_ldap: dict,
     on_continue: Callable,
-) -> ft.View:
+) -> ft.Control:
 
     token_actual = backend.get_rclone_session_token(perfil_rclone)
     if token_actual:
@@ -936,7 +952,7 @@ def _build_credentials_content(
                 )
                 ui_call(page, on_continue)
 
-        threading.Thread(target=_renew, daemon=True).start()
+        safe_thread(page, _renew).start()
 
     def do_keep(e):
         on_continue()
@@ -1014,7 +1030,7 @@ def _build_credentials_content(
                     spacing=0,
                 ),
                 expand=True,
-                padding=ft.padding.symmetric(horizontal=24, vertical=16),
+                padding=ft.padding.symmetric(horizontal=24, vertical=8),
             ),
         ],
         expand=True,
@@ -1033,7 +1049,7 @@ def _build_copy_content(
     perfil_rclone: str,
     mounts_activos: list,
     on_close: Callable,
-) -> ft.View:
+) -> ft.Control:
 
     num_cores = backend.obtener_num_cpus()
     _, rclone_config_path, _ = backend.get_rclone_paths(perfil_rclone)
@@ -1096,15 +1112,14 @@ def _build_copy_content(
     )
 
     def log(msg: str):
-        """Thread-safe: añade líneas al log con auto-scroll."""
         def _add():
             for line in msg.splitlines(keepends=True):
                 if line.strip():
                     color = (
-                        C_ACCENT   if line.startswith("✅") else
-                        C_ERROR    if line.startswith("❌") else
-                        C_WARNING  if line.startswith("⚠️") else
-                        C_PRIMARY  if line.startswith("🔍") or line.startswith("🧾") else
+                        C_ACCENT  if line.startswith("✅") else
+                        C_ERROR   if line.startswith("❌") else
+                        C_WARNING if line.startswith("⚠️") else
+                        C_PRIMARY if line.startswith("🔍") or line.startswith("🧾") else
                         C_TEXT
                     )
                     log_list.controls.append(
@@ -1122,14 +1137,13 @@ def _build_copy_content(
     save_btn  = btn_secondary("↓  Save log")
     close_btn = btn_secondary("✕  Close")
 
-    def enable_btn(btn: ft.ElevatedButton | ft.OutlinedButton):
-        """Thread-safe: reactiva un botón."""
+    def enable_btn(btn):
         def _do():
             btn.disabled = False
             btn.update()
         ui_call(page, _do)
 
-    # ── FilePicker (solo desktop) — instanciados UNA VEZ ──────────────────
+    # ── FilePicker (solo desktop) ──────────────────────────────────────────
     if not IS_WEB:
         file_picker   = ft.FilePicker()
         folder_picker = ft.FilePicker()
@@ -1226,22 +1240,18 @@ def _build_copy_content(
             log(f"  {k}: {v}\n")
         log("\n")
 
-        threading.Thread(
-            target=backend.ejecutar_rclone_copy,
-            kwargs=dict(
-                origen=origen,
-                destino_perfil=perfil_rclone,
-                destino_path=destino,
-                rclone_config_path=rclone_config_path,
-                metadatos_dict=metadatos,
-                flags_adicionales=flags,
-                num_cores=num_cores,
-                log_fn=log,
-                on_success=lambda: enable_btn(check_btn),
-                on_finish=lambda: enable_btn(copy_btn),
-            ),
-            daemon=True,
-        ).start()
+        safe_thread(page, lambda: backend.ejecutar_rclone_copy(
+            origen=origen,
+            destino_perfil=perfil_rclone,
+            destino_path=destino,
+            rclone_config_path=rclone_config_path,
+            metadatos_dict=metadatos,
+            flags_adicionales=flags,
+            num_cores=num_cores,
+            log_fn=log,
+            on_success=lambda: enable_btn(check_btn),
+            on_finish=lambda: enable_btn(copy_btn),
+        )).start()
 
     # ── Check ──────────────────────────────────────────────────────────────
     def do_check(e):
@@ -1256,20 +1266,16 @@ def _build_copy_content(
         page.update()
         log(f"\n🔍 Verifying: rclone check {origen} → {perfil_rclone}:/{destino}\n\n")
 
-        threading.Thread(
-            target=backend.ejecutar_rclone_check,
-            kwargs=dict(
-                origen=origen,
-                destino_perfil=perfil_rclone,
-                destino_path=destino,
-                rclone_config_path=rclone_config_path,
-                flags_adicionales=flags,
-                mounts_activos=mounts_activos,
-                log_fn=log,
-                on_finish=lambda: enable_btn(check_btn),
-            ),
-            daemon=True,
-        ).start()
+        safe_thread(page, lambda: backend.ejecutar_rclone_check(
+            origen=origen,
+            destino_perfil=perfil_rclone,
+            destino_path=destino,
+            rclone_config_path=rclone_config_path,
+            flags_adicionales=flags,
+            mounts_activos=mounts_activos,
+            log_fn=log,
+            on_finish=lambda: enable_btn(check_btn),
+        )).start()
 
     # ── Montar destino ─────────────────────────────────────────────────────
     def do_mount(e):
@@ -1320,9 +1326,7 @@ def _build_copy_content(
             page,
             "Close BIFROST",
             "This will unmount all mount points and close the application.",
-            on_yes=lambda: threading.Thread(
-                target=_do_close_cleanup, daemon=True
-            ).start(),
+            on_yes=lambda: safe_thread(page, _do_close_cleanup).start(),
         )
 
     copy_btn.on_click  = do_copy
@@ -1394,10 +1398,6 @@ def _build_copy_content(
 # ============================================================================
 
 def check_rclone_installation_flet(page: ft.Page) -> None:
-    """
-    Comprueba si rclone está disponible y gestiona instalación si falta.
-    Sin import circular: está definida en el mismo módulo y se llama directamente.
-    """
     if not backend.detect_rclone_installed():
         sistema = sys.platform
         if sistema == "darwin":
@@ -1483,7 +1483,6 @@ def main(page: ft.Page):
     page.theme_mode        = ft.ThemeMode.DARK
     page.padding           = 0
 
-    # ── Estado de sesión ───────────────────────────────────────────────────
     state = {
         "credenciales_ldap":     None,
         "grupos_ldap":           [],
@@ -1500,14 +1499,12 @@ def main(page: ft.Page):
 
     ALLOW_CUSTOM_USER = "--customuser" in sys.argv or "-c" in sys.argv
 
-    # ── Navegación por CONTAINER SWAP ─────────────────────────────────────
     body = ft.Container(expand=True, bgcolor=C_BG)
     page.scroll = ft.ScrollMode.AUTO
     page.add(body)
     page.update()
 
     def show_screen(content: ft.Control):
-        """Reemplaza el contenido visible. Thread-safe."""
         body.content = content
         page.update()
 
@@ -1532,7 +1529,6 @@ def main(page: ft.Page):
             )
         )
 
-    # ── Cierre limpio (X de ventana) ───────────────────────────────────────
     if not IS_WEB:
         def on_close(e):
             if state["mounts_activos"]:
@@ -1540,15 +1536,9 @@ def main(page: ft.Page):
                     (state["credenciales_smb"] or {}).get("usuario")
                     or getpass.getuser()
                 )
-                threading.Thread(
-                    target=backend.desmontar_todos_los_shares,
-                    args=(usuario,),
-                    daemon=True,
-                ).start()
+                safe_thread(page, lambda: backend.desmontar_todos_los_shares(usuario)).start()
 
         page.on_close = on_close
-
-    # ── Flujo de pantallas ─────────────────────────────────────────────────
 
     def go_login():
         show_screen(_build_login_content(page, on_success=on_login_success,
@@ -1576,17 +1566,18 @@ def main(page: ft.Page):
                 state["usar_privilegios"] = False
                 ui_call(page, _after_privileges)
 
-        threading.Thread(target=_load_groups, daemon=True).start()
+        safe_thread(page, _load_groups).start()
 
     def _ask_admin_creds():
         admin_user = "admin_" + state["credenciales_ldap"]["usuario"]
+        # FIX: sin hint en campo password
         admin_tf, admin_col = styled_field("Admin password", password=True)
         err = ft.Text("", color=C_ERROR, size=12, visible=False)
 
         def confirm(e):
             pwd = (admin_tf.value or "").strip()
             if not pwd:
-                err.value = "Password required."
+                err.value   = "Password required."
                 err.visible = True
                 page.update()
                 return
@@ -1669,7 +1660,7 @@ def main(page: ft.Page):
                 ))
             ui_call(page, _show)
 
-        threading.Thread(target=_load_shares, daemon=True).start()
+        safe_thread(page, _load_shares).start()
 
     def go_minio():
         show_screen(_build_minio_content(page, on_continue=on_minio_selected))
@@ -1700,11 +1691,7 @@ def main(page: ft.Page):
 
     def do_close():
         usuario = (state["credenciales_smb"] or {}).get("usuario") or getpass.getuser()
-        threading.Thread(
-            target=backend.desmontar_todos_los_shares,
-            args=(usuario,),
-            daemon=True,
-        ).start()
+        safe_thread(page, lambda: backend.desmontar_todos_los_shares(usuario)).start()
         if IS_WEB:
             show_screen(
                 ft.Column(
@@ -1730,8 +1717,8 @@ def main(page: ft.Page):
         else:
             page.window.close()
 
-    # ── Arranque ───────────────────────────────────────────────────────────
     show_screen(_build_update_content(page, on_continue=go_login))
+
 
 # ============================================================================
 # ENTRY POINT
