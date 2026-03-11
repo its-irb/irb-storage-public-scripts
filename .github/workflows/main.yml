@@ -66,7 +66,7 @@ jobs:
           echo "name=$clean_name" >> $GITHUB_OUTPUT
           echo "Clean name: $clean_name"
 
-      - name: Crear ejecutable bifrost con flet pack
+      - name: Crear ejecutable bifrost con flet pack (onedir = arranque rápido)
         shell: bash
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
@@ -81,19 +81,24 @@ jobs:
             ADD_DATA="rclone-bin/rclone:."
           fi
 
-          # flet pack es el wrapper oficial que bundlea flet correctamente
+          # Sin -D (onedir): genera carpeta bifrost/ con exe + deps
+          # Mucho más rápido al arrancar que --onefile porque no desempaqueta al temp dir
           flet pack bifrost.py \
             --distpath ../dist \
             --add-data "$ADD_DATA"
 
-          # Renombrar según OS
+          # Comprimir la carpeta en un zip nombrado con sufijo de plataforma
+          cd ../dist
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            mv "../dist/bifrost.exe" "../dist/bifrost-${BRANCH_SUFFIX}-windows.exe"
+            powershell -Command "Compress-Archive -Path bifrost -DestinationPath bifrost-${BRANCH_SUFFIX}-windows.zip"
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            mv "../dist/bifrost" "../dist/bifrost-${BRANCH_SUFFIX}-macos"
+            zip -r "bifrost-${BRANCH_SUFFIX}-macos.zip" bifrost
           elif [[ "$RUNNER_OS" == "Linux" ]]; then
-            mv "../dist/bifrost" "../dist/bifrost-${BRANCH_SUFFIX}-linux"
+            zip -r "bifrost-${BRANCH_SUFFIX}-linux.zip" bifrost
           fi
+
+          # Eliminar la carpeta sin comprimir (solo subir el zip)
+          rm -rf bifrost
 
       - name: Verificar archivos generados
         shell: bash
@@ -112,7 +117,7 @@ jobs:
     steps:
       - name: Instalar dependencias básicas
         run: |
-          dnf install -y python3 python3-pip python3-devel gcc make glibc-devel python3-tkinter unzip
+          dnf install -y python3 python3-pip python3-devel gcc make glibc-devel python3-tkinter unzip zip
           pip3 install --upgrade pip setuptools wheel pyinstaller
 
       - name: Checkout repo
@@ -138,13 +143,14 @@ jobs:
           clean_name=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
           echo "name=$clean_name" >> $GITHUB_OUTPUT
 
-      - name: Compilar binario Rocky Linux (web mode, sin flet desktop)
+      - name: Compilar binario Rocky Linux (web mode, onefile válido para cluster)
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
         run: |
           mkdir -p dist
           cd minio
           echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
+          # En cluster el arranque lento no importa, y onefile facilita el deploy
           pyinstaller --onefile bifrost.py \
             --add-data "rclone-bin/rclone:." \
             --collect-all flet \
