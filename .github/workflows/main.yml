@@ -19,6 +19,7 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
+      fail-fast: false
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -40,7 +41,6 @@ jobs:
         shell: bash
         run: |
           mkdir -p minio/rclone-bin
-
           RCLONE_VERSION="v1.71.0"
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             curl -L "https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-windows-amd64.zip" -o rclone.zip
@@ -54,7 +54,6 @@ jobs:
             unzip -j rclone.zip "*/rclone" -d minio/rclone-bin/
             chmod +x minio/rclone-bin/rclone
           fi
-
           echo "Rclone downloaded:"
           ls -lah minio/rclone-bin/
 
@@ -66,7 +65,8 @@ jobs:
           echo "name=$clean_name" >> $GITHUB_OUTPUT
           echo "Clean name: $clean_name"
 
-      - name: Crear ejecutable bifrost con flet pack (onedir)
+      - name: Crear ejecutable bifrost (Windows - onedir para arranque rápido)
+        if: runner.os == 'Windows'
         shell: bash
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
@@ -75,51 +75,70 @@ jobs:
           cd minio
           echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
 
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            ADD_DATA="rclone-bin/rclone.exe;."
-          else
-            ADD_DATA="rclone-bin/rclone:."
-          fi
-
-          # -D fuerza onedir explícitamente (flet pack usa --onefile por defecto)
-          # El resultado es una carpeta dist/bifrost/ con el exe y sus dependencias
           flet pack bifrost.py \
-            -D \
             --distpath ../dist \
-            --add-data "$ADD_DATA"
+            --add-data "rclone-bin/rclone.exe;." \
+            --pyinstaller-build-args --onedir
 
-          # Verificar qué se ha generado exactamente
           echo "=== Contenido de dist: ==="
           ls -lah ../dist/
-          echo "=== Contenido de dist/bifrost (si existe): ==="
-          ls -lah ../dist/bifrost/ 2>/dev/null || echo "(no existe subcarpeta bifrost)"
 
-      - name: Comprimir resultado en zip
+          cd ../dist
+          FOLDER=$(find . -maxdepth 1 -type d ! -name '.' | head -1 | sed 's|./||')
+          echo "Carpeta encontrada: $FOLDER"
+          powershell -Command "Compress-Archive -Path '${FOLDER}' -DestinationPath 'bifrost-${BRANCH_SUFFIX}-windows.zip'"
+          rm -rf "$FOLDER"
+          ls -lah .
+
+      - name: Crear ejecutable bifrost (macOS - .app bundle)
+        if: runner.os == 'macOS'
         shell: bash
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
         run: |
-          cd dist
+          mkdir -p dist
+          cd minio
+          echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
 
-          # Detectar qué hay en dist: subcarpeta bifrost/ o exe suelto
-          if [ -d "bifrost" ]; then
-            SRC="bifrost"
-          else
-            echo "ERROR: no se encontró la carpeta bifrost en dist/"
-            ls -lah .
-            exit 1
-          fi
+          # En macOS flet pack genera un .app bundle (no soporta onedir)
+          flet pack bifrost.py \
+            --distpath ../dist \
+            --add-data "rclone-bin/rclone:."
 
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            powershell -Command "Compress-Archive -Path '${SRC}' -DestinationPath 'bifrost-${BRANCH_SUFFIX}-windows.zip'"
-          elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            zip -r "bifrost-${BRANCH_SUFFIX}-macos.zip" "$SRC"
-          elif [[ "$RUNNER_OS" == "Linux" ]]; then
-            zip -r "bifrost-${BRANCH_SUFFIX}-linux.zip" "$SRC"
-          fi
+          echo "=== Contenido de dist: ==="
+          ls -lah ../dist/
 
-          rm -rf "$SRC"
-          echo "=== Zip generado: ==="
+          cd ../dist
+          # Comprimir el .app bundle en zip
+          APP=$(find . -maxdepth 1 -name "*.app" | head -1 | sed 's|./||')
+          echo "App bundle encontrado: $APP"
+          zip -r "bifrost-${BRANCH_SUFFIX}-macos.zip" "$APP"
+          rm -rf "$APP"
+          ls -lah .
+
+      - name: Crear ejecutable bifrost (Linux - onedir para arranque rápido)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
+        run: |
+          mkdir -p dist
+          cd minio
+          echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
+
+          flet pack bifrost.py \
+            --distpath ../dist \
+            --add-data "rclone-bin/rclone:." \
+            --pyinstaller-build-args --onedir
+
+          echo "=== Contenido de dist: ==="
+          ls -lah ../dist/
+
+          cd ../dist
+          FOLDER=$(find . -maxdepth 1 -type d ! -name '.' | head -1 | sed 's|./||')
+          echo "Carpeta encontrada: $FOLDER"
+          zip -r "bifrost-${BRANCH_SUFFIX}-linux.zip" "$FOLDER"
+          rm -rf "$FOLDER"
           ls -lah .
 
       - name: Subir ejecutables CLI como artefactos
