@@ -83,6 +83,15 @@ jobs:
 
           pyinstaller --onefile bifrost.py \
             --add-data "$ADD_DATA" \
+            --collect-all flet \
+            --collect-all flet_core \
+            --hidden-import flet.fastapi \
+            --hidden-import uvicorn \
+            --hidden-import uvicorn.lifespan.on \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops.auto \
             --distpath ../dist
 
           if [[ "$RUNNER_OS" == "Windows" ]]; then
@@ -150,6 +159,11 @@ jobs:
             --collect-all flet_core \
             --hidden-import flet.fastapi \
             --hidden-import uvicorn \
+            --hidden-import uvicorn.lifespan.on \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops.auto \
             --distpath ../dist
           mv ../dist/bifrost ../dist/bifrost-${BRANCH_SUFFIX}-cluster
 
