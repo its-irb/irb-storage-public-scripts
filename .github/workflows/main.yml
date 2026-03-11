@@ -55,11 +55,6 @@ jobs:
           echo "Rclone downloaded:"
           ls -lah minio/rclone-bin/
 
-      - name: Depurar nombre de rama
-        shell: bash
-        run: |
-          echo "Ref name: ${{ github.ref_name }}"
-
       - name: Limpia nombre de rama para artefactos
         id: clean_branch
         shell: bash
@@ -68,7 +63,8 @@ jobs:
           echo "name=$clean_name" >> $GITHUB_OUTPUT
           echo "Clean name: $clean_name"
 
-      - name: Crear ejecutables CLI
+      - name: Crear ejecutable bifrost
+        shell: bash
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
         run: |
@@ -76,7 +72,7 @@ jobs:
           cd minio
           echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
 
-          # Determinar el nombre del binario de rclone y el separador --add-data según OS
+          # Separador de --add-data según OS
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             RCLONE_BIN="rclone-bin/rclone.exe"
             ADD_DATA="rclone-bin/rclone.exe;."
@@ -85,30 +81,24 @@ jobs:
             ADD_DATA="rclone-bin/rclone:."
           fi
 
-          for script in *.py; do
-            script_name=$(basename "$script" .py)
+          # Compilar bifrost.py
+          pyinstaller --onefile bifrost.py \
+            --add-data "$ADD_DATA" \
+            --distpath ../dist
 
-            if [[ "$script" == "version.py" || "$script" == "minio-sts-credentials-request.py" || "$script" == "backend.py" ]]; then
-              continue
-            fi
-
-            if [[ "$RUNNER_OS" == "Windows" ]] && [[ ! "$script" == *functions* ]]; then
-              pyinstaller --onefile "$script" --add-data "$ADD_DATA" --distpath ../dist
-              mv "../dist/$script_name.exe" "../dist/${script_name}-${BRANCH_SUFFIX}-windows.exe"
-            elif [[ "$RUNNER_OS" == "Linux" ]] && [[ ! "$script" == *-gui.py ]] && [[ ! "$script" == *functions* ]]; then
-              pyinstaller --onefile "$script" --add-data "$ADD_DATA" --distpath ../dist
-              mv "../dist/$script_name" "../dist/${script_name}-${BRANCH_SUFFIX}-linux"
-            elif [[ "$RUNNER_OS" == "macOS" ]] && [[ ! "$script" == *functions* ]]; then
-              pyinstaller --onefile "$script" --add-data "$ADD_DATA" --distpath ../dist
-              mv "../dist/$script_name" "../dist/${script_name}-${BRANCH_SUFFIX}-macos"
-            fi
-          done
-        shell: bash
+          # Renombrar según OS
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            mv "../dist/bifrost.exe" "../dist/bifrost-${BRANCH_SUFFIX}-windows.exe"
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            mv "../dist/bifrost" "../dist/bifrost-${BRANCH_SUFFIX}-macos"
+          elif [[ "$RUNNER_OS" == "Linux" ]]; then
+            mv "../dist/bifrost" "../dist/bifrost-${BRANCH_SUFFIX}-linux"
+          fi
 
       - name: Verificar archivos generados
         shell: bash
         run: |
-          ls -lah dist || ls dist
+          ls -lah dist/
 
       - name: Subir ejecutables CLI como artefactos
         uses: actions/upload-artifact@v4
@@ -145,9 +135,11 @@ jobs:
 
       - name: Limpia nombre de rama para artefactos
         id: clean_branch
-        run: echo "name=${{ github.ref_name }}" | sed 's/\//-/g' >> $GITHUB_OUTPUT
+        run: |
+          clean_name=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
+          echo "name=$clean_name" >> $GITHUB_OUTPUT
 
-      - name: Compilar binario
+      - name: Compilar binario Rocky Linux
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
         run: |
@@ -164,9 +156,8 @@ jobs:
           mv ../dist/bifrost ../dist/bifrost-${BRANCH_SUFFIX}-cluster
 
       - name: Verificar archivos generados
-        shell: bash
         run: |
-          ls -lah dist || ls dist
+          ls -lah dist/
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v4
@@ -189,13 +180,10 @@ jobs:
         with:
           path: dist
 
-      - name: Verificar archivos descargados
-        run: ls -lah dist
-
       - name: Mover ejecutables a la raíz de dist
         run: |
           find dist -mindepth 2 -type f -exec mv {} dist/ \;
-          ls -lah dist
+          ls -lah dist/
 
       - name: Calcular sufijo de rama
         id: clean_branch
@@ -217,7 +205,7 @@ jobs:
               mv "$file" "dist/$new_name"
             fi
           done
-          ls -lah dist
+          ls -lah dist/
 
       - name: Crear GitHub Release
         uses: softprops/action-gh-release@v2
