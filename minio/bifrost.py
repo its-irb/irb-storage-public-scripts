@@ -25,6 +25,8 @@ Fixes aplicados respecto al piloto inicial:
   - ft.Ref[str] reemplazado por dict simple
   - Vista de shares vacíos muestra mensaje explicativo
   - atexit eliminado; el cierre limpio se gestiona via on_window_event y do_close()
+  - Sin hint de asteriscos en campo password
+  - Espaciado aumentado entre header y contenedores
 """
 
 import os
@@ -229,6 +231,7 @@ def build_header(subtitle: str = "") -> ft.Container:
         bgcolor=C_SURFACE,
         border=ft.border.only(bottom=ft.BorderSide(1, C_BORDER)),
         padding=ft.padding.symmetric(horizontal=24, vertical=16),
+        margin=ft.margin.only(bottom=24),  # <-- espaciado entre header y contenido
     )
 
 
@@ -440,7 +443,8 @@ def _build_login_content(
         disabled=(not allow_custom_user and default_user is not None),
         hint="your.username",
     )
-    pass_tf, pass_col = styled_field("Password", password=True, hint="••••••••")
+    # FIX: sin hint de asteriscos en el campo password
+    pass_tf, pass_col = styled_field("Password", password=True)
     error_text = ft.Text("", color=C_ERROR, size=12, visible=False)
     loading    = ft.ProgressRing(width=18, height=18, stroke_width=2,
                                   color=C_PRIMARY, visible=False)
@@ -648,14 +652,11 @@ def _build_shares_content(
     content = ft.Column(
         [
             build_header(f"CIFS Shares — {usuario_actual}"),
-            # Sin expand=True aquí — dejamos que el Column crezca naturalmente
             ft.Container(
                 content=ft.Column(
                     [
-                        ft.Container(height=8),
                         section_title("SELECT SHARES TO MOUNT"),
                         ft.Container(height=12),
-                        # Card sin scroll interno — el scroll lo gestiona la View
                         ft.Container(
                             content=ft.Column(
                                 [ft.Row(columns, spacing=32, wrap=True)],
@@ -690,13 +691,13 @@ def _build_shares_content(
                         ft.Container(height=16),
                     ],
                     spacing=0,
-                    tight=True,   # <-- clave: no expand, tamaño natural
+                    tight=True,
                 ),
                 padding=ft.padding.symmetric(horizontal=24, vertical=8),
             ),
         ],
         spacing=0,
-        tight=True,   # <-- clave: no expand en el Column raíz
+        tight=True,
     )
 
     return content
@@ -708,6 +709,7 @@ def _show_smb_cred_dialog(
     es_admin_its: bool,
     credenciales_ldap: dict,
 ) -> None:
+    # FIX: sin hint de asteriscos en el campo password
     pass_tf, pass_col = styled_field("New SMB Password", password=True)
     err = ft.Text("", color=C_ERROR, size=12, visible=False)
 
@@ -770,7 +772,6 @@ def _show_smb_cred_dialog(
 
 def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.View:
     servers  = list(backend.MINIO_SERVERS.keys())
-    # FIX: usar dict simple en lugar de ft.Ref[str] (Ref es para controles, no para estado)
     selected = {"current": servers[0]}
 
     server_cards: dict[str, ft.Container] = {}
@@ -839,7 +840,6 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.View:
             ft.Container(
                 content=ft.Column(
                     [
-                        ft.Container(height=8),
                         section_title("SELECT DESTINATION SERVER"),
                         ft.Container(height=12),
                         card(rg, padding=16),
@@ -978,7 +978,6 @@ def _build_credentials_content(
             ft.Container(
                 content=ft.Column(
                     [
-                        ft.Container(height=8),
                         section_title("STS CREDENTIALS — " + perfil_rclone.upper()),
                         ft.Container(height=12),
                         card(
@@ -1082,7 +1081,6 @@ def _build_copy_content(
     meta_grid  = ft.Row([meta_left, meta_right], spacing=16, expand=True)
 
     # ── Log: ListView con auto_scroll ──────────────────────────────────────
-    # FIX: usar ListView en lugar de TextField para scroll automático al final
     log_list = ft.ListView(
         expand=True,
         auto_scroll=True,
@@ -1132,7 +1130,6 @@ def _build_copy_content(
         ui_call(page, _do)
 
     # ── FilePicker (solo desktop) — instanciados UNA VEZ ──────────────────
-    # FIX: instanciar fuera del callback para no acumularlos en page.overlay
     if not IS_WEB:
         file_picker   = ft.FilePicker()
         folder_picker = ft.FilePicker()
@@ -1306,7 +1303,6 @@ def _build_copy_content(
             except Exception as ex:
                 show_dialog(page, "Error", str(ex), C_ERROR)
         else:
-            # FIX: save_picker ya está en overlay — solo llamar save_file
             save_picker.save_file(file_name=f"bifrost-{ts}.log")
 
     # ── Cierre ─────────────────────────────────────────────────────────────
@@ -1342,7 +1338,6 @@ def _build_copy_content(
             ft.Container(
                 content=ft.Column(
                     [
-                        ft.Container(height=8),
                         section_title("PATHS"),
                         ft.Container(height=10),
                         card(
@@ -1505,14 +1500,7 @@ def main(page: ft.Page):
 
     ALLOW_CUSTOM_USER = "--customuser" in sys.argv or "-c" in sys.argv
 
-    # ── Navegación por CONTAINER SWAP (evita bug de Flutter desktop) ───────
-    #
-    # En lugar de page.views (Navigator stack de Flutter), usamos un único
-    # ft.Container cuyo .content se reemplaza en cada "pantalla".
-    # Esto elimina el bug de render en blanco en Windows desktop donde
-    # Flutter no repinta la ventana al hacer push de una nueva View.
-    # Ref: github.com/flet-dev/flet/issues/3031 y #2363
-    #
+    # ── Navegación por CONTAINER SWAP ─────────────────────────────────────
     body = ft.Container(expand=True, bgcolor=C_BG)
     page.scroll = ft.ScrollMode.AUTO
     page.add(body)
@@ -1546,10 +1534,6 @@ def main(page: ft.Page):
 
     # ── Cierre limpio (X de ventana) ───────────────────────────────────────
     if not IS_WEB:
-        # Cleanup al cerrar con la X: sin prevent_close (causa el bug de
-        # ventana colgada en Flet >= 0.23.2 en Windows).
-        # Usamos page.on_close que se dispara cuando Flutter ya ha cerrado
-        # la ventana, y lanzamos el desmontaje en un daemon thread.
         def on_close(e):
             if state["mounts_activos"]:
                 usuario = (
@@ -1716,7 +1700,6 @@ def main(page: ft.Page):
 
     def do_close():
         usuario = (state["credenciales_smb"] or {}).get("usuario") or getpass.getuser()
-        # Lanzar desmontaje en background para no bloquear la UI
         threading.Thread(
             target=backend.desmontar_todos_los_shares,
             args=(usuario,),
