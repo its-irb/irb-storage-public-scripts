@@ -8,12 +8,21 @@ Migración de tkinter a Flet.
 Soporta modo desktop y modo web (--web).
 
 Uso:
-    python bifrost_flet.py          # desktop
-    python bifrost_flet.py --web    # Open OnDemand / cluster (Rocky Linux)
+    python bifrost.py          # desktop
+    python bifrost.py --web    # Open OnDemand / cluster (Rocky Linux)
 
-Flujo de vistas:
+Flujo de vistas (Mac / Windows / Web):
+    view_update → view_login → view_minio → view_credentials (auto) → view_copy
+
+Flujo de vistas (Linux cluster):
     view_update → view_login → view_shares → view_minio
     → view_credentials → view_copy
+
+Notas sobre credenciales STS:
+  - Si quedan MÁS de 3 días → se salta la renovación y va directo a view_copy
+  - Si quedan MENOS de 3 días (o no hay credenciales) → renueva automáticamente
+    por 7 días, mostrando el progreso en un log en pantalla
+  - No hay botones manuales de renovación en el flujo Mac/Windows/Web
 
 Fixes aplicados respecto al piloto inicial:
   - Thread-safety: toda modificación de UI desde hilos usa ui_call(page, fn)
@@ -50,6 +59,16 @@ import backend
 # ============================================================================
 
 IS_WEB = "--web" in sys.argv
+
+# En Linux cluster el flujo incluye CIFS; en el resto se omite
+IS_LINUX_CLUSTER = sys.platform == "linux" and "_linux_cluster" in os.path.basename(
+    sys.argv[0] if sys.argv else ""
+)
+
+# Umbral (en días) por debajo del cual se renuevan las credenciales STS automáticamente
+STS_RENEWAL_THRESHOLD_DAYS = 3
+# Duración (en días) de las credenciales STS renovadas automáticamente
+STS_AUTO_RENEWAL_DAYS = 7
 
 # ============================================================================
 # HELPER THREAD-SAFE PARA ACTUALIZAR UI
@@ -105,198 +124,6 @@ C_TEXT     = "#E6EDF3"
 C_TEXT_DIM = "#8B949E"
 C_OVERLAY  = "#1C2128"
 FONT_MONO  = "Courier New"
-
-# Logo IRB Barcelona embebido en base64
-IRB_LOGO_B64 = (
-    "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"
-)
-
 
 
 def btn_primary(text: str, on_click=None, width=None, disabled=False) -> ft.ElevatedButton:
@@ -417,17 +244,6 @@ def build_header(subtitle: str = "") -> ft.Container:
     return ft.Container(
         content=ft.Row(
             [
-                # Logo IRB Barcelona a la izquierda
-                ft.Container(
-                    content=ft.Image(
-                        src_base64=IRB_LOGO_B64,
-                        width=40,
-                        height=40,
-                        fit=ft.ImageFit.CONTAIN,
-                    ),
-                    margin=ft.margin.only(right=14),
-                ),
-                # Titulo BIFROST + subtitulo
                 ft.Column(
                     [
                         ft.Row(
@@ -449,7 +265,6 @@ def build_header(subtitle: str = "") -> ft.Container:
                     spacing=2,
                     expand=True,
                 ),
-                # Version
                 ft.Text(version_str, size=11, color=C_TEXT_DIM, font_family=FONT_MONO),
             ],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -457,8 +272,8 @@ def build_header(subtitle: str = "") -> ft.Container:
         ),
         bgcolor=C_SURFACE,
         border=ft.border.only(bottom=ft.BorderSide(1, C_BORDER)),
-        padding=ft.padding.symmetric(horizontal=24, vertical=14),
-        margin=ft.margin.only(bottom=24),
+        padding=ft.padding.symmetric(horizontal=24, vertical=16),
+        margin=ft.margin.only(bottom=24),  # ← espacio entre header y el contenido
     )
 
 
@@ -1083,7 +898,16 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
 
 
 # ============================================================================
-# VISTA: CREDENCIALES STS / RENOVACIÓN
+# VISTA: CREDENCIALES STS — RENOVACIÓN AUTOMÁTICA
+#
+# Lógica:
+#   · Si no hay token, o quedan < STS_RENEWAL_THRESHOLD_DAYS días → renueva
+#     automáticamente por STS_AUTO_RENEWAL_DAYS días y muestra log en pantalla.
+#   · Si quedan >= STS_RENEWAL_THRESHOLD_DAYS días → pasa directamente a view_copy
+#     sin mostrar ninguna pantalla (llamada transparente desde on_minio_selected).
+#
+# Esta función SOLO se muestra cuando hay que renovar. La decisión de si mostrarla
+# o no se toma en `go_credentials_or_copy()` dentro de main().
 # ============================================================================
 
 def _build_credentials_content(
@@ -1092,144 +916,152 @@ def _build_credentials_content(
     endpoint: str,
     credenciales_ldap: dict,
     on_continue: Callable,
+    extra_config: dict | None = None,
 ) -> ft.Control:
-
-    token_actual = backend.get_rclone_session_token(perfil_rclone)
-    if token_actual:
-        tiempo     = backend.get_expiration_from_session_token(token_actual)
-        expiry_str = str(tiempo) if tiempo else "Unknown"
-        has_token  = True
-    else:
-        expiry_str = "No credentials configured yet."
-        has_token  = False
-
-    dias_var = ft.Dropdown(
-        options=[ft.dropdown.Option(str(i)) for i in range(1, 31)],
-        value="7",
-        bgcolor=C_SURFACE2,
-        border_color=C_BORDER,
-        focused_border_color=C_PRIMARY,
-        color=C_TEXT,
+    """
+    Pantalla de renovación automática de credenciales STS.
+    Se muestra únicamente cuando es necesario renovar (< 3 días o sin credenciales).
+    La renovación arranca sola al construirse la vista, sin intervención del usuario.
+    """
+    # ── Log en pantalla ────────────────────────────────────────────────────
+    log_list = ft.ListView(
+        expand=True,
+        auto_scroll=True,
+        spacing=0,
+        padding=ft.padding.all(12),
+    )
+    log_container = ft.Container(
+        content=log_list,
+        bgcolor=C_BG,
+        border=ft.border.all(1, C_BORDER),
         border_radius=6,
-        width=100,
-        text_size=13,
+        height=220,
     )
 
-    error_text   = ft.Text("", color=C_ERROR, size=12, visible=False)
-    loading_spin = ft.ProgressRing(width=18, height=18, stroke_width=2,
-                                    color=C_PRIMARY, visible=False)
-    renew_btn = btn_primary("Renew credentials", width=220)
-    keep_btn  = btn_secondary("Keep current", width=180) if has_token else None
+    progress = ft.ProgressBar(color=C_PRIMARY, bgcolor=C_SURFACE2)
+    status_text = ft.Text(
+        "Renewing credentials...",
+        size=13,
+        color=C_TEXT_DIM,
+        font_family=FONT_MONO,
+    )
 
-    def do_renew(e):
-        renew_btn.disabled   = True
-        loading_spin.visible = True
-        error_text.visible   = False
-        if keep_btn:
-            keep_btn.disabled = True
-        page.update()
-
-        def _renew():
-            dias  = int(dias_var.value) * 86400
-            creds = backend.get_credentials(
-                endpoint,
-                credenciales_ldap["usuario"],
-                credenciales_ldap["password"],
-                dias,
+    def log(msg: str, color: str = C_TEXT):
+        """Añade una línea al log de la pantalla (thread-safe)."""
+        print(msg.rstrip())  # también va a consola para debugging
+        def _add():
+            log_list.controls.append(
+                ft.Text(msg.rstrip("\n"), size=11, color=color,
+                        font_family=FONT_MONO, selectable=True)
             )
-            if creds is None:
-                def _fail():
-                    loading_spin.visible = False
-                    renew_btn.disabled   = False
-                    if keep_btn:
-                        keep_btn.disabled = False
-                    error_text.value   = "Invalid credentials or server error. Contact ITS."
-                    error_text.visible = True
-                ui_call(page, _fail)
+        ui_call(page, _add)
+
+    def _do_renew():
+        """Lógica de renovación que corre en un hilo separado."""
+        import time
+        from datetime import timedelta
+
+        duracion_segundos = STS_AUTO_RENEWAL_DAYS * 86400
+
+        # ── Mostrar estado inicial ─────────────────────────────────────────
+        token_actual = backend.get_rclone_session_token(perfil_rclone)
+        if token_actual:
+            tiempo = backend.get_expiration_from_session_token(token_actual)
+            if tiempo:
+                log(f"⚠️  Current credentials expire in: {tiempo}", C_WARNING)
+                log(f"    (threshold: {STS_RENEWAL_THRESHOLD_DAYS} days → renewal required)", C_TEXT_DIM)
             else:
-                backend.configure_rclone(
-                    creds["AccessKeyId"],
-                    creds["SecretAccessKey"],
-                    creds["SessionToken"],
-                    endpoint,
-                    perfil_rclone,
-                )
-                ui_call(page, on_continue)
+                log("⚠️  Could not read expiry from current token.", C_WARNING)
+        else:
+            log("⚠️  No credentials found for this profile.", C_WARNING)
 
-        safe_thread(page, _renew).start()
+        log(f"\n🔄 Requesting new STS credentials ({STS_AUTO_RENEWAL_DAYS} days)...", C_PRIMARY)
+        log(f"   Profile  : {perfil_rclone}", C_TEXT_DIM)
+        log(f"   Endpoint : {endpoint}", C_TEXT_DIM)
+        log(f"   User     : {credenciales_ldap['usuario']}", C_TEXT_DIM)
 
-    def do_keep(e):
-        on_continue()
-
-    renew_btn.on_click = do_renew
-    if keep_btn:
-        keep_btn.on_click = do_keep
-
-    if has_token:
-        token_status = ft.Row(
-            [
-                ft.Icon(ft.Icons.ACCESS_TIME, color=C_WARNING, size=16),
-                ft.Text("Current credentials expire in:", size=12, color=C_TEXT_DIM),
-                ft.Text(expiry_str, size=12, color=C_WARNING,
-                        weight=ft.FontWeight.W_600, font_family=FONT_MONO),
-            ],
-            spacing=8,
-        )
-    else:
-        token_status = ft.Row(
-            [
-                ft.Icon(ft.Icons.WARNING_AMBER_OUTLINED, color=C_ERROR, size=16),
-                ft.Text("No credentials configured. Renewal required.",
-                        size=12, color=C_ERROR),
-            ],
-            spacing=8,
+        # ── Llamada al backend ─────────────────────────────────────────────
+        creds = backend.get_credentials(
+            endpoint,
+            credenciales_ldap["usuario"],
+            credenciales_ldap["password"],
+            duracion_segundos,
         )
 
-    buttons_row_controls = [
-        ft.Row([loading_spin, renew_btn],
-               vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
-    ]
-    if keep_btn:
-        buttons_row_controls.insert(0, keep_btn)
+        if creds is None:
+            log("\n❌ Failed to obtain credentials. Check your password or contact ITS.", C_ERROR)
+            def _show_err():
+                progress.visible    = False
+                status_text.value   = "❌ Renewal failed."
+                status_text.color   = C_ERROR
+            ui_call(page, _show_err)
+            return
 
+        log("\n✅ Credentials obtained successfully.", C_ACCENT)
+        log("   Writing to rclone config...", C_TEXT_DIM)
+
+        backend.configure_rclone(
+            creds["AccessKeyId"],
+            creds["SecretAccessKey"],
+            creds["SessionToken"],
+            endpoint,
+            perfil_rclone,
+            extra_config=extra_config,
+        )
+
+        # Verificar expiración del nuevo token
+        new_token = backend.get_rclone_session_token(perfil_rclone)
+        if new_token:
+            nuevo_tiempo = backend.get_expiration_from_session_token(new_token)
+            if nuevo_tiempo:
+                log(f"   New credentials expire in: {nuevo_tiempo}", C_ACCENT)
+
+        log(f"\n✅ Done. Continuing to copy interface...", C_ACCENT)
+
+        def _finish():
+            progress.visible  = False
+            status_text.value = "✓ Credentials renewed. Loading..."
+            status_text.color = C_ACCENT
+
+        ui_call(page, _finish)
+        time.sleep(1.2)  # pausa breve para que el usuario lea el log
+        ui_call(page, on_continue)
+
+    # ── Layout ────────────────────────────────────────────────────────────
     content = ft.Column(
         [
-            build_header("S3 Credentials"),
+            build_header("S3 Credentials — Auto Renewal"),
             ft.Container(
                 content=ft.Column(
                     [
-                        section_title("STS CREDENTIALS — " + perfil_rclone.upper()),
+                        section_title(f"STS AUTO-RENEWAL — {perfil_rclone.upper()}"),
                         ft.Container(height=12),
                         card(
                             ft.Column(
                                 [
-                                    token_status,
-                                    ft.Container(height=16),
-                                    divider(),
-                                    ft.Container(height=16),
                                     ft.Row(
                                         [
-                                            ft.Text("New credential lifespan:",
-                                                    size=13, color=C_TEXT),
-                                            dias_var,
-                                            ft.Text("days", size=13, color=C_TEXT_DIM),
+                                            ft.Icon(ft.Icons.AUTORENEW,
+                                                    color=C_PRIMARY, size=18),
+                                            ft.Text(
+                                                f"Automatically renewing for {STS_AUTO_RENEWAL_DAYS} days",
+                                                size=13, color=C_TEXT,
+                                            ),
                                         ],
-                                        spacing=12,
-                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                        spacing=10,
                                     ),
+                                    ft.Container(height=12),
+                                    progress,
+                                    ft.Container(height=8),
+                                    status_text,
                                 ],
                                 spacing=0,
                             ),
                         ),
-                        ft.Container(height=8),
-                        error_text,
                         ft.Container(height=16),
-                        ft.Row(
-                            buttons_row_controls,
-                            alignment=ft.MainAxisAlignment.END,
-                            spacing=12,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
+                        section_title("RENEWAL LOG"),
+                        ft.Container(height=8),
+                        log_container,
                     ],
                     spacing=0,
                 ),
@@ -1240,6 +1072,9 @@ def _build_credentials_content(
         expand=True,
         spacing=0,
     )
+
+    # Arrancar la renovación automáticamente al construir la vista
+    safe_thread(page, _do_renew).start()
 
     return content
 
@@ -1735,7 +1570,7 @@ def main(page: ft.Page):
 
     if not IS_WEB:
         def on_close(e):
-            if state["mounts_activos"]:
+            if IS_LINUX_CLUSTER and state["mounts_activos"]:
                 usuario = (
                     (state["credenciales_smb"] or {}).get("usuario")
                     or getpass.getuser()
@@ -1750,27 +1585,32 @@ def main(page: ft.Page):
 
     def on_login_success(creds: dict):
         state["credenciales_ldap"] = creds
-        show_loading("Fetching LDAP groups...")
+        # En Mac/Windows/Web saltamos CIFS y vamos directo a MinIO
+        if IS_LINUX_CLUSTER:
+            show_loading("Fetching LDAP groups...")
 
-        def _load_groups():
-            grupos = backend.get_ldap_groups(creds["usuario"])
-            state["grupos_ldap"] = grupos
+            def _load_groups():
+                grupos = backend.get_ldap_groups(creds["usuario"])
+                state["grupos_ldap"] = grupos
 
-            if "its" in grupos and not IS_WEB:
-                def _ask_privileges():
-                    show_confirm(
-                        page,
-                        "ITS Administrator Privileges",
-                        "Do you want to use ITS administrator privileges for CIFS shares?",
-                        on_yes=_ask_admin_creds,
-                        on_no=_after_privileges,
-                    )
-                ui_call(page, _ask_privileges)
-            else:
-                state["usar_privilegios"] = False
-                ui_call(page, _after_privileges)
+                if "its" in grupos:
+                    def _ask_privileges():
+                        show_confirm(
+                            page,
+                            "ITS Administrator Privileges",
+                            "Do you want to use ITS administrator privileges for CIFS shares?",
+                            on_yes=_ask_admin_creds,
+                            on_no=_after_privileges,
+                        )
+                    ui_call(page, _ask_privileges)
+                else:
+                    state["usar_privilegios"] = False
+                    ui_call(page, _after_privileges)
 
-        safe_thread(page, _load_groups).start()
+            safe_thread(page, _load_groups).start()
+        else:
+            # Flujo simplificado: directo a MinIO
+            go_minio()
 
     def _ask_admin_creds():
         admin_user = "admin_" + state["credenciales_ldap"]["usuario"]
@@ -1877,13 +1717,45 @@ def main(page: ft.Page):
         if not IS_WEB:
             check_rclone_installation_flet(page)
 
-        show_screen(_build_credentials_content(
-            page,
-            perfil_rclone=state["perfil_rclone"],
-            endpoint=state["endpoint"],
-            credenciales_ldap=state["credenciales_ldap"],
-            on_continue=go_copy,
-        ))
+        # Decidir si renovar credenciales o ir directo a copy
+        _go_credentials_or_copy()
+
+    def _go_credentials_or_copy():
+        """
+        Comprueba si las credenciales STS actuales tienen suficiente vida.
+        · Si quedan >= STS_RENEWAL_THRESHOLD_DAYS días → ir directo a view_copy.
+        · En cualquier otro caso (sin token, expirado, < umbral) → mostrar
+          la pantalla de renovación automática.
+        """
+        from datetime import timedelta
+
+        perfil  = state["perfil_rclone"]
+        token   = backend.get_rclone_session_token(perfil)
+
+        needs_renewal = True  # por defecto renovamos
+        if token:
+            tiempo = backend.get_expiration_from_session_token(token)
+            if tiempo and tiempo > timedelta(days=STS_RENEWAL_THRESHOLD_DAYS):
+                needs_renewal = False
+                print(
+                    f"[credentials] Token valid for {tiempo} "
+                    f"(> {STS_RENEWAL_THRESHOLD_DAYS} days) → skipping renewal"
+                )
+
+        if needs_renewal:
+            # Leer flags extra del servidor seleccionado (p.ej. no_check_bucket, region)
+            servidor = state["servidor_minio"]
+            extra_config = backend.MINIO_SERVERS.get(servidor, {}).get("IRB", {}).get("extra_rclone_config")
+            show_screen(_build_credentials_content(
+                page,
+                perfil_rclone=perfil,
+                endpoint=state["endpoint"],
+                credenciales_ldap=state["credenciales_ldap"],
+                on_continue=go_copy,
+                extra_config=extra_config,
+            ))
+        else:
+            go_copy()
 
     def go_copy():
         show_screen(_build_copy_content(
@@ -1894,8 +1766,10 @@ def main(page: ft.Page):
         ))
 
     def do_close():
-        usuario = (state["credenciales_smb"] or {}).get("usuario") or getpass.getuser()
-        safe_thread(page, lambda: backend.desmontar_todos_los_shares(usuario)).start()
+        # Solo hay shares montados en el flujo Linux cluster
+        if IS_LINUX_CLUSTER and state["mounts_activos"]:
+            usuario = (state["credenciales_smb"] or {}).get("usuario") or getpass.getuser()
+            safe_thread(page, lambda: backend.desmontar_todos_los_shares(usuario)).start()
         if IS_WEB:
             show_screen(
                 ft.Column(

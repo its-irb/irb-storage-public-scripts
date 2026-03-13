@@ -105,6 +105,16 @@ MINIO_SERVERS = {
             "profile": "irbminio",
             "endpoint": "http://irbminio.sc.irbbarcelona.org:9000"
         }
+    },
+    "minio": {
+        "IRB": {
+            "profile": "minio",
+            "endpoint": "https://minio.sc.irbbarcelona.org:9000",
+            "extra_rclone_config": {
+                "no_check_bucket": "true",
+                "region": "eu-south-2",
+            }
+        }
     }
 }
 
@@ -508,6 +518,7 @@ def configure_rclone(
     aws_session_token: str,
     endpoint: str,
     profilename: str = "minio-gordo",
+    extra_config: dict | None = None,
 ) -> None:
     """Crea o actualiza un perfil S3/MinIO en rclone.conf con las credenciales STS."""
     rclone_config_directory_path, rclone_config_file_path, _ = get_rclone_paths(profilename)
@@ -533,15 +544,25 @@ def configure_rclone(
         resto = re.sub(r'access_key_id = (.+)',  "access_key_id = " + aws_access_key_id,  resto, 1)
         resto = re.sub(r'secret_access_key = (.+)', "secret_access_key = " + aws_secret_access_key, resto, 1)
         resto = re.sub(r'session_token = (.+)',  "session_token = " + aws_session_token, resto, 1)
+        if extra_config:
+            for key, value in extra_config.items():
+                pattern = rf'{re.escape(key)} = (.+)'
+                if re.search(pattern, resto):
+                    resto = re.sub(pattern, f"{key} = {value}", resto, 1)
+                else:
+                    resto = re.sub(r'(\n\[)', f"\n{key} = {value}\n\\1", resto, 1) \
+                            if re.search(r'\n\[', resto) else resto + f"{key} = {value}\n"
         full_config_file_string_editado = res[0] + "[" + profilename + "]" + resto
     else:
         print("Creating profile in rclone config file.")
+        extra_lines = "".join(f"{k} = {v}\n" for k, v in (extra_config or {}).items())
         resto = (
             f"\n[{profilename}]\ntype = s3\nprovider = Minio\n"
             f"endpoint = {endpoint}\nacl = bucket-owner-full-control\nenv_auth = false\n"
             f"access_key_id = {aws_access_key_id}\n"
             f"secret_access_key = {aws_secret_access_key}\n"
             f"session_token = {aws_session_token}\n"
+            f"{extra_lines}" 
         )
         full_config_file_string_editado = full_config_file_string + resto
 
