@@ -1405,8 +1405,7 @@ def _build_copy_content(
                         card(meta_grid),
                         ft.Container(height=16),
                         ft.Row(
-                            [copy_btn, check_btn, mount_btn, save_btn,
-                             ft.Container(expand=True), close_btn],
+                            [copy_btn, check_btn, mount_btn, save_btn, close_btn],
                             spacing=8,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             wrap=True,
