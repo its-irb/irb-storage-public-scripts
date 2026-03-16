@@ -24,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout código
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v6.0.2
 
       - name: Instalar Python
         uses: actions/setup-python@v5
@@ -158,7 +158,7 @@ jobs:
           pip3 install --upgrade pip setuptools wheel pyinstaller
 
       - name: Checkout repo
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v6.0.2
 
       - name: Instalar requirements
         run: |
@@ -218,7 +218,7 @@ jobs:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release'
     steps:
       - name: Checkout código
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v6.0.2
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4.3.0
