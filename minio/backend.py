@@ -1072,6 +1072,7 @@ def ejecutar_rclone_copy(
     rclone = get_rclone_executable()
     tag_string   = construir_tag_string(metadatos_dict)
     header_value = f"x-amz-tagging:{tag_string}"
+    
 
     comando = [
         rclone, "copy",
