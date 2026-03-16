@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v6.0.2
 
       - name: Instalar Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6.2.0
         with:
           python-version: "3.12"
 
@@ -140,7 +140,7 @@ jobs:
           ls -lah .
 
       - name: Subir ejecutables CLI como artefactos
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v7.0.0
         with:
           name: executables-cli-${{ matrix.os }}-${{ steps.clean_branch.outputs.name }}
           path: dist/*
@@ -205,7 +205,7 @@ jobs:
         run: ls -lah dist/
 
       - name: Subir artefacto
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v7.0.0
         with:
           name: bifrost_linux_cluster-${{ steps.clean_branch.outputs.name }}
           path: dist/bifrost-${{ steps.clean_branch.outputs.name }}-cluster
