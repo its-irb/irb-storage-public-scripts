@@ -63,9 +63,8 @@ jobs:
         run: |
           clean_name=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
           echo "name=$clean_name" >> $GITHUB_OUTPUT
-          echo "Clean name: $clean_name"
 
-      - name: Crear ejecutable bifrost (Windows - onedir)
+      - name: Crear ejecutable bifrost (Windows - onefile)
         if: runner.os == 'Windows'
         shell: bash
         env:
@@ -75,22 +74,24 @@ jobs:
           cd minio
           echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
 
-          flet pack bifrost.py \
-            --distpath ../dist \
+          pyinstaller --onefile bifrost.py \
             --add-data "rclone-bin/rclone.exe;." \
-            --pyinstaller-build-args --onedir
+            --collect-all flet \
+            --collect-all flet_core \
+            --hidden-import flet.fastapi \
+            --hidden-import uvicorn \
+            --hidden-import uvicorn.lifespan.on \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops.auto \
+            --distpath ../dist
 
+          mv ../dist/bifrost.exe "../dist/bifrost-${BRANCH_SUFFIX}-windows.exe"
           echo "=== Contenido de dist: ==="
           ls -lah ../dist/
 
-          # Renombrar la carpeta generada a bifrost-windows
-          cd ../dist
-          FOLDER=$(find . -maxdepth 1 -type d ! -name '.' | head -1 | sed 's|./||')
-          echo "Carpeta encontrada: $FOLDER"
-          mv "$FOLDER" "bifrost-${BRANCH_SUFFIX}-windows"
-          ls -lah .
-
-      - name: Crear ejecutable bifrost (macOS - .app bundle)
+      - name: Crear ejecutable bifrost (macOS - onefile)
         if: runner.os == 'macOS'
         shell: bash
         env:
@@ -100,21 +101,24 @@ jobs:
           cd minio
           echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
 
-          flet pack bifrost.py \
-            --distpath ../dist \
-            --add-data "rclone-bin/rclone:."
+          pyinstaller --onefile bifrost.py \
+            --add-data "rclone-bin/rclone:." \
+            --collect-all flet \
+            --collect-all flet_core \
+            --hidden-import flet.fastapi \
+            --hidden-import uvicorn \
+            --hidden-import uvicorn.lifespan.on \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops.auto \
+            --distpath ../dist
 
+          mv ../dist/bifrost "../dist/bifrost-${BRANCH_SUFFIX}-macos"
           echo "=== Contenido de dist: ==="
           ls -lah ../dist/
 
-          # Renombrar el .app generado
-          cd ../dist
-          APP=$(find . -maxdepth 1 -name "*.app" | head -1 | sed 's|./||')
-          echo "App bundle encontrado: $APP"
-          mv "$APP" "bifrost-${BRANCH_SUFFIX}-macos.app"
-          ls -lah .
-
-      - name: Crear ejecutable bifrost (Linux - onedir)
+      - name: Crear ejecutable bifrost (Linux - onefile)
         if: runner.os == 'Linux'
         shell: bash
         env:
@@ -124,28 +128,28 @@ jobs:
           cd minio
           echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
 
-          flet pack bifrost.py \
-            --distpath ../dist \
+          pyinstaller --onefile bifrost.py \
             --add-data "rclone-bin/rclone:." \
-            --pyinstaller-build-args --onedir
+            --collect-all flet \
+            --collect-all flet_core \
+            --hidden-import flet.fastapi \
+            --hidden-import uvicorn \
+            --hidden-import uvicorn.lifespan.on \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops.auto \
+            --distpath ../dist
 
+          mv ../dist/bifrost "../dist/bifrost-${BRANCH_SUFFIX}-linux"
           echo "=== Contenido de dist: ==="
           ls -lah ../dist/
-
-          # Renombrar la carpeta generada
-          cd ../dist
-          FOLDER=$(find . -maxdepth 1 -type d ! -name '.' | head -1 | sed 's|./||')
-          echo "Carpeta encontrada: $FOLDER"
-          mv "$FOLDER" "bifrost-${BRANCH_SUFFIX}-linux"
-          ls -lah .
 
       - name: Subir ejecutables CLI como artefactos
         uses: actions/upload-artifact@v7.0.0
         with:
           name: executables-cli-${{ matrix.os }}-${{ steps.clean_branch.outputs.name }}
           path: dist/*
-          # upload-artifact zipea carpetas automáticamente al descargar desde la UI
-          # El usuario descarga, extrae, y ejecuta bifrost.exe desde dentro de la carpeta
 
   build-rocky:
     runs-on: ubuntu-latest
@@ -171,7 +175,6 @@ jobs:
           curl -L "https://downloads.rclone.org/v1.71.0/rclone-v1.71.0-linux-amd64.zip" -o rclone.zip
           unzip -j rclone.zip "*/rclone" -d minio/rclone-bin/
           chmod +x minio/rclone-bin/rclone
-          echo "Rclone downloaded:"
           ls -lah minio/rclone-bin/
 
       - name: Limpia nombre de rama para artefactos
@@ -236,21 +239,6 @@ jobs:
         run: |
           clean_name=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
           echo "name=$clean_name" >> $GITHUB_OUTPUT
-
-      - name: Comprimir carpetas onedir en zip para la release
-        shell: bash
-        env:
-          BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
-        run: |
-          cd dist
-          # Zipear carpetas Windows y Linux (onedir)
-          for dir in */; do
-            dir="${dir%/}"
-            echo "Comprimiendo carpeta: $dir"
-            zip -r "${dir}.zip" "$dir"
-            rm -rf "$dir"
-          done
-          ls -lah .
 
       - name: Eliminar sufijo de rama de los nombres de archivo
         shell: bash
