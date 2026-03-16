@@ -1282,6 +1282,91 @@ def verificar_ruta_rclone_accesible(perfil: str, ruta: str, timeout: int = 5) ->
         return False
 
 
+def rclone_lsd(perfil: str, path: str = "", timeout: int = 15) -> list[str]:
+    """
+    Lista las subcarpetas/buckets de un path en un perfil rclone.
+    
+    Args:
+        perfil: nombre del perfil rclone (ej. "irbminio")
+        path:   path dentro del perfil. "" = raíz (lista buckets)
+    
+    Returns:
+        Lista ordenada de nombres de carpeta.
+    
+    Raises:
+        RuntimeError: si rclone lsd falla.
+    """
+    rclone = get_rclone_executable()
+    _, rclone_cfg, _ = get_rclone_paths(perfil)
+    target = f"{perfil}:{path}" if path else f"{perfil}:"
+
+    result = subprocess.run(
+        [rclone, "lsd", target, "--config", rclone_cfg],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or f"rclone lsd failed (code {result.returncode})")
+
+    folders = []
+    for line in result.stdout.splitlines():
+        # formato: "          -1 2024-01-01 00:00:00        -1 folder_name"
+        parts = line.strip().split(None, 4)
+        if len(parts) == 5:
+            folders.append(parts[4])
+    return sorted(folders)
+
+
+def rclone_lsf(perfil: str, path: str = "", timeout: int = 15) -> list[tuple[str, str]]:
+    """
+    Lista ficheros Y carpetas de un path en un perfil rclone.
+    Hace dos llamadas: rclone lsd (dirs) + rclone lsf --files-only (ficheros).
+
+    Returns:
+        Lista de tuplas (tipo, nombre):
+          tipo = "d" (directorio) o "f" (fichero)
+        Carpetas primero, luego ficheros, ambos alfabéticos.
+
+    Raises:
+        RuntimeError: si ambas llamadas fallan.
+    """
+    rclone = get_rclone_executable()
+    _, rclone_cfg, _ = get_rclone_paths(perfil)
+    target = f"{perfil}:{path}" if path else f"{perfil}:"
+
+    # ── Directorios ───────────────────────────────────────────────────────
+    res_dirs = subprocess.run(
+        [rclone, "lsd", target, "--config", rclone_cfg],
+        capture_output=True, text=True, timeout=timeout,
+    )
+    dirs = []
+    if res_dirs.returncode == 0:
+        for line in res_dirs.stdout.splitlines():
+            parts = line.strip().split(None, 4)
+            if len(parts) == 5:
+                dirs.append(("d", parts[4]))
+
+    # ── Ficheros (solo nivel inmediato, sin recursión) ────────────────────
+    res_files = subprocess.run(
+        [rclone, "lsf", target, "--files-only", "--config", rclone_cfg],
+        capture_output=True, text=True, timeout=timeout,
+    )
+    files = []
+    if res_files.returncode == 0:
+        for line in res_files.stdout.splitlines():
+            name = line.strip().rstrip("/")
+            if name:
+                files.append(("f", name))
+
+    if res_dirs.returncode != 0 and res_files.returncode != 0:
+        raise RuntimeError(
+            res_dirs.stderr.strip() or res_files.stderr.strip() or "rclone lsf failed"
+        )
+
+    return sorted(dirs) + sorted(files)
+
+
 # ============================================================================
 # LÓGICA DE INICIALIZACIÓN
 # ============================================================================

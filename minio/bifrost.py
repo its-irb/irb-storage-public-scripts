@@ -37,6 +37,9 @@ Fixes aplicados respecto al piloto inicial:
   - Sin hint de asteriscos en campos password
   - Espaciado (margin bottom) entre header y contenido de cada vista
   - safe_thread: todos los hilos capturan excepciones y las muestran en diálogo
+  - Navegador de carpetas rclone para el destino (build_rclone_browser)
+  - FIX: carga inicial del browser diferida con Timer para evitar
+    "Text Control must be added to the page first"
 """
 
 import os
@@ -87,7 +90,6 @@ def safe_thread(page: ft.Page, target: Callable, daemon: bool = True) -> threadi
     """
     Crea un Thread que captura cualquier excepción no controlada y la muestra
     en un diálogo de error en lugar de matar el proceso silenciosamente.
-    Esto evita que el ejecutable compilado se cierre sin explicación.
     """
     def _wrapper():
         try:
@@ -236,7 +238,6 @@ def divider() -> ft.Divider:
 
 # ============================================================================
 # HEADER COMÚN
-# FIX: margin=ft.margin.only(bottom=24) añade espacio entre header y contenido
 # ============================================================================
 
 def build_header(subtitle: str = "") -> ft.Container:
@@ -273,7 +274,7 @@ def build_header(subtitle: str = "") -> ft.Container:
         bgcolor=C_SURFACE,
         border=ft.border.only(bottom=ft.BorderSide(1, C_BORDER)),
         padding=ft.padding.symmetric(horizontal=24, vertical=16),
-        margin=ft.margin.only(bottom=24),  # ← espacio entre header y el contenido
+        margin=ft.margin.only(bottom=24),
     )
 
 
@@ -477,7 +478,6 @@ def _build_login_content(
         disabled=(not allow_custom_user and default_user is not None),
         hint="your.username",
     )
-    # FIX: sin hint — evita los asteriscos flotantes cuando el campo está vacío
     pass_tf, pass_col = styled_field("Password", password=True)
 
     error_text = ft.Text("", color=C_ERROR, size=12, visible=False)
@@ -584,7 +584,6 @@ def _build_shares_content(
 
     recursos_cifs_dict = backend.construir_recursos_cifs_dict(shares, usuario_actual)
 
-    # ── Sin shares ─────────────────────────────────────────────────────────
     if not shares:
         content = ft.Column(
             [
@@ -627,7 +626,6 @@ def _build_shares_content(
         )
         return content
 
-    # ── Con shares ─────────────────────────────────────────────────────────
     checkboxes: dict[str, ft.Checkbox] = {}
     checkbox_controls = []
     for share in shares:
@@ -744,7 +742,6 @@ def _show_smb_cred_dialog(
     es_admin_its: bool,
     credenciales_ldap: dict,
 ) -> None:
-    # FIX: sin hint en campo password
     pass_tf, pass_col = styled_field("New SMB Password", password=True)
     err = ft.Text("", color=C_ERROR, size=12, visible=False)
 
@@ -899,15 +896,6 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
 
 # ============================================================================
 # VISTA: CREDENCIALES STS — RENOVACIÓN AUTOMÁTICA
-#
-# Lógica:
-#   · Si no hay token, o quedan < STS_RENEWAL_THRESHOLD_DAYS días → renueva
-#     automáticamente por STS_AUTO_RENEWAL_DAYS días y muestra log en pantalla.
-#   · Si quedan >= STS_RENEWAL_THRESHOLD_DAYS días → pasa directamente a view_copy
-#     sin mostrar ninguna pantalla (llamada transparente desde on_minio_selected).
-#
-# Esta función SOLO se muestra cuando hay que renovar. La decisión de si mostrarla
-# o no se toma en `go_credentials_or_copy()` dentro de main().
 # ============================================================================
 
 def _build_credentials_content(
@@ -918,12 +906,6 @@ def _build_credentials_content(
     on_continue: Callable,
     extra_config: dict | None = None,
 ) -> ft.Control:
-    """
-    Pantalla de renovación automática de credenciales STS.
-    Se muestra únicamente cuando es necesario renovar (< 3 días o sin credenciales).
-    La renovación arranca sola al construirse la vista, sin intervención del usuario.
-    """
-    # ── Log en pantalla ────────────────────────────────────────────────────
     log_list = ft.ListView(
         expand=True,
         auto_scroll=True,
@@ -938,17 +920,12 @@ def _build_credentials_content(
         height=220,
     )
 
-    progress = ft.ProgressBar(color=C_PRIMARY, bgcolor=C_SURFACE2)
-    status_text = ft.Text(
-        "Renewing credentials...",
-        size=13,
-        color=C_TEXT_DIM,
-        font_family=FONT_MONO,
-    )
+    progress    = ft.ProgressBar(color=C_PRIMARY, bgcolor=C_SURFACE2)
+    status_text = ft.Text("Renewing credentials...", size=13, color=C_TEXT_DIM,
+                           font_family=FONT_MONO)
 
     def log(msg: str, color: str = C_TEXT):
-        """Añade una línea al log de la pantalla (thread-safe)."""
-        print(msg.rstrip())  # también va a consola para debugging
+        print(msg.rstrip())
         def _add():
             log_list.controls.append(
                 ft.Text(msg.rstrip("\n"), size=11, color=color,
@@ -957,13 +934,11 @@ def _build_credentials_content(
         ui_call(page, _add)
 
     def _do_renew():
-        """Lógica de renovación que corre en un hilo separado."""
         import time
         from datetime import timedelta
 
         duracion_segundos = STS_AUTO_RENEWAL_DAYS * 86400
 
-        # ── Mostrar estado inicial ─────────────────────────────────────────
         token_actual = backend.get_rclone_session_token(perfil_rclone)
         if token_actual:
             tiempo = backend.get_expiration_from_session_token(token_actual)
@@ -980,7 +955,6 @@ def _build_credentials_content(
         log(f"   Endpoint : {endpoint}", C_TEXT_DIM)
         log(f"   User     : {credenciales_ldap['usuario']}", C_TEXT_DIM)
 
-        # ── Llamada al backend ─────────────────────────────────────────────
         creds = backend.get_credentials(
             endpoint,
             credenciales_ldap["usuario"],
@@ -991,9 +965,9 @@ def _build_credentials_content(
         if creds is None:
             log("\n❌ Failed to obtain credentials. Check your password or contact ITS.", C_ERROR)
             def _show_err():
-                progress.visible    = False
-                status_text.value   = "❌ Renewal failed."
-                status_text.color   = C_ERROR
+                progress.visible  = False
+                status_text.value = "❌ Renewal failed."
+                status_text.color = C_ERROR
             ui_call(page, _show_err)
             return
 
@@ -1009,7 +983,6 @@ def _build_credentials_content(
             extra_config=extra_config,
         )
 
-        # Verificar expiración del nuevo token
         new_token = backend.get_rclone_session_token(perfil_rclone)
         if new_token:
             nuevo_tiempo = backend.get_expiration_from_session_token(new_token)
@@ -1024,10 +997,9 @@ def _build_credentials_content(
             status_text.color = C_ACCENT
 
         ui_call(page, _finish)
-        time.sleep(1.2)  # pausa breve para que el usuario lea el log
+        time.sleep(1.2)
         ui_call(page, on_continue)
 
-    # ── Layout ────────────────────────────────────────────────────────────
     content = ft.Column(
         [
             build_header("S3 Credentials — Auto Renewal"),
@@ -1041,8 +1013,7 @@ def _build_credentials_content(
                                 [
                                     ft.Row(
                                         [
-                                            ft.Icon(ft.Icons.AUTORENEW,
-                                                    color=C_PRIMARY, size=18),
+                                            ft.Icon(ft.Icons.AUTORENEW, color=C_PRIMARY, size=18),
                                             ft.Text(
                                                 f"Automatically renewing for {STS_AUTO_RENEWAL_DAYS} days",
                                                 size=13, color=C_TEXT,
@@ -1073,10 +1044,195 @@ def _build_credentials_content(
         spacing=0,
     )
 
-    # Arrancar la renovación automáticamente al construir la vista
     safe_thread(page, _do_renew).start()
-
     return content
+
+
+# ============================================================================
+# COMPONENTE: NAVEGADOR DE BUCKETS/CARPETAS RCLONE
+#
+# FIX: la carga inicial NO se lanza aquí dentro sino que se devuelve como
+# callable (dest_browser_refresh) para que _build_copy_content la dispare
+# con un Timer de 50ms, después de que show_screen() haya añadido todos los
+# controles al árbol de Flet y page.update() haya sido llamado.
+# Esto evita el error:
+#   AssertionError: Text Control must be added to the page first
+# ============================================================================
+
+def build_rclone_browser(
+    page: ft.Page,
+    perfil_rclone: str,
+    on_select: Callable[[str], None],
+) -> tuple[ft.Column, Callable]:
+    """
+    Navegador interactivo de carpetas rclone con breadcrumb.
+
+    Returns:
+        (widget, refresh_fn) — llama a refresh_fn() una vez que el widget
+        esté en la página para arrancar la carga inicial.
+    """
+    nav_state = {"current_path": ""}
+
+    breadcrumb_row = ft.Row(spacing=2, wrap=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER)
+    folder_col     = ft.Column(spacing=4, tight=True)
+    loading_row    = ft.Row(
+        [
+            ft.ProgressRing(width=14, height=14, stroke_width=2, color=C_PRIMARY),
+            ft.Text("Loading...", size=11, color=C_TEXT_DIM),
+        ],
+        spacing=8,
+        visible=False,
+    )
+    error_text = ft.Text("", color=C_ERROR, size=11, visible=False)
+
+    def _rebuild_breadcrumb():
+        breadcrumb_row.controls.clear()
+        breadcrumb_row.controls.append(
+            ft.TextButton(
+                text=f"{perfil_rclone}:",
+                style=ft.ButtonStyle(
+                    color=C_PRIMARY,
+                    padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                ),
+                on_click=lambda e: _navigate(""),
+            )
+        )
+        parts = [p for p in nav_state["current_path"].split("/") if p]
+        accumulated = ""
+        for i, part in enumerate(parts):
+            accumulated = f"{accumulated}/{part}" if accumulated else part
+            path_snap   = accumulated
+            is_last     = (i == len(parts) - 1)
+            breadcrumb_row.controls.append(ft.Text("/", size=12, color=C_TEXT_DIM))
+            if is_last:
+                breadcrumb_row.controls.append(
+                    ft.Text(part, size=12, color=C_TEXT, weight=ft.FontWeight.W_600)
+                )
+            else:
+                breadcrumb_row.controls.append(
+                    ft.TextButton(
+                        text=part,
+                        style=ft.ButtonStyle(
+                            color=C_PRIMARY,
+                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                        ),
+                        on_click=lambda e, p=path_snap: _navigate(p),
+                    )
+                )
+
+    def _navigate(path: str):
+        nav_state["current_path"] = path
+        on_select(path)
+
+        loading_row.visible  = True
+        error_text.visible   = False
+        folder_col.controls.clear()
+        _rebuild_breadcrumb()
+        page.update()
+
+        def _load():
+            try:
+                # rclone_lsf devuelve lista de (tipo, nombre):
+                #   tipo = "d" para directorio, "f" para fichero
+                entries = backend.rclone_lsf(perfil_rclone, path)
+
+                def _show():
+                    loading_row.visible = False
+                    folder_col.controls.clear()
+
+                    if not entries:
+                        folder_col.controls.append(
+                            ft.Text("(empty)", size=11, color=C_TEXT_DIM, italic=True)
+                        )
+                    else:
+                        # Carpetas primero, luego ficheros (orden explorador)
+                        dirs  = [(t, n) for t, n in entries if t == "d"]
+                        files = [(t, n) for t, n in entries if t == "f"]
+
+                        for entry_type, fname in dirs + files:
+                            is_dir    = entry_type == "d"
+                            full_path = f"{path}/{fname}" if path else fname
+                            fp_snap   = full_path
+
+                            row = ft.Container(
+                                content=ft.Row(
+                                    [
+                                        ft.Icon(
+                                            ft.Icons.FOLDER_OUTLINED if is_dir
+                                            else ft.Icons.INSERT_DRIVE_FILE_OUTLINED,
+                                            color=C_WARNING if is_dir else C_TEXT_DIM,
+                                            size=16,
+                                        ),
+                                        ft.Text(
+                                            fname,
+                                            size=12,
+                                            color=C_TEXT if is_dir else C_TEXT_DIM,
+                                            expand=True,
+                                        ),
+                                        ft.Icon(
+                                            ft.Icons.CHEVRON_RIGHT,
+                                            color=C_TEXT_DIM,
+                                            size=14,
+                                        ) if is_dir else ft.Container(width=14),
+                                    ],
+                                    spacing=8,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                ),
+                                bgcolor=C_SURFACE2 if is_dir else C_BG,
+                                border=ft.border.all(1, C_BORDER),
+                                border_radius=6,
+                                padding=ft.padding.symmetric(horizontal=12, vertical=8),
+                                on_click=(lambda e, p=fp_snap: _navigate(p)) if is_dir else None,
+                                ink=is_dir,
+                            )
+                            folder_col.controls.append(row)
+
+                    page.update()
+
+                ui_call(page, _show)
+
+            except Exception as ex:
+                def _err():
+                    loading_row.visible = False
+                    error_text.value    = f"Error: {ex}"
+                    error_text.visible  = True
+                    page.update()
+                ui_call(page, _err)
+
+        safe_thread(page, _load).start()
+
+    # ── Widget (sin carga inicial todavía) ────────────────────────────────
+    browser_widget = ft.Column(
+        [
+            ft.Container(
+                content=breadcrumb_row,
+                bgcolor=C_SURFACE2,
+                border=ft.border.all(1, C_BORDER),
+                border_radius=6,
+                padding=ft.padding.symmetric(horizontal=8, vertical=4),
+            ),
+            loading_row,
+            error_text,
+            ft.Container(
+                content=ft.Column(
+                    [folder_col],
+                    scroll=ft.ScrollMode.AUTO,
+                    spacing=0,
+                ),
+                bgcolor=C_SURFACE,
+                border=ft.border.all(1, C_BORDER),
+                border_radius=6,
+                height=200,
+                padding=ft.padding.all(8),
+            ),
+        ],
+        spacing=6,
+        tight=True,
+    )
+
+    # La carga inicial se delega al caller para lanzarla después de show_screen()
+    return browser_widget, lambda: _navigate("")
 
 
 # ============================================================================
@@ -1093,25 +1249,14 @@ def _build_copy_content(
     num_cores = backend.obtener_num_cpus()
     _, rclone_config_path, _ = backend.get_rclone_paths(perfil_rclone)
 
-    # ── Campos de origen / destino ─────────────────────────────────────────
+    # ── Origen ────────────────────────────────────────────────────────────
     origen_tf, origen_col = styled_field(
         "Source path" + (" (server path)" if IS_WEB else " (local path or rclone remote)"),
         hint="/path/to/data" if IS_WEB else "/local/path  or  profile:/path",
     )
-    destino_tf, destino_col = styled_field(
-        f"Destination path (bucket in {perfil_rclone})",
-        hint="bucket-name/subpath",
-    )
     flags_tf, flags_col = styled_field(
         "Additional rclone flags (advanced)",
         value=f"--transfers={num_cores} --checkers={num_cores} --s3-no-check-bucket",
-    )
-
-    ruta_label = ft.Text(
-        "Destination: [incomplete]",
-        size=12,
-        color=C_TEXT_DIM,
-        font_family=FONT_MONO,
     )
 
     # ── Metadatos ──────────────────────────────────────────────────────────
@@ -1135,7 +1280,7 @@ def _build_copy_content(
     meta_right = ft.Column(meta_controls[4:], spacing=10, expand=True)
     meta_grid  = ft.Row([meta_left, meta_right], spacing=16, expand=True)
 
-    # ── Log: ListView con auto_scroll ──────────────────────────────────────
+    # ── Log ────────────────────────────────────────────────────────────────
     log_list = ft.ListView(
         expand=True,
         auto_scroll=True,
@@ -1168,7 +1313,7 @@ def _build_copy_content(
                     )
         ui_call(page, _add)
 
-    # ── Botones de acción ──────────────────────────────────────────────────
+    # ── Botones ────────────────────────────────────────────────────────────
     copy_btn  = btn_primary("▶  Copy data")
     check_btn = btn_primary("✓  Check data", disabled=True)
     mount_btn = btn_secondary("⊞  Mount destination")
@@ -1193,14 +1338,12 @@ def _build_copy_content(
             if e.files:
                 ruta = backend.traducir_ruta_a_remote(e.files[0].path, mounts_activos)
                 origen_tf.value = ruta
-                actualizar_ruta_label()
                 page.update()
 
         def on_folder_picked(e: ft.FilePickerResultEvent):
             if e.path:
                 ruta = backend.traducir_ruta_a_remote(e.path, mounts_activos)
                 origen_tf.value = ruta
-                actualizar_ruta_label()
                 page.update()
 
         def on_save_result(ev: ft.FilePickerResultEvent):
@@ -1229,38 +1372,42 @@ def _build_copy_content(
         pick_row    = ft.Text("Enter the full server path above.", size=11, color=C_TEXT_DIM)
         save_picker = None
 
-    # ── Verificación destino con debounce ──────────────────────────────────
-    _debounce = {"timer": None}
+    # ── Destino: navegador rclone ──────────────────────────────────────────
+    _dest_path = {"value": ""}
 
-    def actualizar_ruta_label(*_):
-        destino = (destino_tf.value or "").strip().rstrip("/")
-        ruta_label.value = f"→ {destino}/" if destino else "Destination: [incomplete]"
-        ruta_label.update()
+    # FIX: ruta_label se actualiza solo via page.update(), nunca via .update()
+    # individual, para evitar el error "Control must be added to the page first"
+    ruta_label = ft.Text(
+        f"→ {perfil_rclone}: (root — select a folder above)",
+        size=12,
+        color=C_WARNING,
+        font_family=FONT_MONO,
+    )
 
-    def _check_dest_thread():
-        ruta = (destino_tf.value or "").strip()
-        if not ruta:
-            return
-        ok = backend.verificar_ruta_rclone_accesible(perfil_rclone, ruta)
-        def _update_border():
-            destino_tf.border_color = C_ACCENT if ok else C_ERROR
-            destino_tf.update()
-        ui_call(page, _update_border)
+    def on_browser_select(path: str):
+        _dest_path["value"] = path
+        display = f"{perfil_rclone}:{path}" if path else f"{perfil_rclone}: (root)"
+        ruta_label.value = f"→ {display}"
+        ruta_label.color = C_ACCENT if path else C_WARNING
+        # NO llamamos ruta_label.update() aquí porque este callback puede
+        # ejecutarse antes de que el control esté en el árbol (carga inicial).
+        # page.update() lo llama _navigate() justo después de on_select().
 
-    def on_destino_change(e=None):
-        actualizar_ruta_label()
-        if _debounce["timer"]:
-            _debounce["timer"].cancel()
-        _debounce["timer"] = threading.Timer(0.6, _check_dest_thread)
-        _debounce["timer"].start()
-
-    destino_tf.on_change = on_destino_change
-    origen_tf.on_change  = lambda e: actualizar_ruta_label()
+    # build_rclone_browser devuelve (widget, refresh_fn)
+    # refresh_fn se llama con Timer después de show_screen() para la carga inicial
+    dest_browser, dest_browser_refresh = build_rclone_browser(
+        page, perfil_rclone, on_select=on_browser_select
+    )
+    dest_browser_col = ft.Column(
+        [field_label(f"Destination path (bucket in {perfil_rclone})"), dest_browser],
+        spacing=4,
+        tight=True,
+    )
 
     # ── Copiar ─────────────────────────────────────────────────────────────
     def do_copy(e):
-        origen  = (origen_tf.value  or "").strip()
-        destino = (destino_tf.value or "").strip()
+        origen  = (origen_tf.value or "").strip()
+        destino = _dest_path["value"].strip()
         if not origen or not destino:
             show_dialog(page, "Error", "Source and destination are required.", C_ERROR)
             return
@@ -1294,8 +1441,8 @@ def _build_copy_content(
 
     # ── Check ──────────────────────────────────────────────────────────────
     def do_check(e):
-        origen  = (origen_tf.value  or "").strip()
-        destino = (destino_tf.value or "").strip()
+        origen  = (origen_tf.value or "").strip()
+        destino = _dest_path["value"].strip()
         if not origen or not destino:
             show_dialog(page, "Error", "Source and destination are required.", C_ERROR)
             return
@@ -1318,7 +1465,7 @@ def _build_copy_content(
 
     # ── Montar destino ─────────────────────────────────────────────────────
     def do_mount(e):
-        ruta = (destino_tf.value or "").strip()
+        ruta = _dest_path["value"].strip()
         if not ruta:
             show_dialog(page, "Error", "Specify a destination path to mount.", C_ERROR)
             return
@@ -1353,7 +1500,7 @@ def _build_copy_content(
     # ── Cierre ─────────────────────────────────────────────────────────────
     def _do_close_cleanup():
         log("\n🧹 Unmounting mount points...\n")
-        ruta_dest = (destino_tf.value or "").strip()
+        ruta_dest = _dest_path["value"].strip()
         if ruta_dest:
             mp = backend.resolver_mount_point_destino(perfil_rclone, ruta_dest)
             backend.desmontar_punto_montaje(mp, log_fn=log)
@@ -1390,7 +1537,7 @@ def _build_copy_content(
                                     ft.Container(height=4),
                                     pick_row,
                                     ft.Container(height=12),
-                                    destino_col,
+                                    dest_browser_col,
                                     ft.Container(height=6),
                                     ruta_label,
                                     ft.Container(height=12),
@@ -1417,16 +1564,19 @@ def _build_copy_content(
                         ft.Container(height=16),
                     ],
                     spacing=0,
-                    expand=True,
                 ),
-                expand=True,
                 padding=ft.padding.symmetric(horizontal=24, vertical=8),
             ),
         ],
-        expand=True,
         spacing=0,
         scroll=ft.ScrollMode.AUTO,
     )
+
+    # FIX: lanzar la carga inicial del browser con un pequeño delay para que
+    # show_screen() haya procesado el widget y page.update() se haya ejecutado
+    # antes de que _navigate("") intente hacer page.update() sobre controles
+    # ya registrados en el árbol de Flet.
+    threading.Timer(0.1, dest_browser_refresh).start()
 
     return content
 
@@ -1584,7 +1734,6 @@ def main(page: ft.Page):
 
     def on_login_success(creds: dict):
         state["credenciales_ldap"] = creds
-        # En Mac/Windows/Web saltamos CIFS y vamos directo a MinIO
         if IS_LINUX_CLUSTER:
             show_loading("Fetching LDAP groups...")
 
@@ -1608,12 +1757,10 @@ def main(page: ft.Page):
 
             safe_thread(page, _load_groups).start()
         else:
-            # Flujo simplificado: directo a MinIO
             go_minio()
 
     def _ask_admin_creds():
         admin_user = "admin_" + state["credenciales_ldap"]["usuario"]
-        # FIX: sin hint en campo password
         admin_tf, admin_col = styled_field("Admin password", password=True)
         err = ft.Text("", color=C_ERROR, size=12, visible=False)
 
@@ -1716,22 +1863,15 @@ def main(page: ft.Page):
         if not IS_WEB:
             check_rclone_installation_flet(page)
 
-        # Decidir si renovar credenciales o ir directo a copy
         _go_credentials_or_copy()
 
     def _go_credentials_or_copy():
-        """
-        Comprueba si las credenciales STS actuales tienen suficiente vida.
-        · Si quedan >= STS_RENEWAL_THRESHOLD_DAYS días → ir directo a view_copy.
-        · En cualquier otro caso (sin token, expirado, < umbral) → mostrar
-          la pantalla de renovación automática.
-        """
         from datetime import timedelta
 
         perfil  = state["perfil_rclone"]
         token   = backend.get_rclone_session_token(perfil)
 
-        needs_renewal = True  # por defecto renovamos
+        needs_renewal = True
         if token:
             tiempo = backend.get_expiration_from_session_token(token)
             if tiempo and tiempo > timedelta(days=STS_RENEWAL_THRESHOLD_DAYS):
@@ -1742,8 +1882,7 @@ def main(page: ft.Page):
                 )
 
         if needs_renewal:
-            # Leer flags extra del servidor seleccionado (p.ej. no_check_bucket, region)
-            servidor = state["servidor_minio"]
+            servidor     = state["servidor_minio"]
             extra_config = backend.MINIO_SERVERS.get(servidor, {}).get("IRB", {}).get("extra_rclone_config")
             show_screen(_build_credentials_content(
                 page,
@@ -1765,7 +1904,6 @@ def main(page: ft.Page):
         ))
 
     def do_close():
-        # Solo hay shares montados en el flujo Linux cluster
         if IS_LINUX_CLUSTER and state["mounts_activos"]:
             usuario = (state["credenciales_smb"] or {}).get("usuario") or getpass.getuser()
             safe_thread(page, lambda: backend.desmontar_todos_los_shares(usuario)).start()
@@ -1795,6 +1933,7 @@ def main(page: ft.Page):
             page.window.close()
 
     show_screen(_build_update_content(page, on_continue=go_login))
+
 
 # ============================================================================
 # ENTRY POINT
