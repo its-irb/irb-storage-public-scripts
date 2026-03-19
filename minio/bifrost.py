@@ -1281,9 +1281,9 @@ def build_rclone_browser(
             )
         )
 
-        mkdir_status.value   = f"✓ Destination set to: {perfil_rclone}:{new_path}"
-        mkdir_status.color   = C_ACCENT
-        mkdir_status.visible = True
+        #mkdir_status.value   = f"✓ Destination set to: {perfil_rclone}:{new_path}"
+        #mkdir_status.color   = C_ACCENT
+        #mkdir_status.visible = True
 
         page.update()
 
@@ -1333,7 +1333,7 @@ def build_rclone_browser(
                             spacing=6,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
-                        mkdir_status,
+                        #mkdir_status,
                     ],
                     spacing=6,
                     tight=True,
@@ -1838,9 +1838,13 @@ def _build_copy_content(
 
     def on_browser_select(path: str):
         _dest_path["value"] = path
-        display = f"{perfil_rclone}:{path}" if path else f"{perfil_rclone}: (root)"
-        ruta_label.value = f"→ {display}"
-        ruta_label.color = C_ACCENT if path else C_WARNING
+        if path:
+            display = f"{perfil_rclone}:{path}"
+            ruta_label.value = f"→ All files from source will be copied into: {display}"
+            ruta_label.color = C_ACCENT
+        else:
+            ruta_label.value = f"→ {perfil_rclone}: (root — select a folder above)"
+            ruta_label.color = C_WARNING
         # NO llamamos ruta_label.update() aquí porque este callback puede
         # ejecutarse antes de que el control esté en el árbol (carga inicial).
         # page.update() lo llama _navigate() justo después de on_select().
