@@ -34,7 +34,7 @@ import threading
 import urllib.parse
 from pathlib import Path
 from datetime import datetime, timezone
-from sys import platform as sys_platform
+from sys import path, platform as sys_platform
 
 import boto3
 import jwt
@@ -1322,50 +1322,78 @@ def rclone_lsd(perfil: str, path: str = "", timeout: int = 15) -> list[str]:
 def rclone_lsf(perfil: str, path: str = "", timeout: int = 15) -> list[tuple[str, str]]:
     """
     Lista ficheros Y carpetas de un path en un perfil rclone.
-    Hace dos llamadas: rclone lsd (dirs) + rclone lsf --files-only (ficheros).
-
-    Returns:
-        Lista de tuplas (tipo, nombre):
-          tipo = "d" (directorio) o "f" (fichero)
-        Carpetas primero, luego ficheros, ambos alfabéticos.
-
-    Raises:
-        RuntimeError: si ambas llamadas fallan.
+    - Solo profundidad 1 (no recursivo)
+    - Máximo 50 ficheros (muestra aviso si hay más con "…more")
+    - Encoding UTF-8 con reemplazo para evitar UnicodeDecodeError en Windows
     """
     rclone = get_rclone_executable()
     _, rclone_cfg, _ = get_rclone_paths(perfil)
     target = f"{perfil}:{path}" if path else f"{perfil}:"
 
+    MAX_FILES = 30
+
     # ── Directorios ───────────────────────────────────────────────────────
     res_dirs = subprocess.run(
         [rclone, "lsd", target, "--config", rclone_cfg],
-        capture_output=True, text=True, timeout=timeout,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
     )
     dirs = []
     if res_dirs.returncode == 0:
-        for line in res_dirs.stdout.splitlines():
+        for line in (res_dirs.stdout or "").splitlines():
             parts = line.strip().split(None, 4)
             if len(parts) == 5:
                 dirs.append(("d", parts[4]))
 
     # ── Ficheros (solo nivel inmediato, sin recursión) ────────────────────
     res_files = subprocess.run(
-        [rclone, "lsf", target, "--files-only", "--config", rclone_cfg],
-        capture_output=True, text=True, timeout=timeout,
+        [
+            rclone, "lsf", target,
+            "--files-only",
+            "--max-depth", "1",
+            #"--max-count", str(MAX_FILES + 1),  # pedimos uno más para detectar si hay más. Lo quitamos porque no está en la versión de rclone que usamos
+            "--config", rclone_cfg,
+        ],
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
     )
+    print(f"[lsf] returncode={res_files.returncode}")
+    print(f"[lsf] stdout={res_files.stdout!r}")
+    print(f"[lsf] stderr={res_files.stderr!r}")
     files = []
+    truncated = False
     if res_files.returncode == 0:
-        for line in res_files.stdout.splitlines():
+        raw_files = []
+        for line in (res_files.stdout or "").splitlines():
             name = line.strip().rstrip("/")
             if name:
-                files.append(("f", name))
+                raw_files.append(name)
 
-    if res_dirs.returncode != 0 and res_files.returncode != 0:
+        if len(raw_files) > MAX_FILES:
+            truncated = True
+            raw_files = raw_files[:MAX_FILES]
+
+        files = [("f", name) for name in raw_files]
+
+    # Si ambos fallan con error real (no solo vacío), lanzar excepción
+    dirs_failed  = res_dirs.returncode != 0 and (res_dirs.stderr or "").strip()
+    files_failed = res_files.returncode != 0 and (res_files.stderr or "").strip()
+    if dirs_failed and files_failed:
         raise RuntimeError(
-            res_dirs.stderr.strip() or res_files.stderr.strip() or "rclone lsf failed"
+            (res_dirs.stderr or res_files.stderr or "rclone lsf failed").strip()
         )
 
-    return sorted(dirs) + sorted(files)
+    result = sorted(dirs) + sorted(files)
+
+    # Marcador especial para que el browser muestre "X ficheros más..."
+    if truncated:
+        result.append(("more", f"… more than {MAX_FILES} files (not shown)"))
+
+    return result
 
 
 # ============================================================================

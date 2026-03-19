@@ -1067,6 +1067,8 @@ def build_rclone_browser(
 ) -> tuple[ft.Column, Callable]:
     """
     Navegador interactivo de carpetas rclone con breadcrumb.
+    La creación de carpetas es VIRTUAL — solo actualiza el path de destino,
+    no llama a rclone mkdir. S3 crea el prefijo automáticamente al copiar.
 
     Returns:
         (widget, refresh_fn) — llama a refresh_fn() una vez que el widget
@@ -1086,6 +1088,27 @@ def build_rclone_browser(
         visible=False,
     )
     error_text = ft.Text("", color=C_ERROR, size=11, visible=False)
+
+    # ── Crear nueva carpeta (virtual) ─────────────────────────────────────
+    new_folder_tf = ft.TextField(
+        hint_text="new-folder-name",
+        bgcolor=C_SURFACE2,
+        border_color=C_BORDER,
+        focused_border_color=C_PRIMARY,
+        color=C_TEXT,
+        hint_style=ft.TextStyle(color=C_TEXT_DIM),
+        border_radius=6,
+        content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
+        text_size=12,
+        expand=True,
+    )
+    mkdir_status = ft.Text("", size=11, color=C_TEXT_DIM, visible=False)
+    mkdir_btn    = ft.IconButton(
+        icon=ft.Icons.CREATE_NEW_FOLDER_OUTLINED,
+        icon_color=C_ACCENT,
+        icon_size=18,
+        tooltip="Add folder to destination path (virtual — created on copy)",
+    )
 
     def _rebuild_breadcrumb():
         breadcrumb_row.controls.clear()
@@ -1134,9 +1157,8 @@ def build_rclone_browser(
 
         def _load():
             try:
-                # rclone_lsf devuelve lista de (tipo, nombre):
-                #   tipo = "d" para directorio, "f" para fichero
                 entries = backend.rclone_lsf(perfil_rclone, path)
+                print(f"[browser] path={path!r} entries={entries}")
 
                 def _show():
                     loading_row.visible = False
@@ -1147,11 +1169,28 @@ def build_rclone_browser(
                             ft.Text("(empty)", size=11, color=C_TEXT_DIM, italic=True)
                         )
                     else:
-                        # Carpetas primero, luego ficheros (orden explorador)
                         dirs  = [(t, n) for t, n in entries if t == "d"]
                         files = [(t, n) for t, n in entries if t == "f"]
+                        more  = [(t, n) for t, n in entries if t == "more"]
 
-                        for entry_type, fname in dirs + files:
+                        for entry_type, fname in dirs + files + more:
+                            if entry_type == "more":
+                                folder_col.controls.append(
+                                    ft.Container(
+                                        content=ft.Row(
+                                            [
+                                                ft.Icon(ft.Icons.MORE_HORIZ,
+                                                        color=C_TEXT_DIM, size=14),
+                                                ft.Text(fname, size=11,
+                                                        color=C_TEXT_DIM, italic=True),
+                                            ],
+                                            spacing=8,
+                                        ),
+                                        padding=ft.padding.symmetric(horizontal=12, vertical=6),
+                                    )
+                                )
+                                continue
+
                             is_dir    = entry_type == "d"
                             full_path = f"{path}/{fname}" if path else fname
                             fp_snap   = full_path
@@ -1203,7 +1242,55 @@ def build_rclone_browser(
 
         safe_thread(page, _load).start()
 
-    # ── Widget (sin carga inicial todavía) ────────────────────────────────
+    def _do_mkdir(e=None):
+        """
+        Crea una carpeta VIRTUAL: solo actualiza el path de destino en la UI.
+        No llama a rclone — S3 creará el prefijo automáticamente al copiar.
+        """
+        name = (new_folder_tf.value or "").strip()
+        if not name:
+            mkdir_status.value   = "⚠ Enter a folder name first."
+            mkdir_status.color   = C_WARNING
+            mkdir_status.visible = True
+            page.update()
+            return
+
+        if "/" in name or "\\" in name:
+            mkdir_status.value   = "⚠ Folder name cannot contain slashes."
+            mkdir_status.color   = C_WARNING
+            mkdir_status.visible = True
+            page.update()
+            return
+
+        base     = nav_state["current_path"]
+        new_path = f"{base}/{name}" if base else name
+
+        new_folder_tf.value = ""
+
+        # Actualizar estado y breadcrumb sin llamar a rclone
+        nav_state["current_path"] = new_path
+        on_select(new_path)
+        _rebuild_breadcrumb()
+
+        # Mostrar la carpeta como "nueva/vacía" en la lista
+        folder_col.controls.clear()
+        folder_col.controls.append(
+            ft.Text(
+                "(new folder — will be created on copy)",
+                size=11, color=C_TEXT_DIM, italic=True,
+            )
+        )
+
+        mkdir_status.value   = f"✓ Destination set to: {perfil_rclone}:{new_path}"
+        mkdir_status.color   = C_ACCENT
+        mkdir_status.visible = True
+
+        page.update()
+
+    mkdir_btn.on_click      = _do_mkdir
+    new_folder_tf.on_submit = _do_mkdir  # Enter también funciona
+
+    # ── Widget ────────────────────────────────────────────────────────────
     browser_widget = ft.Column(
         [
             ft.Container(
@@ -1227,13 +1314,42 @@ def build_rclone_browser(
                 height=200,
                 padding=ft.padding.all(8),
             ),
+            # ── Fila "Create folder" ──────────────────────────────────────
+            ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.CREATE_NEW_FOLDER_OUTLINED,
+                                        color=C_TEXT_DIM, size=14),
+                                ft.Text("Add subfolder to destination:",
+                                        size=11, color=C_TEXT_DIM),
+                            ],
+                            spacing=6,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Row(
+                            [new_folder_tf, mkdir_btn],
+                            spacing=6,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        mkdir_status,
+                    ],
+                    spacing=6,
+                    tight=True,
+                ),
+                bgcolor=C_SURFACE2,
+                border=ft.border.all(1, C_BORDER),
+                border_radius=6,
+                padding=ft.padding.symmetric(horizontal=12, vertical=10),
+            ),
         ],
         spacing=6,
         tight=True,
     )
 
-    # La carga inicial se delega al caller para lanzarla después de show_screen()
     return browser_widget, lambda: _navigate("")
+
 
 # ============================================================================
 # COMPONENTE: NAVEGADOR DE FICHEROS LOCAL (para modo web)
