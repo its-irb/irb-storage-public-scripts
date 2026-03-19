@@ -70,6 +70,10 @@ def get_rclone_executable() -> str:
         bundled = Path(sys._MEIPASS) / rclone_name
         if bundled.exists():
             return str(bundled)
+    else:
+        asset = Path(__file__).parent / "assets" / "bin" / rclone_name
+        if asset.exists():
+            return str(asset.resolve())
 
     # 2. Junto al script / ejecutable (dev o distribución manual)
     exe_dir = Path(sys.argv[0]).resolve().parent
@@ -310,12 +314,6 @@ def traducir_ruta_a_remote(ruta_local: str, mounts_activos: list) -> str:
     return ruta_local
 
 
-def is_brew_installed() -> bool:
-    """Comprueba si Homebrew está instalado."""
-    import shutil
-    return shutil.which("brew") is not None
-
-
 def detect_rclone_installed() -> bool:
     """
     Devuelve True si rclone está disponible (bundleado o en el PATH).
@@ -331,40 +329,6 @@ def detect_rclone_installed() -> bool:
         return True
     except Exception:
         return False
-
-
-def install_rclone_macos() -> None:
-    """Instala rclone y fuse-t en macOS vía Homebrew (llamadas bloqueantes)."""
-    os.system("brew tap macos-fuse-t/homebrew-cask")
-    os.system("brew install fuse-t")
-    os.system("sudo -v ; curl https://rclone.org/install.sh | sudo bash")
-
-
-def ensure_fuse_macos() -> None:
-    """
-    Comprueba si fuse-t está instalado en macOS y lo instala vía Homebrew si no.
-
-    Raises:
-        EnvironmentError: si fuse-t no está y no se puede instalar.
-    """
-    if _check_fuse_macos():
-        print("✅ fuse-t already installed.")
-        return
-    print("⚠️ fuse-t not detected. Installing via Homebrew...")
-    if not is_brew_installed():
-        raise EnvironmentError(
-            "macFUSE/fuse-t not detected and Homebrew is not installed. "
-            "Please install Homebrew first: https://brew.sh/ — "
-            "then run: brew tap macos-fuse-t/homebrew-cask && brew install fuse-t"
-        )
-    os.system("brew tap macos-fuse-t/homebrew-cask")
-    os.system("brew install fuse-t")
-    if not _check_fuse_macos():
-        raise EnvironmentError(
-            "fuse-t installation failed. Please install it manually:\n"
-            "  brew tap macos-fuse-t/homebrew-cask\n"
-            "  brew install fuse-t"
-        )
 
 
 def open_file(path: str) -> None:
@@ -437,12 +401,13 @@ def _check_winfsp_windows() -> bool:
 
 def _check_fuse_macos() -> bool:
     """Detecta específicamente fuse-t en macOS (no macFUSE ni osxfuse)."""
-    return any(p.exists() for p in (
+    return any(p.exists() for p in (*(
         Path("/usr/local/lib/libfuse-t.dylib"),
         Path("/Library/Filesystems/fuse-t.fs"),
         Path("/usr/local/include/fuse-t"),
+        Path(__file__).parent / "assets" / "fuse_t.framework" / "fuse_t",
+        ),*( (Path(sys._MEIPASS) / "fuse_t.framework" / "fuse_t",) if hasattr(sys, "_MEIPASS") else ())
     ))
-
 
 def _check_fuse_linux() -> bool:
     """Detecta FUSE en Linux."""
@@ -623,13 +588,20 @@ def mount_rclone_S3_bucket_to_folder(mount_point_folder: str, servidor_s3_rclone
     """Monta un bucket S3/MinIO completo en una carpeta local."""
     rclone = get_rclone_executable()
     print(f"Mounting {servidor_s3_rcloneconfig}:{bucket} to {mount_point_folder}")
+    env = {**os.environ}
+    if sys_platform == "darwin":
+        if getattr(sys, "frozen", False):   
+            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys._MEIPASS) / "fuse_t.framework" / "fuse_t")
+        else:
+            if (Path(__file__).parent / "assets" / "fuse_t.framework" / "fuse_t").exists():
+                env["CGOFUSE_LIBFUSE_PATH"] = str(Path(__file__).parent / "assets" / "fuse_t.framework" / "fuse_t")
     subprocess.Popen([
         rclone, "mount",
         servidor_s3_rcloneconfig + ":" + bucket,
         mount_point_folder,
         "--allow-non-empty",
         "--read-only",
-    ])
+    ], env=env)
 
 
 def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> None:
@@ -641,9 +613,15 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
         raise EnvironmentError(str(e))
 
     sistema = platform.system()
+    env = {**os.environ}
     if sistema == "Darwin":
         if not _check_fuse_macos():
-            raise EnvironmentError("macFUSE not detected. Download from: https://osxfuse.github.io")
+            raise EnvironmentError("fuse-t not detected. Download it with macos-third-party-assets-downloader.sh")
+        if getattr(sys, "frozen", False):
+            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys._MEIPASS) / "fuse_t.framework" / "fuse_t")
+        else:
+            if (Path(__file__).parent / "assets" / "fuse_t.framework" / "fuse_t").exists():
+                env["CGOFUSE_LIBFUSE_PATH"] = str(Path(__file__).parent / "assets" / "fuse_t.framework" / "fuse_t")
     elif sistema == "Windows":
         if not _check_winfsp_windows():
             raise EnvironmentError("WinFSP not detected. Download from: https://winfsp.dev")
@@ -675,7 +653,7 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     if sistema != "Windows":
         comando.append("--allow-non-empty")
 
-    subprocess.Popen(comando)
+    subprocess.Popen(comando,env=env)
 
     import time
     time.sleep(1)

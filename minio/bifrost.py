@@ -2045,16 +2045,13 @@ def check_rclone_installation_flet(page: ft.Page) -> None:
     if not backend.detect_rclone_installed():
         sistema = sys.platform
         if sistema == "darwin":
-            if not backend.is_brew_installed():
-                show_dialog(
-                    page,
-                    "Rclone not found",
-                    "Rclone is not installed and Homebrew is not available.\n"
-                    "Install Homebrew first: https://brew.sh/",
-                    C_ERROR,
-                )
-                sys.exit(1)
-            backend.install_rclone_macos()
+            show_dialog(
+                page,
+                "Rclone not found",
+                "Download it with macos-third-party-assets-downloader.sh.\n",
+                C_ERROR,
+            )
+            sys.exit(1)
         elif sistema == "win32":
             show_dialog(
                 page,
@@ -2064,13 +2061,6 @@ def check_rclone_installation_flet(page: ft.Page) -> None:
                 "Also install WinFsp from https://winfsp.dev/rel/",
                 C_ERROR,
             )
-            sys.exit(1)
-
-    if sys.platform == "darwin":
-        try:
-            backend.ensure_fuse_macos()
-        except EnvironmentError as e:
-            show_dialog(page, "fuse-t not available", str(e), C_ERROR)
             sys.exit(1)
 
 
