@@ -46,9 +46,7 @@ jobs:
             curl -L "https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-windows-amd64.zip" -o rclone.zip
             unzip -j rclone.zip "*/rclone.exe" -d minio/rclone-bin/
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            curl -L "https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-osx-amd64.zip" -o rclone.zip
-            unzip -j rclone.zip "*/rclone" -d minio/rclone-bin/
-            chmod +x minio/rclone-bin/rclone
+            cd minio && ./macos-third-party-assets-downloader.sh && cd ..
           elif [[ "$RUNNER_OS" == "Linux" ]]; then
             curl -L "https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.zip" -o rclone.zip
             unzip -j rclone.zip "*/rclone" -d minio/rclone-bin/
@@ -101,8 +99,10 @@ jobs:
           echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
 
           flet pack bifrost.py \
+            --onedir \
             --distpath ../dist \
-            --add-data "rclone-bin/rclone:."
+            --add-binary "assets/bin/rclone:." \
+            --add-data "assets/fuse_t.framework:fuse_t.framework"
 
           echo "=== Contenido de dist: ==="
           ls -lah ../dist/
