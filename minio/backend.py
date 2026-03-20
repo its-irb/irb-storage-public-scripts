@@ -447,14 +447,14 @@ def get_credentials(endpoint: str, username: str, password: str, durationseconds
     Returns:
         Dict con AccessKeyId, SecretAccessKey, SessionToken o None si falla.
     """
-    params = {
+    payload = {
         "Action": "AssumeRoleWithLDAPIdentity",
         "LDAPUsername": username,
         "LDAPPassword": password,
         "DurationSeconds": durationseconds,
         "Version": "2011-06-15",
     }
-    r = requests.post(endpoint, params=params)
+    r = requests.post(endpoint, data=payload)
 
     print(f"[STS] HTTP {r.status_code}")
     if r.status_code >= 400:
@@ -609,24 +609,24 @@ def get_expiration_from_session_token(session_token: str):
         return None
 
 
-def mount_rclone_S3_bucket_to_folder(mount_point_folder: str, servidor_s3_rcloneconfig: str, bucket: str) -> None:
-    """Monta un bucket S3/MinIO completo en una carpeta local."""
-    rclone = get_rclone_executable()
-    print(f"Mounting {servidor_s3_rcloneconfig}:{bucket} to {mount_point_folder}")
-    env = {**os.environ}
-    if sys_platform == "darwin":
-        if getattr(sys, "frozen", False):   
-            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys._MEIPASS) / "fuse_t.framework" / "fuse_t")
-        else:
-            if (Path(__file__).parent / "assets" / "fuse_t.framework" / "fuse_t").exists():
-                env["CGOFUSE_LIBFUSE_PATH"] = str(Path(__file__).parent / "assets" / "fuse_t.framework" / "fuse_t")
-    subprocess.Popen([
-        rclone, "mount",
-        servidor_s3_rcloneconfig + ":" + bucket,
-        mount_point_folder,
-        "--allow-non-empty",
-        "--read-only",
-    ], env=env)
+#def mount_rclone_S3_bucket_to_folder(mount_point_folder: str, servidor_s3_rcloneconfig: str, bucket: str) -> None:
+#    """Monta un bucket S3/MinIO completo en una carpeta local."""
+#    rclone = get_rclone_executable()
+#    print(f"Mounting {servidor_s3_rcloneconfig}:{bucket} to {mount_point_folder}")
+#    env = {**os.environ}
+#    if sys_platform == "darwin":
+#        if getattr(sys, "frozen", False):   
+#            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys._MEIPASS) / "fuse_t.framework" / "fuse_t")
+#        else:
+#            if (Path(__file__).parent / "assets" / "fuse_t.framework" / "fuse_t").exists():
+#                env["CGOFUSE_LIBFUSE_PATH"] = str(Path(__file__).parent / "assets" / "fuse_t.framework" / "fuse_t")
+#    subprocess.Popen([
+#        rclone, "mount",
+#        servidor_s3_rcloneconfig + ":" + bucket,
+#        mount_point_folder,
+#        "--allow-non-empty",
+#        "--read-only",
+#    ], env=env)
 
 
 def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> None:
