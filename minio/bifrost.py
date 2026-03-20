@@ -1669,7 +1669,6 @@ def show_local_fs_modal(
     # Arrancar carga inicial después de que el modal esté en el árbol
     threading.Timer(0.1, refresh_fn).start()
 
-
 # ============================================================================
 # VISTA: INTERFAZ PRINCIPAL DE COPIA
 # ============================================================================

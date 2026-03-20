@@ -63,7 +63,7 @@ jobs:
           echo "name=$clean_name" >> $GITHUB_OUTPUT
           echo "Clean name: $clean_name"
 
-      - name: Crear ejecutable bifrost (Windows - onedir)
+      - name: Crear ejecutable bifrost (Windows)
         if: runner.os == 'Windows'
         shell: bash
         env:
@@ -76,7 +76,7 @@ jobs:
           flet pack bifrost.py \
             --distpath ../dist \
             --add-data "rclone-bin/rclone.exe;." \
-            --pyinstaller-build-args --onedir
+            --pyinstaller-build-args
 
           echo "=== Contenido de dist: ==="
           ls -lah ../dist/
