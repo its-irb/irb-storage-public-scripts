@@ -270,6 +270,7 @@ def obtener_ruta_rclone_conf() -> Path:
         [rclone, "config", "file"],
         text=True,
         stderr=subprocess.STDOUT,
+        **_subprocess_kwargs(),
     ).strip()
 
     lines = [l.strip().strip('"').strip("'") for l in out.splitlines() if l.strip()]
@@ -325,6 +326,7 @@ def detect_rclone_installed() -> bool:
             [rclone, "--version"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            **_subprocess_kwargs(),
         )
         return True
     except Exception:
@@ -422,6 +424,15 @@ def _check_fuse_linux() -> bool:
         pass
     return Path("/dev/fuse").exists()
 
+
+# ============================================================================
+# PARA SOLUCIONAR PROBLEMA DE VENTANA DE CONSOLA EN WINDOWS AL LANZAR SUBPROCESOS (RCLONE)
+# ============================================================================
+def _subprocess_kwargs() -> dict:
+    """Suprime la ventana de consola en Windows para subprocesos."""
+    if sys_platform == "win32":
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
 
 # ============================================================================
 # AUTENTICACIÓN STS (MinIO) Y GESTIÓN DE CREDENCIALES RCLONE
@@ -665,7 +676,7 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     if sistema != "Windows":
         comando.append("--allow-non-empty")
 
-    subprocess.Popen(comando,env=env)
+    subprocess.Popen(comando,env=env, **_subprocess_kwargs())
 
     import time
     time.sleep(1)
@@ -857,7 +868,11 @@ def crear_perfil_rclone_smb(
         "domain": "IRBBARCELONA",
         "host":   host,
         "user":   username,
-        "pass":   subprocess.getoutput(f"{shlex.quote(rclone)} obscure {shlex.quote(password)}"),
+        "pass":   subprocess.check_output(
+            [rclone, "obscure", password],
+            text=True,
+            **_subprocess_kwargs(),
+        ).strip(),
     }
     with open(config_path, "w") as f:
         config.write(f)
@@ -879,6 +894,7 @@ def actualizar_password_perfiles_rclone(
         resultado = subprocess.run(
             [rclone, "obscure", nueva_password],
             capture_output=True, text=True, check=True,
+            **_subprocess_kwargs(),
         )
         password_obscurecida = resultado.stdout.strip()
     except subprocess.CalledProcessError as e:
@@ -965,7 +981,7 @@ def montar_share_rclone(
     })
     print(f"Montando {comando}...")
     try:
-        proceso = subprocess.Popen(comando, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        proceso = subprocess.Popen(comando, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **_subprocess_kwargs())
         for _ in range(30):
             time.sleep(1)
             if os.path.ismount(punto_montaje):
@@ -1095,6 +1111,7 @@ def ejecutar_rclone_copy(
             stderr=subprocess.STDOUT,
             encoding="utf-8",
             errors="replace",
+            **_subprocess_kwargs(),
         )
         for linea in proceso.stdout:
             log_fn(linea)
@@ -1122,6 +1139,7 @@ def es_directorio_rclone(ruta_rclone: str, config_path: str) -> bool:
             check=True,
             encoding="utf-8",
             errors="replace",
+            **_subprocess_kwargs(),
         )
         if not resultado.stdout:
             return False
@@ -1238,6 +1256,7 @@ def ejecutar_rclone_check(
             stderr=subprocess.STDOUT,
             encoding="utf-8",
             errors="replace",
+            **_subprocess_kwargs(),
         )
         for linea in proceso.stdout:
             log_fn(linea)
@@ -1296,6 +1315,7 @@ def rclone_lsd(perfil: str, path: str = "", timeout: int = 15) -> list[str]:
         capture_output=True,
         text=True,
         timeout=timeout,
+        **_subprocess_kwargs(),
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or f"rclone lsd failed (code {result.returncode})")
@@ -1329,6 +1349,7 @@ def rclone_lsf(perfil: str, path: str = "", timeout: int = 15) -> list[tuple[str
         encoding="utf-8",
         errors="replace",
         timeout=timeout,
+        **_subprocess_kwargs(),
     )
     dirs = []
     if res_dirs.returncode == 0:
@@ -1350,6 +1371,7 @@ def rclone_lsf(perfil: str, path: str = "", timeout: int = 15) -> list[tuple[str
         encoding="utf-8",
         errors="replace",
         timeout=timeout,
+        **_subprocess_kwargs(),
     )
     print(f"[lsf] returncode={res_files.returncode}")
     print(f"[lsf] stdout={res_files.stdout!r}")
