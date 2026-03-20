@@ -440,6 +440,7 @@ def _subprocess_kwargs() -> dict:
 # AUTENTICACIÓN STS (MinIO) Y GESTIÓN DE CREDENCIALES RCLONE
 # ============================================================================
 
+
 def get_credentials(endpoint: str, username: str, password: str, durationseconds: int = 86400) -> dict | None:
     """
     Obtiene credenciales STS temporales desde MinIO vía LDAP.
