@@ -511,6 +511,18 @@ def get_credentials(endpoint: str, username: str, password: str, durationseconds
         _, _, tag = el.tag.rpartition("}")
         credentials[tag] = el.text
     return credentials
+    
+
+def get_usuario_from_session_token(session_token: str) -> str | None:
+    """Extrae el usuario del JWT del session_token de MinIO."""
+    try:
+        payload = jwt.decode(session_token, options={"verify_signature": False})
+        print(f"[token] payload keys: {list(payload.keys())}")
+        print(f"[token] sub={payload.get('sub')!r}")
+        return payload.get("sub")
+    except Exception as e:
+        print(f"Error leyendo usuario del token: {e}")
+        return None
 
 def configure_rclone(
     aws_access_key_id: str,

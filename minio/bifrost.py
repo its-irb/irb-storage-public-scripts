@@ -906,6 +906,7 @@ def _build_credentials_content(
     credenciales_ldap: dict,
     on_continue: Callable,
     extra_config: dict | None = None,
+    duracion_dias: int | None = None,
 ) -> ft.Control:
     log_list = ft.ListView(
         expand=True,
@@ -938,7 +939,7 @@ def _build_credentials_content(
         import time
         from datetime import timedelta
 
-        duracion_segundos = STS_AUTO_RENEWAL_DAYS * 86400
+        duracion_segundos = (duracion_dias or STS_AUTO_RENEWAL_DAYS) * 86400
 
         token_actual = backend.get_rclone_session_token(perfil_rclone)
         if token_actual:
@@ -988,7 +989,8 @@ def _build_credentials_content(
         if new_token:
             nuevo_tiempo = backend.get_expiration_from_session_token(new_token)
             if nuevo_tiempo:
-                log(f"   New credentials expire in: {nuevo_tiempo}", C_ACCENT)
+                dias_renovados = duracion_dias or STS_AUTO_RENEWAL_DAYS
+                log(f"   New credentials expire in: {dias_renovados} days", C_ACCENT)
 
         log(f"\n✅ Done. Continuing to copy interface...", C_ACCENT)
 
@@ -1677,10 +1679,124 @@ def _build_copy_content(
     perfil_rclone: str,
     mounts_activos: list,
     on_close: Callable,
+    endpoint: str,                 
+    credenciales_ldap: dict,       
+    extra_config: dict | None,
+    on_renew_complete: Callable, 
+    show_screen: Callable,
 ) -> ft.Control:
 
     num_cores = backend.obtener_num_cpus()
     _, rclone_config_path, _ = backend.get_rclone_paths(perfil_rclone)
+
+    # ── Badge de expiración de credenciales ───────────────────────────────
+    token_actual = backend.get_rclone_session_token(perfil_rclone)
+    tiempo_expira = backend.get_expiration_from_session_token(token_actual) if token_actual else None
+
+    if tiempo_expira:
+        dias = tiempo_expira.days
+        color_badge = C_ERROR if dias < 1 else C_WARNING if dias <= STS_RENEWAL_THRESHOLD_DAYS else C_ACCENT
+        expiry_text = f"🔑 Credentials expire in {dias}d {tiempo_expira.seconds // 3600}h"
+    else:
+        color_badge = C_TEXT_DIM
+        expiry_text = "🔑 Credentials: unknown expiry"
+
+    expiry_badge = ft.Container(
+        content=ft.Text(expiry_text, size=11, color=color_badge, weight=ft.FontWeight.W_600),
+        bgcolor=f"{color_badge}22",
+        border=ft.border.all(1, f"{color_badge}55"),
+        border_radius=20,
+        padding=ft.padding.symmetric(horizontal=10, vertical=4),
+    )
+
+    def show_renew_dialog(e):
+        days_tf = ft.TextField(
+            value=str(STS_AUTO_RENEWAL_DAYS),
+            bgcolor=C_SURFACE2,
+            border_color=C_BORDER,
+            focused_border_color=C_PRIMARY,
+            color=C_TEXT,
+            border_radius=6,
+            content_padding=ft.padding.symmetric(horizontal=12, vertical=10),
+            text_size=13,
+            width=80,
+            keyboard_type=ft.KeyboardType.NUMBER,
+        )
+        err = ft.Text("", color=C_ERROR, size=12, visible=False)
+
+        def do_renew(ev=None):
+            try:
+                dias_int = int(days_tf.value or "0")
+                if dias_int < 1 or dias_int > 30:
+                    err.value   = "Enter a value between 1 and 30 days."
+                    err.visible = True
+                    page.update()
+                    return
+            except ValueError:
+                err.value   = "Invalid number."
+                err.visible = True
+                page.update()
+                return
+
+            dlg.open = False
+            page.update()
+
+            show_screen(_build_credentials_content(
+                page,
+                perfil_rclone=perfil_rclone,
+                endpoint=endpoint,
+                credenciales_ldap=credenciales_ldap,
+                on_continue=on_renew_complete,
+                extra_config=extra_config,
+                duracion_dias=dias_int,
+            ))
+
+        def cancel(ev):
+            dlg.open = False
+            page.update()
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Row(
+                [
+                    ft.Icon(ft.Icons.AUTORENEW, color=C_PRIMARY, size=20),
+                    ft.Text("Renew S3 Credentials", color=C_TEXT, size=15,
+                            weight=ft.FontWeight.W_600),
+                ],
+                spacing=8,
+            ),
+            content=ft.Column(
+                [
+                    ft.Text(f"User: {credenciales_ldap['usuario']}", color=C_TEXT_DIM, size=12),
+                    ft.Text(f"Profile: {perfil_rclone}", color=C_TEXT_DIM, size=12),
+                    ft.Container(height=12),
+                    ft.Row(
+                        [
+                            ft.Text("Renew for:", size=13, color=C_TEXT),
+                            days_tf,
+                            ft.Text("days", size=13, color=C_TEXT),
+                        ],
+                        spacing=10,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    err,
+                ],
+                spacing=8,
+                tight=True,
+                width=320,
+            ),
+            actions=[
+                btn_secondary("Cancel", on_click=cancel),
+                btn_primary("🔄 Renew", on_click=do_renew),
+            ],
+            bgcolor=C_OVERLAY,
+            shape=ft.RoundedRectangleBorder(radius=10),
+        )
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
+    renew_btn = btn_secondary("🔑 Renew credentials", on_click=show_renew_dialog)
 
     # ── Origen ────────────────────────────────────────────────────────────
     origen_tf, origen_col = styled_field(
@@ -1981,6 +2097,14 @@ def _build_copy_content(
     content = ft.Column(
         [
             build_header(f"Copy & Verify — {perfil_rclone}"),
+            ft.Container(
+                content=ft.Row(
+                    [expiry_badge, ft.Container(expand=True), renew_btn],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                padding=ft.padding.symmetric(horizontal=24, vertical=8),
+                margin=ft.margin.only(bottom=4),
+            ),
             ft.Container(
                 content=ft.Column(
                     [
@@ -2328,7 +2452,7 @@ def main(page: ft.Page):
         token   = backend.get_rclone_session_token(perfil)
 
         needs_renewal = True
-        if token:
+        if token and not ALLOW_CUSTOM_USER: #si es customuser, siempre fuerza la renovación de credenciales sts
             tiempo = backend.get_expiration_from_session_token(token)
             if tiempo and tiempo > timedelta(days=STS_RENEWAL_THRESHOLD_DAYS):
                 needs_renewal = False
@@ -2352,11 +2476,18 @@ def main(page: ft.Page):
             go_copy()
 
     def go_copy():
+        servidor     = state["servidor_minio"]
+        extra_config = backend.MINIO_SERVERS.get(servidor, {}).get("IRB", {}).get("extra_rclone_config")
         show_screen(_build_copy_content(
             page,
             perfil_rclone=state["perfil_rclone"],
             mounts_activos=state["mounts_activos"],
             on_close=do_close,
+            endpoint=state["endpoint"],
+            credenciales_ldap=state["credenciales_ldap"],
+            extra_config=extra_config,
+            on_renew_complete=go_copy,
+            show_screen=show_screen, 
         ))
 
     def do_close():
