@@ -32,6 +32,10 @@ MANIFEST
 *.manifest
 *.spec
 
+# Bundle
+minio/version.py
+minio/assets
+
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
