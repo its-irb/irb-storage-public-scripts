@@ -25,7 +25,7 @@ import sys
 import json
 import time
 import shlex
-import atexit
+#import atexit
 import getpass
 import platform
 import subprocess
@@ -45,6 +45,8 @@ from ldap3 import Server, Connection, SUBTREE, SIMPLE
 from xml.etree import ElementTree as etree
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+_s3_mount_processes: list[subprocess.Popen] = []
 
 
 # ============================================================================
@@ -670,16 +672,17 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     if sistema != "Windows":
         mount_point.mkdir(parents=True, exist_ok=True)
     else:
-        mount_point.parent.mkdir(parents=True, exist_ok=True)
+       mount_point.parent.mkdir(parents=True, exist_ok=True)
 
     comando = [rclone, "mount", f"{rclone_profile}:{s3_prefix}", str(mount_point), "--read-only", "--links"]
     if sistema != "Windows":
         comando.append("--allow-non-empty")
 
-    subprocess.Popen(comando,env=env, **_subprocess_kwargs())
+    proceso = subprocess.Popen(comando,env=env, **_subprocess_kwargs())
+    _s3_mount_processes.append(proceso)
 
     import time
-    time.sleep(1)
+    time.sleep(2)
 
     try:
         if sistema == "Windows":
@@ -1050,6 +1053,22 @@ def resolver_mount_point_destino(perfil_rclone: str, ruta_destino: str) -> str:
     prefix_sanitizado = ruta_destino.replace("/", "_")
     return str(mount_base / prefix_sanitizado)
 
+def desmontar_todos_los_mounts_s3() -> None:
+    """Mata todos los procesos rclone mount de S3 activos."""
+    global _s3_mount_processes
+    print(f"[atexit] Terminating {len(_s3_mount_processes)} S3 mount processes...")
+    for proceso in _s3_mount_processes:
+        try:
+            proceso.terminate()
+            proceso.wait(timeout=3)
+        except Exception as e:
+            print(f"[atexit] Error terminating rclone mount: {e}")
+            try:
+                proceso.kill()
+            except Exception:
+                pass
+    _s3_mount_processes.clear()
+    print("[atexit] All S3 mounts terminated.")
 
 # ============================================================================
 # OPERACIONES RCLONE (COPY / CHECK)

@@ -2255,6 +2255,21 @@ def main(page: ft.Page):
         "endpoint":              None,
     }
 
+    import atexit
+    
+    def _cleanup_on_exit():
+        print("[atexit] Cleaning up...")
+        backend.desmontar_todos_los_mounts_s3()
+        mounts = state.get("mounts_activos", [])
+        if mounts and IS_LINUX_CLUSTER:
+            usuario = (state.get("credenciales_smb") or {}).get("usuario") or getpass.getuser()
+            try:
+                backend.desmontar_todos_los_shares(usuario)
+            except Exception as e:
+                print(f"[atexit] Error unmounting shares: {e}")
+
+    atexit.register(_cleanup_on_exit)
+
     ALLOW_CUSTOM_USER = "--customuser" in sys.argv or "-c" in sys.argv
 
     body = ft.Container(expand=True, bgcolor=C_BG)
