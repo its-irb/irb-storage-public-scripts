@@ -75,7 +75,7 @@ jobs:
 
           flet pack bifrost.py \
             --distpath ../dist \
-            --add-data "rclone-bin/rclone.exe;." \
+            --add-binary "rclone-bin/rclone.exe;." \
             --pyinstaller-build-args
 
           echo "=== Contenido de dist: ==="
@@ -83,10 +83,7 @@ jobs:
 
           # Renombrar la carpeta generada a bifrost-windows
           cd ../dist
-          FOLDER=$(find . -maxdepth 1 -type d ! -name '.' | head -1 | sed 's|./||')
-          echo "Carpeta encontrada: $FOLDER"
-          mv "$FOLDER" "bifrost-${BRANCH_SUFFIX}-windows"
-          ls -lah .
+          mv "bifrost.exe" "bifrost-${BRANCH_SUFFIX}-windows.exe"
 
       - name: Crear ejecutable bifrost (macOS - .app bundle)
         if: runner.os == 'macOS'
