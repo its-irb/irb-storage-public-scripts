@@ -2286,7 +2286,7 @@ def main(page: ft.Page):
             await page.window.destroy()
             print("[close] Window destroyed")
             os._exit(0)
-            print("[close] Exit called")  # This may not execute due to os._exit
+
 
     #page.window.on_close = on_window_close
     page.window.on_event = on_window_event
