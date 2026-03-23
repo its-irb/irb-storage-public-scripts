@@ -121,7 +121,10 @@ jobs:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
         run: |
           cd dist
-          mv bifrost.exe "bifrost-${BRANCH_SUFFIX}-windows.exe"
+          ls -lah .
+          EXE=$(find . -maxdepth 1 -name "*.exe" | head -1 | sed 's|./||')
+          echo "Ejecutable encontrado: $EXE"
+          mv "$EXE" "bifrost-${BRANCH_SUFFIX}-windows.exe"
           ls -lah .
 
       - name: Subir artefacto

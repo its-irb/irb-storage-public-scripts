@@ -25,6 +25,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+src/build/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -175,3 +176,8 @@ cython_debug/
 .pypirc
 .DS_Store
 rclone-bin/
+
+
+# Storage temporal
+src/storage/temp/
+src/storage/data/
