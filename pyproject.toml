@@ -8,3 +8,48 @@ path = "src"
 #     "assets/bin/rclone",
 #     "assets/fuse_t.framework",
 # ]
+
+[project]
+name = "bifrost"
+version = "2.0.0"
+description = "Bifrost"
+authors = [
+  {name = "Ona Pérez"}
+]
+dependencies = [
+    "annotated-doc==0.0.4",
+    "annotated-types==0.7.0",
+    "anyio==4.12.1",
+    "boto3==1.42.12",
+    "botocore==1.42.12",
+    "certifi==2025.11.12",
+    "cffi==2.0.0",
+    "charset-normalizer==3.4.4",
+    "cryptography==46.0.3",
+    "flet==0.28.2",
+    "h11==0.16.0",
+    "httpcore==1.0.9",
+    "httptools==0.7.1",
+    "httpx==0.28.1",
+    "idna==3.11",
+    "jmespath==1.0.1",
+    "ldap3==2.9.1",
+    "msgpack==1.1.2",
+    "oauthlib==3.3.1",
+    "pyasn1==0.6.1",
+    "pycparser==2.23",
+    "pydantic==2.12.5",
+    "pydantic-core==2.41.5",
+    "pyjwt==2.10.1",
+    "python-dateutil==2.9.0.post0",
+    "python-dotenv==1.2.1",
+    "pyyaml==6.0.3",
+    "requests==2.32.5",
+    "s3transfer==0.16.0",
+    "six==1.17.0",
+    "typing-extensions==4.15.0",
+    "urllib3==1.26.20",
+    "uvloop==0.22.1 ; sys_platform != 'win32'",
+    "watchfiles==1.1.1",
+    "websockets==15.0.1",
+]

@@ -2270,6 +2270,14 @@ def main(page: ft.Page):
 
     atexit.register(_cleanup_on_exit)
 
+    def on_window_event(e):
+        if e.data == "close":
+            _cleanup_on_exit()
+            page.window.destroy()
+
+    page.window.on_event = on_window_event
+    page.window.prevent_close = True
+
     ALLOW_CUSTOM_USER = "--customuser" in sys.argv or "-c" in sys.argv
 
     body = ft.Container(expand=True, bgcolor=C_BG)
