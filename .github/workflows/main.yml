@@ -51,7 +51,10 @@ jobs:
         run: echo "__version__ = 'v1.0.${{ github.run_number }}'" > src/version.py
 
       - name: Build macOS
-        run: flet build macos --project src --output dist
+        env:
+          FLET_CLI_NO_RICH_OUTPUT: "true"
+          CI: "true"
+        run: flet build macos --project src --output dist --no-rich-output
 
       - name: Renombrar .app
         env:
@@ -113,6 +116,7 @@ jobs:
         shell: bash
         env:
           PYTHONUTF8: "1"
+          CI: "true"
         run: flet build windows --project src --output dist --no-rich-output
 
       - name: Renombrar ejecutable
@@ -142,9 +146,9 @@ jobs:
     steps:
       - name: Instalar dependencias sistema
         run: |
-          dnf install -y --allowerasing python3 python3-pip python3-devel gcc make \
+          dnf install -y --allowerasing python3.11 python3.11-pip python3.11-devel gcc make \
             glibc-devel unzip zip curl
-          pip3 install --upgrade pip setuptools wheel
+          python3.11 -m pip install --upgrade pip setuptools wheel
 
       - name: Checkout código
         uses: actions/checkout@v6.0.2
