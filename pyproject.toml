@@ -1,0 +1,10 @@
+[tool.flet]
+app_name = "bifrost"
+
+[tool.flet.app]
+# archivos extra a empaquetar dentro del ejecutable
+path = "src"
+# bundle_resources = [
+#     "assets/bin/rclone",
+#     "assets/fuse_t.framework",
+# ]

@@ -3,7 +3,7 @@ name: Build Multiple Executables and Upload to GitHub Releases
 on:
   push:
     paths:
-      - "minio/*.py"
+      - "src/*.py"
     branches:
       - main
       - release
@@ -15,13 +15,13 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  build-cli:
-    strategy:
-      matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
-      fail-fast: false
-    runs-on: ${{ matrix.os }}
 
+  # ─────────────────────────────────────────────────────────────────
+  # macOS → flet build macos → .app
+  # Assets (rclone + fuse_t.framework) ya están en el repo en src/assets/
+  # ─────────────────────────────────────────────────────────────────
+  build-macos:
+    runs-on: macos-latest
     steps:
       - name: Checkout código
         uses: actions/checkout@v6.0.2
@@ -31,160 +31,147 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Instalar dependencias
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r minio/pip-requirements.txt
-          pip install pyinstaller
+      - name: Instalar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.27.4"
 
-      - name: Descargar rclone para la plataforma actual
-        shell: bash
+      - name: Instalar dependencias Python
         run: |
-          mkdir -p minio/rclone-bin
-          RCLONE_VERSION="v1.71.0"
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            curl -L "https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-windows-amd64.zip" -o rclone.zip
-            unzip -j rclone.zip "*/rclone.exe" -d minio/rclone-bin/
-          elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            cd minio && ./macos-third-party-assets-downloader.sh && cd ..
-          elif [[ "$RUNNER_OS" == "Linux" ]]; then
-            curl -L "https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.zip" -o rclone.zip
-            unzip -j rclone.zip "*/rclone" -d minio/rclone-bin/
-            chmod +x minio/rclone-bin/rclone
-          fi
-          echo "Rclone downloaded:"
-          ls -lah minio/rclone-bin/
+          pip install --upgrade pip
+          pip install -r src/pip-requirements.txt
 
-      - name: Limpia nombre de rama para artefactos
+      - name: Limpiar nombre de rama
         id: clean_branch
-        shell: bash
         run: |
-          clean_name=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
-          echo "name=$clean_name" >> $GITHUB_OUTPUT
-          echo "Clean name: $clean_name"
+          clean=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
+          echo "name=$clean" >> $GITHUB_OUTPUT
 
-      - name: Crear ejecutable bifrost (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
+      - name: Escribir versión
+        run: echo "__version__ = 'v1.0.${{ github.run_number }}'" > src/version.py
+
+      - name: Build macOS
+        run: flet build macos --project src --output dist
+
+      - name: Renombrar .app
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
         run: |
-          mkdir -p dist
-          cd minio
-          echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
-
-          flet pack bifrost.py \
-            --distpath ../dist \
-            --add-binary "rclone-bin/rclone.exe;." \
-            --pyinstaller-build-args
-
-          echo "=== Contenido de dist: ==="
-          ls -lah ../dist/
-
-          # Renombrar la carpeta generada a bifrost-windows
-          cd ../dist
-          mv "bifrost.exe" "bifrost-${BRANCH_SUFFIX}-windows.exe"
-
-      - name: Crear ejecutable bifrost (macOS - .app bundle)
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
-          BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
-        run: |
-          mkdir -p dist
-          cd minio
-          echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
-
-          flet pack bifrost.py \
-            --distpath ../dist \
-            --add-binary "assets/bin/rclone:." \
-            --add-data "assets/fuse_t.framework:fuse_t.framework"
-
-          echo "=== Contenido de dist: ==="
-          ls -lah ../dist/
-
-          # Renombrar el .app generado
-          cd ../dist
+          cd dist
           APP=$(find . -maxdepth 1 -name "*.app" | head -1 | sed 's|./||')
           echo "App bundle encontrado: $APP"
           mv "$APP" "bifrost-${BRANCH_SUFFIX}-macos.app"
           ls -lah .
 
-      - name: Crear ejecutable bifrost (Linux - onedir)
-        if: runner.os == 'Linux'
+      - name: Subir artefacto
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: bifrost-macos-${{ steps.clean_branch.outputs.name }}
+          path: dist/*.app
+
+  # ─────────────────────────────────────────────────────────────────
+  # Windows → flet build windows → .exe
+  # rclone.exe se descarga en CI con windows-assets-downloader.sh
+  # ─────────────────────────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v6.0.2
+
+      - name: Instalar Python
+        uses: actions/setup-python@v6.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Instalar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.27.4"
+
+      - name: Instalar dependencias Python
+        run: |
+          pip install --upgrade pip
+          pip install -r src/pip-requirements.txt
+
+      - name: Descargar rclone para Windows
+        shell: bash
+        run: cd src && bash windows-assets-downloader.sh
+
+      - name: Limpiar nombre de rama
+        id: clean_branch
+        shell: bash
+        run: |
+          clean=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
+          echo "name=$clean" >> $GITHUB_OUTPUT
+
+      - name: Escribir versión
+        shell: bash
+        run: echo "__version__ = 'v1.0.${{ github.run_number }}'" > src/version.py
+
+      - name: Build Windows
+        shell: bash
+        run: flet build windows --project src --output dist
+
+      - name: Renombrar ejecutable
         shell: bash
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
         run: |
-          mkdir -p dist
-          cd minio
-          echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
-
-          flet pack bifrost.py \
-            --distpath ../dist \
-            --add-data "rclone-bin/rclone:." \
-            --pyinstaller-build-args --onedir
-
-          echo "=== Contenido de dist: ==="
-          ls -lah ../dist/
-
-          # Renombrar la carpeta generada
-          cd ../dist
-          FOLDER=$(find . -maxdepth 1 -type d ! -name '.' | head -1 | sed 's|./||')
-          echo "Carpeta encontrada: $FOLDER"
-          mv "$FOLDER" "bifrost-${BRANCH_SUFFIX}-linux"
+          cd dist
+          mv bifrost.exe "bifrost-${BRANCH_SUFFIX}-windows.exe"
           ls -lah .
 
-      - name: Subir ejecutables CLI como artefactos
+      - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
         with:
-          name: executables-cli-${{ matrix.os }}-${{ steps.clean_branch.outputs.name }}
-          path: dist/*
-          # upload-artifact zipea carpetas automáticamente al descargar desde la UI
-          # El usuario descarga, extrae, y ejecuta bifrost.exe desde dentro de la carpeta
+          name: bifrost-windows-${{ steps.clean_branch.outputs.name }}
+          path: dist/*.exe
 
+  # ─────────────────────────────────────────────────────────────────
+  # Rocky Linux → PyInstaller onefile
+  # flet build linux no soporta onefile, necesario para el cluster
+  # rclone se descarga en CI con linux-assets-downloader.sh
+  # ─────────────────────────────────────────────────────────────────
   build-rocky:
     runs-on: ubuntu-latest
     container:
       image: rockylinux:9
     steps:
-      - name: Instalar dependencias básicas
+      - name: Instalar dependencias sistema
         run: |
-          dnf install -y python3 python3-pip python3-devel gcc make glibc-devel python3-tkinter unzip zip
-          pip3 install --upgrade pip setuptools wheel pyinstaller
+          dnf install -y python3 python3-pip python3-devel gcc make \
+            glibc-devel python3-tkinter unzip zip curl
+          pip3 install --upgrade pip setuptools wheel
 
-      - name: Checkout repo
+      - name: Checkout código
         uses: actions/checkout@v6.0.2
 
-      - name: Instalar requirements
+      - name: Instalar dependencias Python
         run: |
-          pip install -r minio/pip-requirements.txt
+          pip install -r src/pip-requirements.txt
           pip install pyinstaller
 
-      - name: Descargar rclone para Linux (cluster)
-        run: |
-          mkdir -p minio/rclone-bin
-          curl -L "https://downloads.rclone.org/v1.71.0/rclone-v1.71.0-linux-amd64.zip" -o rclone.zip
-          unzip -j rclone.zip "*/rclone" -d minio/rclone-bin/
-          chmod +x minio/rclone-bin/rclone
-          echo "Rclone downloaded:"
-          ls -lah minio/rclone-bin/
+      - name: Descargar rclone para Linux
+        run: cd src && bash linux-assets-downloader.sh
 
-      - name: Limpia nombre de rama para artefactos
+      - name: Limpiar nombre de rama
         id: clean_branch
         run: |
-          clean_name=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
-          echo "name=$clean_name" >> $GITHUB_OUTPUT
+          clean=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
+          echo "name=$clean" >> $GITHUB_OUTPUT
 
-      - name: Compilar binario Rocky Linux (onefile para cluster)
+      - name: Escribir versión
+        run: echo "__version__ = 'v1.0.${{ github.run_number }}'" > src/version.py
+
+      - name: Build Rocky Linux (PyInstaller onefile)
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
         run: |
           mkdir -p dist
-          cd minio
-          echo "__version__ = 'v1.0.${{ github.run_number }}'" > version.py
-          pyinstaller --onefile bifrost.py \
-            --add-data "rclone-bin/rclone:." \
+          cd src
+          pyinstaller --onefile main.py \
+            --add-data "assets/bin/rclone:." \
             --collect-all flet \
             --collect-all flet_core \
             --hidden-import flet.fastapi \
@@ -195,19 +182,23 @@ jobs:
             --hidden-import uvicorn.logging \
             --hidden-import uvicorn.loops.auto \
             --distpath ../dist
-          mv ../dist/bifrost ../dist/bifrost-${BRANCH_SUFFIX}-cluster
+          mv ../dist/main "../dist/bifrost-${BRANCH_SUFFIX}-cluster"
 
-      - name: Verificar archivos generados
+      - name: Verificar artefacto generado
         run: ls -lah dist/
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
         with:
-          name: bifrost_linux_cluster-${{ steps.clean_branch.outputs.name }}
+          name: bifrost-cluster-${{ steps.clean_branch.outputs.name }}
           path: dist/bifrost-${{ steps.clean_branch.outputs.name }}-cluster
 
+  # ─────────────────────────────────────────────────────────────────
+  # Release → solo en main y release
+  # Recoge los artefactos de los tres jobs y crea una GitHub Release
+  # ─────────────────────────────────────────────────────────────────
   release:
-    needs: [build-cli, build-rocky]
+    needs: [build-macos, build-windows, build-rocky]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -216,49 +207,51 @@ jobs:
       - name: Checkout código
         uses: actions/checkout@v6.0.2
 
-      - name: Download all artifacts
+      - name: Descargar todos los artefactos
         uses: actions/download-artifact@v4.3.0
         with:
           path: dist
 
-      - name: Mover ejecutables a la raíz de dist
+      - name: Aplanar dist/ (mover archivos a la raíz)
         run: |
           find dist -mindepth 2 -type f -exec mv {} dist/ \;
           ls -lah dist/
 
-      - name: Calcular sufijo de rama
+      - name: Limpiar nombre de rama
         id: clean_branch
-        shell: bash
         run: |
-          clean_name=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
-          echo "name=$clean_name" >> $GITHUB_OUTPUT
+          clean=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
+          echo "name=$clean" >> $GITHUB_OUTPUT
 
-      - name: Comprimir carpetas onedir en zip para la release
-        shell: bash
+      - name: Zipear .app de macOS
+        # GitHub Release no soporta subir carpetas directamente
+        # Windows (.exe) y Rocky (onefile) no necesitan zip
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
         run: |
           cd dist
-          # Zipear carpetas Windows y Linux (onedir)
-          for dir in */; do
-            dir="${dir%/}"
-            echo "Comprimiendo carpeta: $dir"
-            zip -r "${dir}.zip" "$dir"
-            rm -rf "$dir"
-          done
+          APP="bifrost-${BRANCH_SUFFIX}-macos.app"
+          if [ -d "$APP" ]; then
+            zip -r "${APP}.zip" "$APP"
+            rm -rf "$APP"
+            echo "App zipeado: ${APP}.zip"
+          else
+            echo "ERROR: no se encontro $APP en dist/"
+            ls -lah .
+            exit 1
+          fi
           ls -lah .
 
-      - name: Eliminar sufijo de rama de los nombres de archivo
-        shell: bash
+      - name: Quitar sufijo de rama de los nombres de archivo
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
         run: |
-          for file in dist/*; do
-            [[ -f "$file" ]] || continue
-            base=$(basename "$file")
-            new_name="${base/-${BRANCH_SUFFIX}/}"
-            if [[ "$base" != "$new_name" ]]; then
-              mv "$file" "dist/$new_name"
+          for f in dist/*; do
+            [[ -f "$f" ]] || continue
+            base=$(basename "$f")
+            new="${base/-${BRANCH_SUFFIX}/}"
+            if [[ "$base" != "$new" ]]; then
+              mv "$f" "dist/$new"
             fi
           done
           ls -lah dist/
