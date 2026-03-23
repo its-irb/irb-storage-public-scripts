@@ -79,8 +79,7 @@ STS_AUTO_RENEWAL_DAYS = 7
 # ============================================================================
 
 def ui_call(page: ft.Page, fn: Callable) -> None:
-    fn()
-    page.update()
+    page.run_thread(fn)
 
 
 # ============================================================================
@@ -131,7 +130,7 @@ FONT_MONO  = "Courier New"
 
 def btn_primary(text: str, on_click=None, width=None, disabled=False) -> ft.ElevatedButton:
     return ft.ElevatedButton(
-        text=text,
+        content=ft.Text(text),
         on_click=on_click,
         disabled=disabled,
         width=width,
@@ -153,7 +152,7 @@ def btn_primary(text: str, on_click=None, width=None, disabled=False) -> ft.Elev
 
 def btn_secondary(text: str, on_click=None, width=None) -> ft.OutlinedButton:
     return ft.OutlinedButton(
-        text=text,
+        content=ft.Text(text),
         on_click=on_click,
         width=width,
         style=ft.ButtonStyle(
@@ -291,8 +290,7 @@ def show_dialog(
     actions: list | None = None,
 ):
     def close(e=None):
-        dlg.open = False
-        page.update()
+        page.pop_dialog()
 
     if not actions:
         actions = [btn_primary("OK", on_click=close)]
@@ -318,8 +316,9 @@ def show_dialog(
         bgcolor=C_OVERLAY,
         shape=ft.RoundedRectangleBorder(radius=10),
     )
-    page.overlay.append(dlg)
-    dlg.open = True
+    #page.overlay.append(dlg)
+    #dlg.open = True
+    page.show_dialog(dlg)
     page.update()
 
 
@@ -331,13 +330,11 @@ def show_confirm(
     on_no: Callable | None = None,
 ):
     def yes(e):
-        dlg.open = False
-        page.update()
+        page.pop_dialog()
         on_yes()
 
     def no(e):
-        dlg.open = False
-        page.update()
+        page.pop_dialog()
         if on_no:
             on_no()
 
@@ -349,8 +346,9 @@ def show_confirm(
         bgcolor=C_OVERLAY,
         shape=ft.RoundedRectangleBorder(radius=10),
     )
-    page.overlay.append(dlg)
-    dlg.open = True
+    #page.overlay.append(dlg)
+    #dlg.open = True
+    page.show_dialog(dlg)
     page.update()
 
 
@@ -761,8 +759,7 @@ def _show_smb_cred_dialog(
             return
         try:
             backend.actualizar_password_perfiles_rclone(usuario_actual, pwd)
-            dlg.open = False
-            page.update()
+            page.pop_dialog()
             show_dialog(page, "Success",
                         f"Credentials updated for all profiles of {usuario_actual}.",
                         C_ACCENT)
@@ -772,8 +769,7 @@ def _show_smb_cred_dialog(
             page.update()
 
     def cancel(e):
-        dlg.open = False
-        page.update()
+        page.pop_dialog()
 
     dlg = ft.AlertDialog(
         modal=True,
@@ -794,8 +790,9 @@ def _show_smb_cred_dialog(
         bgcolor=C_OVERLAY,
         shape=ft.RoundedRectangleBorder(radius=10),
     )
-    page.overlay.append(dlg)
-    dlg.open = True
+    #page.overlay.append(dlg)
+    #dlg.open = True
+    page.show_dialog(dlg)
     page.update()
 
 
@@ -1116,7 +1113,7 @@ def build_rclone_browser(
         breadcrumb_row.controls.clear()
         breadcrumb_row.controls.append(
             ft.TextButton(
-                text=f"{perfil_rclone}:",
+                content=ft.Text(f"{perfil_rclone}:"),
                 style=ft.ButtonStyle(
                     color=C_PRIMARY,
                     padding=ft.padding.symmetric(horizontal=6, vertical=2),
@@ -1138,7 +1135,7 @@ def build_rclone_browser(
             else:
                 breadcrumb_row.controls.append(
                     ft.TextButton(
-                        text=part,
+                        content=ft.Text(part),
                         style=ft.ButtonStyle(
                             color=C_PRIMARY,
                             padding=ft.padding.symmetric(horizontal=6, vertical=2),
@@ -1396,7 +1393,7 @@ def build_local_fs_browser(
         # Botón raíz = home
         breadcrumb_row.controls.append(
             ft.TextButton(
-                text="~",
+                content=ft.Text("~"),
                 style=ft.ButtonStyle(
                     color=C_PRIMARY,
                     padding=ft.padding.symmetric(horizontal=6, vertical=2),
@@ -1422,7 +1419,7 @@ def build_local_fs_browser(
             else:
                 breadcrumb_row.controls.append(
                     ft.TextButton(
-                        text=part,
+                        content=ft.Text(part),
                         style=ft.ButtonStyle(
                             color=C_PRIMARY,
                             padding=ft.padding.symmetric(horizontal=6, vertical=2),
@@ -1616,8 +1613,7 @@ def show_local_fs_modal(
     def confirm(e):
         path = selected_label.value
         if path and path != "No selection yet":
-            dlg.open = False
-            page.update()
+            page.pop_dialog()
             on_select(path)
         else:
             selected_label.value  = "⚠ Select something first"
@@ -1626,8 +1622,7 @@ def show_local_fs_modal(
             page.update()
 
     def cancel(e):
-        dlg.open = False
-        page.update()
+        page.pop_dialog()
 
     title_text = {
         "folder": "Select Folder",
@@ -1662,8 +1657,9 @@ def show_local_fs_modal(
         bgcolor=C_OVERLAY,
         shape=ft.RoundedRectangleBorder(radius=10),
     )
-    page.overlay.append(dlg)
-    dlg.open = True
+    #page.overlay.append(dlg)
+    #dlg.open = True
+    page.show_dialog(dlg)
     page.update()
 
     # Arrancar carga inicial después de que el modal esté en el árbol
@@ -1738,8 +1734,7 @@ def _build_copy_content(
                 page.update()
                 return
 
-            dlg.open = False
-            page.update()
+            page.pop_dialog()
 
             show_screen(_build_credentials_content(
                 page,
@@ -1752,8 +1747,7 @@ def _build_copy_content(
             ))
 
         def cancel(ev):
-            dlg.open = False
-            page.update()
+            page.pop_dialog()
 
         dlg = ft.AlertDialog(
             modal=True,
@@ -1792,8 +1786,9 @@ def _build_copy_content(
             bgcolor=C_OVERLAY,
             shape=ft.RoundedRectangleBorder(radius=10),
         )
-        page.overlay.append(dlg)
-        dlg.open = True
+        #page.overlay.append(dlg)
+        #dlg.open = True
+        page.show_dialog(dlg)
         page.update()
 
     renew_btn = btn_secondary("🔑 Renew credentials", on_click=show_renew_dialog)
@@ -1845,22 +1840,28 @@ def _build_copy_content(
     )
 
     def log(msg: str):
+        lines_to_add = []
+        for line in msg.splitlines(keepends=True):
+            if line.strip():
+                color = (
+                    C_ACCENT  if line.startswith("✅") else
+                    C_ERROR   if line.startswith("❌") else
+                    C_WARNING if line.startswith("⚠️") else
+                    C_PRIMARY if line.startswith("🔍") or line.startswith("🧾") else
+                    C_TEXT
+                )
+                lines_to_add.append(
+                    ft.Text(line.rstrip("\n"),
+                            size=11, color=color,
+                            font_family=FONT_MONO, selectable=True)
+                )
+        
         def _add():
-            for line in msg.splitlines(keepends=True):
-                if line.strip():
-                    color = (
-                        C_ACCENT  if line.startswith("✅") else
-                        C_ERROR   if line.startswith("❌") else
-                        C_WARNING if line.startswith("⚠️") else
-                        C_PRIMARY if line.startswith("🔍") or line.startswith("🧾") else
-                        C_TEXT
-                    )
-                    log_list.controls.append(
-                        ft.Text(line.rstrip("\n"),
-                                size=11, color=color,
-                                font_family=FONT_MONO, selectable=True)
-                    )
-        ui_call(page, _add)
+            log_list.controls.extend(lines_to_add)
+            page.update()
+        
+        page.run_thread(_add)
+
 
     # ── Botones ────────────────────────────────────────────────────────────
     copy_btn  = btn_primary("▶  Copy data")
@@ -1881,41 +1882,41 @@ def _build_copy_content(
         file_picker   = ft.FilePicker()
         folder_picker = ft.FilePicker()
         save_picker   = ft.FilePicker()
-        page.overlay.extend([file_picker, folder_picker, save_picker])
+        page.services.extend([file_picker, folder_picker, save_picker])
 
-        def on_file_picked(e: ft.FilePickerResultEvent):
-            if e.files:
-                ruta = backend.traducir_ruta_a_remote(e.files[0].path, mounts_activos)
+        async def _pick_file(e):
+            result = await file_picker.pick_files()
+            if result:
+                ruta = backend.traducir_ruta_a_remote(result[0].path, mounts_activos)
                 origen_tf.value = ruta
                 page.update()
 
-        def on_folder_picked(e: ft.FilePickerResultEvent):
-            if e.path:
-                ruta = backend.traducir_ruta_a_remote(e.path, mounts_activos)
+        async def _pick_folder(e):
+            result = await folder_picker.get_directory_path()
+            if result:
+                ruta = backend.traducir_ruta_a_remote(result, mounts_activos)
                 origen_tf.value = ruta
                 page.update()
 
-        def on_save_result(ev: ft.FilePickerResultEvent):
-            if ev.path:
+        async def _save_log_picker(file_name: str):
+            result = await save_picker.save_file(file_name=file_name)
+            if result and result.path:
                 contenido = "\n".join(
                     c.value for c in log_list.controls
                     if isinstance(c, ft.Text) and c.value
                 )
                 try:
-                    with open(ev.path, "w", encoding="utf-8") as f:
+                    with open(result.path, "w", encoding="utf-8") as f:
                         f.write(contenido)
-                    show_dialog(page, "Log saved", f"Saved to:\n{ev.path}", C_ACCENT)
+                    show_dialog(page, "Log saved", f"Saved to:\n{result.path}", C_ACCENT)
                 except Exception as ex:
                     show_dialog(page, "Error", str(ex), C_ERROR)
 
-        file_picker.on_result   = on_file_picked
-        folder_picker.on_result = on_folder_picked
-        save_picker.on_result   = on_save_result
-
         pick_file_btn   = btn_secondary("📄 File",
-                                        on_click=lambda e: file_picker.pick_files())
+                            on_click=lambda e: page.run_task(_pick_file, e))
         pick_folder_btn = btn_secondary("📁 Folder",
-                                        on_click=lambda e: folder_picker.get_directory_path())
+                            on_click=lambda e: page.run_task(_pick_folder, e))
+
         pick_row = ft.Row([pick_file_btn, pick_folder_btn], spacing=8)
     else:
         # Modo WEB: browsers propios que leen el filesystem del servidor
@@ -2067,7 +2068,8 @@ def _build_copy_content(
             except Exception as ex:
                 show_dialog(page, "Error", str(ex), C_ERROR)
         else:
-            save_picker.save_file(file_name=f"bifrost-{ts}.log")
+            ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            page.run_task(_save_log_picker, f"bifrost-{ts}.log")
 
     # ── Cierre ─────────────────────────────────────────────────────────────
     def _do_close_cleanup():
@@ -2270,11 +2272,23 @@ def main(page: ft.Page):
 
     atexit.register(_cleanup_on_exit)
 
-    def on_window_event(e):
-        if e.data == "close":
-            _cleanup_on_exit()
-            page.window.destroy()
 
+    # def on_window_close(e):
+    #     print(f"[debug] on_window_close called, e={e}, e.data={e.data if hasattr(e, 'data') else 'no data'}")
+    #     _cleanup_on_exit()
+    #    page.window.close()
+
+    async def on_window_event(e: ft.WindowEvent):
+        if e.type == ft.WindowEventType.CLOSE:
+            print("[close] Starting cleanup...")
+            _cleanup_on_exit()
+            print("[close] Cleanup done, destroying window...")
+            await page.window.destroy()
+            print("[close] Window destroyed")
+            os._exit(0)
+            print("[close] Exit called")  # This may not execute due to os._exit
+
+    #page.window.on_close = on_window_close
     page.window.on_event = on_window_event
     page.window.prevent_close = True
 
@@ -2366,15 +2380,13 @@ def main(page: ft.Page):
                 return
             state["usar_privilegios"]   = True
             state["credenciales_admin"] = {"usuario": admin_user, "password": pwd}
-            dlg.open = False
-            page.update()
+            page.pop_dialog()
             _after_privileges()
 
         def cancel(e):
             state["usar_privilegios"]   = False
             state["credenciales_admin"] = None
-            dlg.open = False
-            page.update()
+            page.pop_dialog()
             _after_privileges()
 
         dlg = ft.AlertDialog(
@@ -2397,8 +2409,10 @@ def main(page: ft.Page):
             bgcolor=C_OVERLAY,
             shape=ft.RoundedRectangleBorder(radius=10),
         )
-        page.overlay.append(dlg)
-        dlg.open = True
+        #page.overlay.append(dlg)
+        #dlg.open = True
+        #Migración a flet 0.82.2 
+        page.show_dialog(dlg)
         page.update()
 
     def _after_privileges():
@@ -2541,10 +2555,10 @@ def main(page: ft.Page):
 
 if __name__ == "__main__":
     if IS_WEB:
-        ft.app(
-            target=main,
+        ft.run(
+            main,
             view=ft.AppView.WEB_BROWSER,
             port=int(os.environ.get("BIFROST_PORT", "8080")),
         )
     else:
-        ft.app(target=main)
+        ft.run(main)

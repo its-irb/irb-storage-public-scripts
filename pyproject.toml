@@ -17,7 +17,6 @@ authors = [
   {name = "Ona Pérez"}
 ]
 dependencies = [
-    "annotated-doc==0.0.4",
     "annotated-types==0.7.0",
     "anyio==4.12.1",
     "boto3==1.42.12",
@@ -26,7 +25,7 @@ dependencies = [
     "cffi==2.0.0",
     "charset-normalizer==3.4.4",
     "cryptography==46.0.3",
-    "flet==0.28.2",
+    "flet==0.82.2",
     "h11==0.16.0",
     "httpcore==1.0.9",
     "httptools==0.7.1",
