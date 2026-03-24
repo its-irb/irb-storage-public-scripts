@@ -19,6 +19,7 @@ Módulos cubiertos:
 """
 
 import os
+import stat
 import re
 import sys
 import json
