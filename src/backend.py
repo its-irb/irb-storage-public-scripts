@@ -327,6 +327,9 @@ def detect_rclone_installed() -> bool:
     """
     try:
         rclone = get_rclone_executable()
+        if not os.access(rclone, os.X_OK):
+            st = os.stat(rclone)
+            os.chmod(rclone, st.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         subprocess.check_call(
             [rclone, "--version"],
             stdout=subprocess.DEVNULL,
