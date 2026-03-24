@@ -11,6 +11,7 @@ WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
 curl -L -s "$RCLONE_URL" -o "$WORK_DIR/rclone-v${RCLONE_VERSION}-osx-arm64.zip"
 unzip "$WORK_DIR/rclone-v${RCLONE_VERSION}-osx-arm64.zip" -d "$WORK_DIR"
+chmod +x "$WORK_DIR/rclone-v${RCLONE_VERSION}-osx-arm64/rclone"
 curl -L -s "$FUSET_URL" -o "$WORK_DIR/fuse-t.pkg"
 pkgutil --expand "$WORK_DIR/fuse-t.pkg" "$WORK_DIR/extracted"
 PAYLOAD=$(find "$WORK_DIR/extracted" -name "Payload" | head -1)
