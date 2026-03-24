@@ -2291,6 +2291,7 @@ def main(page: ft.Page):
     #page.window.on_close = on_window_close
     page.window.on_event = on_window_event
     page.window.prevent_close = True
+    
 
     ALLOW_CUSTOM_USER = "--customuser" in sys.argv or "-c" in sys.argv
 

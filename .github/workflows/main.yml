@@ -115,23 +115,21 @@ jobs:
           PYTHONUTF8: "1"
         run: echo "y" | flet build windows --project src --output dist --no-rich-output
 
-      - name: Renombrar ejecutable
+      - name: Zipear ejecutable Windows
         shell: bash
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
         run: |
           cd dist
-          ls -lah .
-          EXE=$(find . -maxdepth 1 -name "*.exe" | head -1 | sed 's|./||')
-          echo "Ejecutable encontrado: $EXE"
-          mv "$EXE" "bifrost-${BRANCH_SUFFIX}-windows.exe"
+          zip -r "../bifrost-${BRANCH_SUFFIX}-windows.zip" .
+          mv "../bifrost-${BRANCH_SUFFIX}-windows.zip" .
           ls -lah .
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
         with:
           name: bifrost-windows-${{ steps.clean_branch.outputs.name }}
-          path: dist/*.exe
+          path: dist/*.zip
 
   # ─────────────────────────────────────────────────────────────────
   # Rocky Linux → PyInstaller onefile
