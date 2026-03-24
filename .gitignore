@@ -35,7 +35,7 @@ src/build/
 
 # Bundle
 minio/version.py
-minio/assets
+./src/assets/*
 
 # Installer logs
 pip-log.txt

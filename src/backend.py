@@ -66,6 +66,12 @@ def get_rclone_executable() -> str:
     """
     rclone_name = "rclone.exe" if sys_platform == "win32" else "rclone"
 
+    print(f"[debug] Looking for rclone: {rclone_name}")
+    print(f"[debug] FLET_APP_STORAGE_TEMP: {os.environ.get('FLET_APP_STORAGE_TEMP')}")
+    print(f"[debug] frozen: {getattr(sys, 'frozen', False)}")
+    print(f"[debug] __file__: {Path(__file__).parent}")
+    print(f"[debug] sys.argv[0]: {sys.argv[0]}")
+
     # 1. PyInstaller frozen bundle
     if getattr(sys, "frozen", False):
         bundled = Path(sys._MEIPASS) / rclone_name
@@ -130,7 +136,6 @@ try:
 except ImportError:
     __version__ = "1.0.1"
 
-
 # ============================================================================
 # COMPROBACIÓN DE VERSIÓN / ACTUALIZACIONES (lógica pura, sin GUI)
 # ============================================================================
@@ -182,11 +187,11 @@ def should_check_for_updates() -> bool:
     """
     if "--update" in sys.argv:
         return True
-    if not getattr(sys, 'frozen', False):
+    if not getattr(sys, 'frozen', False) and not os.environ.get('FLET_APP_STORAGE_TEMP'):
         print("ℹ️ Running as Python script (not compiled). Skipping update check.")
         return False
     executable_name = os.path.basename(sys.argv[0] if hasattr(sys, 'argv') else '')
-    if '_linux_cluster' in executable_name:
+    if '_linux_cluster' in executable_name or '_cluster' in executable_name:
         return False
     if os.environ.get('SLURM_JOB_ID'):
         return False

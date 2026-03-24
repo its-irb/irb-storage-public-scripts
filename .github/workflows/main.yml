@@ -130,7 +130,7 @@ jobs:
         uses: actions/upload-artifact@v7.0.0
         with:
           name: bifrost-windows-${{ steps.clean_branch.outputs.name }}
-          path: dist/*.exe
+          path: dist/
 
   # ─────────────────────────────────────────────────────────────────
   # Rocky Linux → PyInstaller onefile
