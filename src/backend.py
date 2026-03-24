@@ -412,8 +412,8 @@ def _check_fuse_macos() -> bool:
         Path("/usr/local/lib/libfuse-t.dylib"),
         Path("/Library/Filesystems/fuse-t.fs"),
         Path("/usr/local/include/fuse-t"),
-        Path(__file__).parent / "assets" / "fuse_t.framework" / "fuse_t",
-        ),*( (Path(sys._MEIPASS) / "fuse_t.framework" / "fuse_t",) if hasattr(sys, "_MEIPASS") else ())
+        Path(__file__).parent / "assets" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t",
+        ),*( (Path(sys._MEIPASS) / "fuse_t.framework" / "Versions" / "Current" / "fuse_t",) if hasattr(sys, "_MEIPASS") else ())
     ))
 
 def _check_fuse_linux() -> bool:
@@ -620,10 +620,10 @@ def get_expiration_from_session_token(session_token: str):
 #    env = {**os.environ}
 #    if sys_platform == "darwin":
 #        if getattr(sys, "frozen", False):   
-#            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys._MEIPASS) / "fuse_t.framework" / "fuse_t")
+#            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys._MEIPASS) / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
 #        else:
-#            if (Path(__file__).parent / "assets" / "fuse_t.framework" / "fuse_t").exists():
-#                env["CGOFUSE_LIBFUSE_PATH"] = str(Path(__file__).parent / "assets" / "fuse_t.framework" / "fuse_t")
+#            if (Path(__file__).parent / "assets" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t").exists():
+#                env["CGOFUSE_LIBFUSE_PATH"] = str(Path(__file__).parent / "assets" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
 #    subprocess.Popen([
 #        rclone, "mount",
 #        servidor_s3_rcloneconfig + ":" + bucket,
@@ -647,10 +647,10 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
         if not _check_fuse_macos():
             raise EnvironmentError("fuse-t not detected. Download it with macos-third-party-assets-downloader.sh")
         if getattr(sys, "frozen", False):
-            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys._MEIPASS) / "fuse_t.framework" / "fuse_t")
+            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys._MEIPASS) / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
         else:
-            if (Path(__file__).parent / "assets" / "fuse_t.framework" / "fuse_t").exists():
-                env["CGOFUSE_LIBFUSE_PATH"] = str(Path(__file__).parent / "assets" / "fuse_t.framework" / "fuse_t")
+            if (Path(__file__).parent / "assets" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t").exists():
+                env["CGOFUSE_LIBFUSE_PATH"] = str(Path(__file__).parent / "assets" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
     elif sistema == "Windows":
         if not _check_winfsp_windows():
             raise EnvironmentError("WinFSP not detected. Download from: https://winfsp.dev")

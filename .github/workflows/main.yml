@@ -41,6 +41,10 @@ jobs:
           pip install --upgrade pip
           pip install -r src/pip-requirements.txt
 
+      - name: Descargar rclone para macos
+        shell: bash
+        run: cd src && bash macos-assets-downloader.sh
+
       - name: Limpiar nombre de rama
         id: clean_branch
         run: |
