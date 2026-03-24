@@ -115,21 +115,22 @@ jobs:
           PYTHONUTF8: "1"
         run: echo "y" | flet build windows --project src --output dist --no-rich-output
 
-      - name: Zipear ejecutable Windows
-        shell: pwsh
-        env:
-          BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
-        run: |
-          $suffix = $env:BRANCH_SUFFIX
-          Compress-Archive -Path dist\* -DestinationPath "bifrost-$suffix-windows.zip"
-          Move-Item "bifrost-$suffix-windows.zip" dist\
-          Get-ChildItem dist\
+      
+      # - name: Zipear ejecutable Windows
+      #   shell: pwsh
+      #   env:
+      #     BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
+      #   run: |
+      #     $suffix = $env:BRANCH_SUFFIX
+      #     Compress-Archive -Path dist\* -DestinationPath "bifrost-$suffix-windows.zip"
+      #     Move-Item "bifrost-$suffix-windows.zip" dist\
+      #     Get-ChildItem dist\
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
         with:
           name: bifrost-windows-${{ steps.clean_branch.outputs.name }}
-          path: dist/*.zip
+          path: dist/*.exe
 
   # ─────────────────────────────────────────────────────────────────
   # Rocky Linux → PyInstaller onefile

@@ -142,7 +142,6 @@ def _parse_version(v: str) -> tuple:
     except Exception:
         return (0,)
 
-
 def check_update_version(force_update: bool = False) -> str | None:
     """
     Comprueba si hay una versión nueva disponible en GitHub.
