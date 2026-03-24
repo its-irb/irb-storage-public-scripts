@@ -2343,6 +2343,7 @@ def main(page: ft.Page):
                 safe_thread(page, lambda: backend.desmontar_todos_los_shares(usuario)).start()
 
         page.on_close = on_close
+        
 
     def go_login():
         show_screen(_build_login_content(page, on_success=on_login_success,
@@ -2350,6 +2351,7 @@ def main(page: ft.Page):
 
     def on_login_success(creds: dict):
         state["credenciales_ldap"] = creds
+        check_rclone_installation_flet(page)
         if IS_LINUX_CLUSTER:
             show_loading("Fetching LDAP groups...")
 
@@ -2475,9 +2477,6 @@ def main(page: ft.Page):
         state["servidor_minio"] = eleccion["servidor"]
         state["perfil_rclone"]  = eleccion["perfil"]
         state["endpoint"]       = eleccion["endpoint"]
-
-        if not IS_WEB:
-            check_rclone_installation_flet(page)
 
         _go_credentials_or_copy()
 
