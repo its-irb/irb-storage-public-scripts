@@ -52,6 +52,7 @@ import tempfile
 import subprocess
 import threading
 import traceback
+import pathlib
 from datetime import datetime
 from typing import Callable
 
@@ -63,7 +64,7 @@ import backend
 # MODO DE EJECUCIÓN
 # ============================================================================
 
-IS_WEB = "--web" in sys.argv
+IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__")
 
 # En Linux cluster el flujo incluye CIFS; en el resto se omite
 IS_LINUX_CLUSTER = sys.platform == "linux" and "_linux_cluster" in os.path.basename(
@@ -1298,6 +1299,7 @@ def build_rclone_browser(
     mkdir_btn.on_click      = _do_mkdir
     new_folder_tf.on_submit = _do_mkdir  # Enter también funciona
 
+
     # ── Widget ────────────────────────────────────────────────────────────
     browser_widget = ft.Column(
         [
@@ -1380,7 +1382,6 @@ def build_local_fs_browser(
         (widget, refresh_fn) — llama a refresh_fn() después de añadir
         el widget al árbol para arrancar la carga inicial.
     """
-    import pathlib
 
     root_path = pathlib.Path(start_path or pathlib.Path.home())
     nav_state = {"current": root_path}
@@ -1399,27 +1400,22 @@ def build_local_fs_browser(
 
     def _rebuild_breadcrumb(path: pathlib.Path):
         breadcrumb_row.controls.clear()
-        # Botón raíz = home
+        parts = path.parts
+        accumulated = pathlib.Path(parts[0])
         breadcrumb_row.controls.append(
             ft.TextButton(
-                content=ft.Text("~"),
+                content=ft.Text("/"),
                 style=ft.ButtonStyle(
                     color=C_PRIMARY,
                     padding=ft.padding.symmetric(horizontal=6, vertical=2),
                 ),
-                on_click=lambda e: _navigate(root_path),
+                on_click=lambda e, p=accumulated: _navigate(p),
             )
         )
-        try:
-            rel_parts = path.relative_to(root_path).parts
-        except ValueError:
-            rel_parts = path.parts  # fuera del home, mostrar absoluta
-
-        accumulated = root_path
-        for i, part in enumerate(rel_parts):
+        for i, part in enumerate(parts[1:], start=1):
             accumulated = accumulated / part
-            acc_snap  = accumulated
-            is_last   = (i == len(rel_parts) - 1)
+            acc_snap = accumulated
+            is_last  = (i == len(parts) - 1)
             breadcrumb_row.controls.append(ft.Text("/", size=12, color=C_TEXT_DIM))
             if is_last:
                 breadcrumb_row.controls.append(
@@ -1591,7 +1587,7 @@ def build_local_fs_browser(
         tight=True,
     )
 
-    return browser_widget, lambda: _navigate(root_path)
+    return browser_widget, lambda: _navigate(root_path), _navigate
 
 
 def show_local_fs_modal(
@@ -1613,7 +1609,7 @@ def show_local_fs_modal(
         selected_label.italic = False
         page.update()
 
-    browser_widget, refresh_fn = build_local_fs_browser(
+    browser_widget, refresh_fn, navigate_to = build_local_fs_browser(
         page,
         on_select=_on_pick,
         select_mode=select_mode,
@@ -1639,11 +1635,43 @@ def show_local_fs_modal(
         "both":   "Select File or Folder",
     }.get(select_mode, "Browse")
 
+    # ── Shortcuts ──────────────────────────────────────────────────
+    _shortcut_defs = [
+        ("~ Home",   ft.Icons.HOME_OUTLINED,          pathlib.Path.home()),
+        ("/data",    ft.Icons.STORAGE_OUTLINED,        pathlib.Path("/data")),
+        ("/scratch", ft.Icons.FOLDER_SPECIAL_OUTLINED, pathlib.Path("/scratch")),
+    ]
+
+    def _make_shortcut(label: str, icon, dest: pathlib.Path) -> ft.TextButton:
+        return ft.TextButton(
+            content=ft.Row(
+                [
+                    ft.Icon(icon, size=13, color=C_PRIMARY),
+                    ft.Text(label, size=11, color=C_PRIMARY),
+                ],
+                spacing=4,
+                tight=True,
+            ),
+            style=ft.ButtonStyle(
+                padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                bgcolor={ft.ControlState.HOVERED: f"{C_PRIMARY}22"},
+                shape=ft.RoundedRectangleBorder(radius=6),
+            ),
+            on_click=lambda e, p=dest: navigate_to(p),
+        )
+
+    shortcuts_row = ft.Row(
+        [_make_shortcut(lbl, ico, dest) for lbl, ico, dest in _shortcut_defs],
+        spacing=4,
+        wrap=True,
+    )
+
     dlg = ft.AlertDialog(
         modal=True,
         title=ft.Text(title_text, color=C_TEXT, size=15, weight=ft.FontWeight.W_600),
         content=ft.Column(
             [
+                shortcuts_row,
                 browser_widget,
                 ft.Container(height=8),
                 ft.Row(
@@ -2296,10 +2324,11 @@ def main(page: ft.Page):
             print("[close] Window destroyed")
             os._exit(0)
 
+
     #page.window.on_close = on_window_close
     page.window.on_event = on_window_event
     page.window.prevent_close = True
-
+    
 
     ALLOW_CUSTOM_USER = "--customuser" in sys.argv or "-c" in sys.argv
 
@@ -2343,7 +2372,6 @@ def main(page: ft.Page):
                 safe_thread(page, lambda: backend.desmontar_todos_los_shares(usuario)).start()
 
         page.on_close = on_close
-        
 
     def go_login():
         show_screen(_build_login_content(page, on_success=on_login_success,
@@ -2351,7 +2379,6 @@ def main(page: ft.Page):
 
     def on_login_success(creds: dict):
         state["credenciales_ldap"] = creds
-        check_rclone_installation_flet(page)
         if IS_LINUX_CLUSTER:
             show_loading("Fetching LDAP groups...")
 
@@ -2478,6 +2505,9 @@ def main(page: ft.Page):
         state["perfil_rclone"]  = eleccion["perfil"]
         state["endpoint"]       = eleccion["endpoint"]
 
+        if not IS_WEB:
+            check_rclone_installation_flet(page)
+
         _go_credentials_or_copy()
 
     def _go_credentials_or_copy():
@@ -2556,17 +2586,33 @@ def main(page: ft.Page):
 
     show_screen(_build_update_content(page, on_continue=go_login))
 
+# ============================================================================
+# WEB VERSION IN OOD
+# ============================================================================
+if IS_WEB:
+    from flet.fastapi import FletApp, app_manager
+    from fastapi import FastAPI, WebSocket
+    import asyncio
+
+    WEBSOCKET_ENDPOINT = os.environ.get("FLET_WEBSOCKET_HANDLER_ENDPOINT")
+    WEBPATH = os.environ.get("WEBPATH")
+
+    app = FastAPI()
+    flet_asgi_app  = ft.app(main,export_asgi_app=True)
+    app.mount(WEBPATH, flet_asgi_app)
+
+    @app.websocket(WEBSOCKET_ENDPOINT)
+    async def flet_app(websocket: WebSocket):
+        await FletApp(
+            loop=asyncio.get_running_loop(),
+            executor=app_manager.executor,
+            main=main,
+            before_main=None,
+        ).handle(websocket)
 
 # ============================================================================
 # ENTRY POINT
 # ============================================================================
 
 if __name__ == "__main__":
-    if IS_WEB:
-        ft.run(
-            main,
-            view=ft.AppView.WEB_BROWSER,
-            port=int(os.environ.get("BIFROST_PORT", "8080")),
-        )
-    else:
-        ft.run(main)
+    ft.run(main)
