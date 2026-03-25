@@ -26,6 +26,8 @@ share/python-wheels/
 *.egg
 MANIFEST
 src/build/
+src/assets/*
+!src/assets/**/.keep
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
