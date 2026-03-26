@@ -125,6 +125,14 @@ jobs:
           PYTHONUTF8: "1"
         run: echo "y" | flet build windows --output dist --no-rich-output
 
+      - name: Package Windows installer (Inno Setup)
+        shell: pwsh
+        env:
+          BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
+          APP_VERSION: "1.0.${{ github.run_number }}"
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DBranchSuffix="$env:BRANCH_SUFFIX" /DAppVersion="$env:APP_VERSION" /O dist installer.iss
+
       
       # - name: Zipear ejecutable Windows
       #   shell: pwsh
@@ -140,7 +148,7 @@ jobs:
         uses: actions/upload-artifact@v7.0.0
         with:
           name: bifrost-windows-${{ steps.clean_branch.outputs.name }}
-          path: dist/
+          path: dist/*.exe
 
   # ─────────────────────────────────────────────────────────────────
   # Rocky Linux → PyInstaller onefile
