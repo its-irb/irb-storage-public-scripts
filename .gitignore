@@ -28,6 +28,8 @@ MANIFEST
 src/build/
 src/assets/*
 !src/assets/**/.keep
+src/frameworks/*
+!src/frameworks/**/.keep
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

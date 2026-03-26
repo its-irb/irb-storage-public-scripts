@@ -52,10 +52,16 @@ jobs:
           echo "name=$clean" >> $GITHUB_OUTPUT
 
       - name: Escribir versión
-        run: echo "__version__ = 'v1.0.${{ github.run_number }}'" > src/version.py
+        run: echo "__version__ = '1.0.${{ github.run_number }}'" > src/version.py
+
+      - name: Escribir la versión en el paquete
+        run: sed -i '' 's/^version = .*/version = "1.0.'"${{ github.run_number }}"'"/' ./pyproject.toml
 
       - name: Build macOS
-        run: echo "y" | flet build macos --project src --output dist --no-rich-output
+        run: echo "y" | flet build macos --output dist --no-rich-output
+
+      - name: Add framework
+        run: cp -R ./src/frameworks/fuse_t.framework ./dist/bifrost.app/Contents/Frameworks/
 
       - name: Renombrar .app
         env:
@@ -117,7 +123,7 @@ jobs:
         shell: bash
         env:
           PYTHONUTF8: "1"
-        run: echo "y" | flet build windows --project src --output dist --no-rich-output
+        run: echo "y" | flet build windows --output dist --no-rich-output
 
       
       # - name: Zipear ejecutable Windows

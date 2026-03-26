@@ -17,6 +17,7 @@ PAYLOAD=$(find "$WORK_DIR/extracted" -name "Payload" | head -1)
 gunzip < "$PAYLOAD" | (cd "$WORK_DIR" && cpio -id --quiet) 2>/dev/null || true
 
 mkdir -p ./assets/bin
+mkdir -p ./frameworks
 ls -lah "$WORK_DIR"
 cp "$WORK_DIR/rclone-v${RCLONE_VERSION}-osx-arm64/rclone" ./assets/bin/rclone
-cp -R "$WORK_DIR/Library/Frameworks/fuse_t.framework" ./assets/fuse_t.framework
+cp -R "$WORK_DIR/Library/Frameworks/fuse_t.framework" ./frameworks/fuse_t.framework

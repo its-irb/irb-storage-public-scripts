@@ -2,13 +2,15 @@
 set -euo pipefail
 
 mkdir -p dist
-cd minio
 
-bash macos-third-party-assets-downloader.sh
+cd src
 
-echo "__version__ = 'v1.0.92'" > version.py
+bash macos-assets-downloader.sh
 
-flet pack bifrost.py \
---distpath ../dist \
---add-binary "assets/bin/rclone:." \
---add-data "assets/fuse_t.framework:fuse_t.framework"
+echo "__version__ = '2.0.0.dev'" > version.py
+
+cd ..
+
+flet build macos --arch arm64 -o ./dist --project bifrost
+
+cp -R ./src/frameworks/fuse_t.framework ./dist/bifrost.app/Contents/Frameworks/

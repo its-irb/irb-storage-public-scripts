@@ -416,8 +416,8 @@ def _check_fuse_macos() -> bool:
         Path("/usr/local/lib/libfuse-t.dylib"),
         Path("/Library/Filesystems/fuse-t.fs"),
         Path("/usr/local/include/fuse-t"),
-        Path(__file__).parent / "assets" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t",
-        ),*( (Path(sys._MEIPASS) / "fuse_t.framework" / "Versions" / "Current" / "fuse_t",) if hasattr(sys, "_MEIPASS") else ())
+        Path(__file__).parent / "frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t",
+        ),*( str(Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t",) if os.environ.get("FLET_APP_STORAGE_TEMP") else ())
     ))
 
 def _check_fuse_linux() -> bool:
@@ -651,10 +651,10 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
         if not _check_fuse_macos():
             raise EnvironmentError("fuse-t not detected. Download it with macos-third-party-assets-downloader.sh")
         if getattr(sys, "frozen", False):
-            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys._MEIPASS) / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
+            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
         else:
-            if (Path(__file__).parent / "assets" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t").exists():
-                env["CGOFUSE_LIBFUSE_PATH"] = str(Path(__file__).parent / "assets" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
+            if (Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t").exists():
+                env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
     elif sistema == "Windows":
         if not _check_winfsp_windows():
             raise EnvironmentError("WinFSP not detected. Download from: https://winfsp.dev")
