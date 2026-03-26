@@ -476,7 +476,7 @@ def _build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
 def _build_login_content(
     page: ft.Page,
     on_success: Callable,
-    allow_custom_user: bool = False,
+    allow_custom_user: bool = True,
 ) -> ft.Control:
 
     default_user = None if allow_custom_user else getpass.getuser()
@@ -2330,7 +2330,7 @@ def main(page: ft.Page):
     page.window.prevent_close = True
     
 
-    ALLOW_CUSTOM_USER = "--customuser" in sys.argv or "-c" in sys.argv
+    ALLOW_CUSTOM_USER = True # "--customuser" in sys.argv or "-c" in sys.argv
 
     body = ft.Container(expand=True, bgcolor=C_BG)
     page.scroll = ft.ScrollMode.AUTO
