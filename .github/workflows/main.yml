@@ -131,6 +131,8 @@ jobs:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
           APP_VERSION: "1.0.${{ github.run_number }}"
         run: |
+          Write-Host "=== dist/ structure ==="
+          Get-ChildItem -Recurse dist | Select-Object FullName
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DBranchSuffix="$env:BRANCH_SUFFIX" /DAppVersion="$env:APP_VERSION" installer.iss
 
       
