@@ -1,15 +1,22 @@
+#ifndef AppVersion
+  #define AppVersion "1.0.0"
+#endif
+#ifndef BranchSuffix
+  #define BranchSuffix "local"
+#endif
+
 [Setup]
 AppName=Bifrost
-AppVersion=1.0.0
+AppVersion={#AppVersion}
 DefaultDirName={autopf}\Bifrost
 DefaultGroupName=Bifrost
 OutputDir=dist
-OutputBaseFilename=Bifrost_installer
+OutputBaseFilename=bifrost-{#BranchSuffix}-windows
 Compression=lzma
 SolidCompression=yes
 
 [Files]
-Source: "bifrost\*"; \
+Source: "dist\bifrost\*"; \
   DestDir: "{app}"; \
   Flags: recursesubdirs createallsubdirs
 
