@@ -125,6 +125,10 @@ jobs:
           PYTHONUTF8: "1"
         run: echo "y" | flet build windows --output dist --no-rich-output
 
+      - name: Crear directorio installer
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path installer
+
       - name: Package Windows installer (Inno Setup)
         shell: pwsh
         env:
@@ -150,7 +154,7 @@ jobs:
         uses: actions/upload-artifact@v7.0.0
         with:
           name: bifrost-windows-${{ steps.clean_branch.outputs.name }}
-          path: dist/*.exe
+          path: installer/*.exe
 
   # ─────────────────────────────────────────────────────────────────
   # Rocky Linux → PyInstaller onefile

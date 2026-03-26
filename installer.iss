@@ -10,13 +10,13 @@ AppName=Bifrost
 AppVersion={#AppVersion}
 DefaultDirName={autopf}\Bifrost
 DefaultGroupName=Bifrost
-OutputDir=dist
+OutputDir=installer
 OutputBaseFilename=bifrost-{#BranchSuffix}-windows
 Compression=lzma
 SolidCompression=yes
 
 [Files]
-Source: "dist\bifrost\*"; \
+Source: "dist\*"; \
   DestDir: "{app}"; \
   Flags: recursesubdirs createallsubdirs
 
