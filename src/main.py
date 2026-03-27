@@ -2596,6 +2596,7 @@ if IS_WEB:
 
     WEBSOCKET_ENDPOINT = os.environ.get("FLET_WEBSOCKET_HANDLER_ENDPOINT")
     WEBPATH = os.environ.get("WEBPATH")
+    SECRET_TOKEN = os.environ.get("password")
 
     app = FastAPI()
     flet_asgi_app  = ft.app(main,export_asgi_app=True)
@@ -2603,6 +2604,12 @@ if IS_WEB:
 
     @app.websocket(WEBSOCKET_ENDPOINT)
     async def flet_app(websocket: WebSocket):
+        token = websocket.cookies.get("bifrost_auth_token")
+
+        if token != SECRET_TOKEN:
+            await websocket.close(code=1008)
+            return
+
         await FletApp(
             loop=asyncio.get_running_loop(),
             executor=app_manager.executor,
