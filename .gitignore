@@ -28,6 +28,8 @@ MANIFEST
 src/build/
 src/assets/*
 !src/assets/**/.keep
+!src/assets/icon.png
+!src/assets/splash.png
 src/frameworks/*
 !src/frameworks/**/.keep
 
