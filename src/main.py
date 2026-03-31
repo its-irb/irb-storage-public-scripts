@@ -479,14 +479,18 @@ def _build_login_content(
     allow_custom_user: bool = True,
 ) -> ft.Control:
 
-    default_user = None if allow_custom_user else getpass.getuser()
+    try:
+        default_user = getpass.getuser()
+    except Exception:
+        default_user = ""
 
     user_tf, user_col = styled_field(
         "Username",
-        value=default_user or "",
-        disabled=(not allow_custom_user and default_user is not None),
+        value=default_user,
+        disabled=False,  # siempre editable
         hint="your.username",
     )
+    
     pass_tf, pass_col = styled_field("Password", password=True)
 
     error_text = ft.Text("", color=C_ERROR, size=12, visible=False)
