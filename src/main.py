@@ -1083,7 +1083,7 @@ def build_rclone_browser(
         (widget, refresh_fn) — llama a refresh_fn() una vez que el widget
         esté en la página para arrancar la carga inicial.
     """
-    nav_state = {"current_path": ""}
+    nav_state = {"current_path": "", "timeout": 15}
 
     breadcrumb_row = ft.Row(spacing=2, wrap=True,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER)
@@ -1166,74 +1166,38 @@ def build_rclone_browser(
 
         def _load():
             try:
-                entries = backend.rclone_lsf(perfil_rclone, path)
-                print(f"[browser] path={path!r} entries={entries}")
+                folders = backend.rclone_lsd(perfil_rclone, path, timeout=nav_state["timeout"])
+                print(f"[browser] path={path!r} folders={folders}")
 
                 def _show():
                     loading_row.visible = False
                     folder_col.controls.clear()
 
-                    if not entries:
+                    if not folders:
                         folder_col.controls.append(
-                            ft.Text("(empty)", size=11, color=C_TEXT_DIM, italic=True)
+                            ft.Text("(empty — no subfolders)", size=11, color=C_TEXT_DIM, italic=True)
                         )
                     else:
-                        dirs  = [(t, n) for t, n in entries if t == "d"]
-                        files = [(t, n) for t, n in entries if t == "f"]
-                        more  = [(t, n) for t, n in entries if t == "more"]
-
-                        for entry_type, fname in dirs + files + more:
-                            if entry_type == "more":
-                                folder_col.controls.append(
-                                    ft.Container(
-                                        content=ft.Row(
-                                            [
-                                                ft.Icon(ft.Icons.MORE_HORIZ,
-                                                        color=C_TEXT_DIM, size=14),
-                                                ft.Text(fname, size=11,
-                                                        color=C_TEXT_DIM, italic=True),
-                                            ],
-                                            spacing=8,
-                                        ),
-                                        padding=ft.padding.symmetric(horizontal=12, vertical=6),
-                                    )
-                                )
-                                continue
-
-                            is_dir    = entry_type == "d"
+                        for fname in folders:
                             full_path = f"{path}/{fname}" if path else fname
                             fp_snap   = full_path
 
                             row = ft.Container(
                                 content=ft.Row(
                                     [
-                                        ft.Icon(
-                                            ft.Icons.FOLDER_OUTLINED if is_dir
-                                            else ft.Icons.INSERT_DRIVE_FILE_OUTLINED,
-                                            color=C_WARNING if is_dir else C_TEXT_DIM,
-                                            size=16,
-                                        ),
-                                        ft.Text(
-                                            fname,
-                                            size=12,
-                                            color=C_TEXT if is_dir else C_TEXT_DIM,
-                                            expand=True,
-                                        ),
-                                        ft.Icon(
-                                            ft.Icons.CHEVRON_RIGHT,
-                                            color=C_TEXT_DIM,
-                                            size=14,
-                                        ) if is_dir else ft.Container(width=14),
+                                        ft.Icon(ft.Icons.FOLDER_OUTLINED, color=C_WARNING, size=16),
+                                        ft.Text(fname, size=12, color=C_TEXT, expand=True),
+                                        ft.Icon(ft.Icons.CHEVRON_RIGHT, color=C_TEXT_DIM, size=14),
                                     ],
                                     spacing=8,
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                 ),
-                                bgcolor=C_SURFACE2 if is_dir else C_BG,
+                                bgcolor=C_SURFACE2,
                                 border=ft.border.all(1, C_BORDER),
                                 border_radius=6,
                                 padding=ft.padding.symmetric(horizontal=12, vertical=8),
-                                on_click=(lambda e, p=fp_snap: _navigate(p)) if is_dir else None,
-                                ink=is_dir,
+                                on_click=lambda e, p=fp_snap: _navigate(p),
+                                ink=True,
                             )
                             folder_col.controls.append(row)
 
@@ -1241,6 +1205,101 @@ def build_rclone_browser(
 
                 ui_call(page, _show)
 
+            except subprocess.TimeoutExpired:
+                def _timeout_ui():
+                    loading_row.visible = False
+                    folder_col.controls.clear()
+
+                    # Input para path manual, prefijado con el path actual
+                    manual_tf = ft.TextField(
+                        value=path,
+                        bgcolor=C_SURFACE2,
+                        border_color=C_BORDER,
+                        focused_border_color=C_PRIMARY,
+                        color=C_TEXT,
+                        border_radius=6,
+                        content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
+                        text_size=12,
+                        expand=True,
+                        visible=False,
+                    )
+                    def confirm_manual(e):
+                        new_path = manual_tf.value.strip()
+                        nav_state["current_path"] = new_path
+                        on_select(new_path)
+                        _rebuild_breadcrumb()
+                        manual_tf.visible   = False
+                        confirm_btn.visible = False
+                        confirmed_badge.visible = True
+                        page.update()
+
+                    confirmed_badge = ft.Container(
+                        content=ft.Row(
+                            [
+                                ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, color=C_ACCENT, size=14),
+                                ft.Text("Path set!", color=C_ACCENT, size=11, weight=ft.FontWeight.W_600),
+                            ],
+                            spacing=6,
+                        ),
+                        visible=False,
+                    )
+
+                    confirm_btn = btn_primary("✓ Confirm path", on_click=confirm_manual)
+                    confirm_btn.visible = False
+
+                    def show_manual_input(e):
+                        manual_tf.visible  = True
+                        confirm_btn.visible = True
+                        page.update()
+
+                    def retry_60(e):
+                        nav_state["timeout"] = 60
+                        _navigate(path)
+
+                    folder_col.controls.append(
+                        ft.Container(
+                            content=ft.Column(
+                                [
+                                    ft.Row(
+                                        [
+                                            ft.Icon(ft.Icons.WARNING_AMBER_OUTLINED, color=C_WARNING, size=16),
+                                            ft.Text(
+                                                "Listing timed out — this folder has too many objects.",
+                                                color=C_WARNING, size=12, weight=ft.FontWeight.W_600,
+                                            ),
+                                        ],
+                                        spacing=8,
+                                    ),
+                                    ft.Text(
+                                        "No worries! You can still copy objects here and mount this folder as a volume.\n"
+                                        "To browse subfolders, retry with a longer timeout or enter the path manually.",
+                                        color=C_TEXT_DIM, size=11,
+                                    ),
+                                    ft.Row(
+                                        [
+                                            btn_primary("↺ Retry (60s)", on_click=retry_60),
+                                            btn_secondary("✎ Enter path manually", on_click=show_manual_input),
+                                        ],
+                                        spacing=8,
+                                    ),
+                                    ft.Row(
+                                        [manual_tf, confirm_btn, confirmed_badge],
+                                        spacing=8,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    ),
+                                ],
+                                spacing=8,
+                                tight=True,
+                            ),
+                            bgcolor=f"{C_WARNING}11",
+                            border=ft.border.all(1, f"{C_WARNING}44"),
+                            border_radius=8,
+                            padding=12,
+                        )
+                    )
+                    page.update()
+
+                ui_call(page, _timeout_ui)
             except Exception as ex:
                 def _err():
                     loading_row.visible = False
@@ -1249,7 +1308,7 @@ def build_rclone_browser(
                     page.update()
                 ui_call(page, _err)
 
-        safe_thread(page, _load).start()
+        threading.Thread(target=_load, daemon=True).start()
 
     def _do_mkdir(e=None):
         """
