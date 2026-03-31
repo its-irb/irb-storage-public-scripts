@@ -18,6 +18,7 @@ Módulos cubiertos:
 - Ejecución de comandos rclone (copy, check)
 """
 
+
 import os
 import stat
 import re
@@ -503,9 +504,10 @@ def get_usuario_from_session_token(session_token: str) -> str | None:
     """Extrae el usuario del JWT del session_token de MinIO."""
     try:
         payload = jwt.decode(session_token, options={"verify_signature": False})
-        print(f"[token] payload keys: {list(payload.keys())}")
-        print(f"[token] sub={payload.get('sub')!r}")
-        return payload.get("sub")
+        #print(f"[token] payload keys: {list(payload.keys())}")
+        usuario = payload.get("ldapUsername") or payload.get("sub")
+        print(f"[token] ldapUsername={usuario!r}")
+        return usuario
     except Exception as e:
         print(f"Error leyendo usuario del token: {e}")
         return None
