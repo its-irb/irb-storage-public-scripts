@@ -468,7 +468,6 @@ def _build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
 
     return content
 
-
 # ============================================================================
 # VISTA: LOGIN LDAP
 # ============================================================================
@@ -490,7 +489,7 @@ def _build_login_content(
         disabled=False,  # siempre editable
         hint="your.username",
     )
-    
+
     pass_tf, pass_col = styled_field("Password", password=True)
 
     error_text = ft.Text("", color=C_ERROR, size=12, visible=False)
