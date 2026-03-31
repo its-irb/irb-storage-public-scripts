@@ -21,8 +21,7 @@ jobs:
   # Assets (rclone + fuse_t.framework) ya están en el repo en src/assets/
   # ─────────────────────────────────────────────────────────────────
   build-macos:
-    #runs-on: macos-latest
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - name: Checkout código
         uses: actions/checkout@v6.0.2
