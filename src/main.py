@@ -119,7 +119,6 @@ def safe_thread(page: ft.Page, target: Callable, daemon: bool = True) -> threadi
     t = threading.Thread(target=_wrapper, daemon=daemon)
     return t
 
-
 # ============================================================================
 # PALETA DE COLORES Y HELPERS DE ESTILO
 # ============================================================================
@@ -2577,15 +2576,26 @@ def main(page: ft.Page):
 
         perfil  = state["perfil_rclone"]
         token   = backend.get_rclone_session_token(perfil)
+        usuario_actual = state["credenciales_ldap"]["usuario"]
 
         needs_renewal = True
-        if token and not ALLOW_CUSTOM_USER: #si es customuser, siempre fuerza la renovación de credenciales sts
+        if token:
+            usuario_token = backend.get_usuario_from_session_token(token)
             tiempo = backend.get_expiration_from_session_token(token)
-            if tiempo and tiempo > timedelta(days=STS_RENEWAL_THRESHOLD_DAYS):
+            if (
+                usuario_token == usuario_actual
+                and tiempo
+                and tiempo > timedelta(days=STS_RENEWAL_THRESHOLD_DAYS)
+            ):
                 needs_renewal = False
                 print(
                     f"[credentials] Token valid for {tiempo} "
-                    f"(> {STS_RENEWAL_THRESHOLD_DAYS} days) → skipping renewal"
+                    f"(> {STS_RENEWAL_THRESHOLD_DAYS} days) and belongs to {usuario_actual} → skipping renewal"
+                )
+            else:
+                print(
+                    f"[credentials] Renewal needed — token user: {usuario_token!r}, "
+                    f"login user: {usuario_actual!r}, expiry: {tiempo}"
                 )
 
         if needs_renewal:
