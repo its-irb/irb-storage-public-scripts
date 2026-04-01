@@ -64,7 +64,9 @@ import backend
 # MODO DE EJECUCIÓN
 # ============================================================================
 
-IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__")
+#Para desarrollo local
+DEV_WEB = os.environ.get("BIFROST_DEV") == "1"
+IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or DEV_WEB
 
 # En Linux cluster el flujo incluye CIFS; en el resto se omite
 IS_LINUX_CLUSTER = sys.platform == "linux" and "_linux_cluster" in os.path.basename(
@@ -2676,11 +2678,12 @@ if IS_WEB:
 
     @app.websocket(WEBSOCKET_ENDPOINT)
     async def flet_app(websocket: WebSocket):
-        token = websocket.cookies.get("bifrost_auth_token")
+        if not DEV_WEB:
+            token = websocket.cookies.get("bifrost_auth_token")
 
-        if token != SECRET_TOKEN:
-            await websocket.close(code=1008)
-            return
+            if token != SECRET_TOKEN:
+                await websocket.close(code=1008)
+                return
 
         await FletApp(
             loop=asyncio.get_running_loop(),
