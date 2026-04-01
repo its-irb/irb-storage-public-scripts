@@ -64,14 +64,15 @@ import backend
 # MODO DE EJECUCIÓN
 # ============================================================================
 
-#Para desarrollo local
+#Para desarrollo local: DEV_WEB = True
 DEV_WEB = os.environ.get("BIFROST_DEV") == "1"
 IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or DEV_WEB
 
 # En Linux cluster el flujo incluye CIFS; en el resto se omite
-IS_LINUX_CLUSTER = sys.platform == "linux" and "_linux_cluster" in os.path.basename(
-    sys.argv[0] if sys.argv else ""
-)
+# Para desarrollo local: BIFROST_CLUSTER = "1"
+IS_LINUX_CLUSTER = (sys.platform == "linux" and "_linux_cluster" in os.path.basename(
+    sys.argv[0] if sys.argv else "" 
+)) or os.environ.get("BIFROST_CLUSTER") == "1"
 
 # Umbral (en días) por debajo del cual se renuevan las credenciales STS automáticamente
 STS_RENEWAL_THRESHOLD_DAYS = 3
@@ -1931,6 +1932,9 @@ def _build_copy_content(
         spacing=0,
         padding=ft.padding.all(12),
     )
+
+    _log_lock = threading.Lock()
+
     log_container = ft.Container(
         content=log_list,
         bgcolor=C_BG,
@@ -1957,10 +1961,11 @@ def _build_copy_content(
                 )
         
         def _add():
-            log_list.controls.extend(lines_to_add)
-            page.update()
+            with _log_lock:
+                log_list.controls.extend(lines_to_add)
+                page.update()
         
-        page.run_thread(_add)
+        ui_call(page, _add)
 
 
     # ── Botones ────────────────────────────────────────────────────────────
