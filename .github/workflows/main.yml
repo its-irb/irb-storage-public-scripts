@@ -22,7 +22,6 @@ jobs:
   # ─────────────────────────────────────────────────────────────────
   build-macos:
     runs-on: macos-latest
-    #runs-on: macos-14
     steps:
       - name: Checkout código
         uses: actions/checkout@v6.0.2
