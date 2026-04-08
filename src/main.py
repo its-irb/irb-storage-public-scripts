@@ -292,6 +292,9 @@ def _ws_save(usuario: str, state: dict) -> None:
         "copy_origen":        existing.get("copy_origen", ""),
         "copy_destino":       existing.get("copy_destino", ""),
         "copy_log_callbacks": existing.get("copy_log_callbacks", []),
+        # The Popen wrapper dict — shared with the background thread so that
+        # a new UI session can cancel a process that survived a tab close.
+        "copy_proceso":        existing.get("copy_proceso", {"proc": None}),
     }
     _LAST_WEB_USER[0] = usuario
     print(f"[session] Saved session for {usuario!r}")
@@ -2091,12 +2094,16 @@ def _build_copy_content(
 
     # ── Estado del proceso activo ─────────────────────────────────────────
     # _active_proceso guarda el Popen de rclone en curso (copy o check).
-    # Se gestiona desde el hilo de rclone; cancel lo termina con SIGTERM.
-    _active_proceso: dict = {"proc": None}
+    # En modo web se reutiliza el dict de la sesión para que sobreviva a
+    # un cierre/reapertura de pestaña (el hilo background ya tiene ref al mismo objeto).
+    if IS_WEB and web_session is not None:
+        _active_proceso: dict = web_session.setdefault("copy_proceso", {"proc": None})
+    else:
+        _active_proceso: dict = {"proc": None}
 
     # ── Botones ────────────────────────────────────────────────────────────
     copy_btn   = btn_primary("▶  Copy data")
-    check_btn  = btn_primary("✓  Check data", disabled=True)
+    check_btn  = btn_primary("✓  Check data", disabled=False)
     cancel_btn = ft.ElevatedButton(
         content=ft.Row(
             [ft.Icon(ft.Icons.STOP_CIRCLE_OUTLINED, size=16), ft.Text("Cancel")],
@@ -2510,12 +2517,9 @@ def _build_copy_content(
                     log(msg)
                 if status == "running":
                     log("\n⚠️  Copy is still running — new output will appear below\n")
+                    _set_running(True)  # restore cancel button
                 elif status == "done":
                     log("\n✅  Copy finished while you were away\n")
-                    def _en():
-                        check_btn.disabled = False
-                        check_btn.update()
-                    ui_call(page, _en)
                 elif status == "error":
                     log("\n❌  Copy ended with errors while you were away\n")
                 # Pre-fill origin/dest fields from session
