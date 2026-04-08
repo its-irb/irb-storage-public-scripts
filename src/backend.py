@@ -1102,8 +1102,9 @@ def ejecutar_rclone_copy(
     log_fn,
     on_success=None,
     on_finish=None,
+    expose_proceso: dict | None = None,
 ) -> None:
-    """Lanza rclone copy en un hilo separado."""
+    """Lanza rclone copy. Si *expose_proceso* es un dict, guarda el Popen en expose_proceso['proc']."""
     rclone = get_rclone_executable()
     tag_string   = construir_tag_string(metadatos_dict)
     header_value = f"x-amz-tagging:{tag_string}"
@@ -1142,6 +1143,8 @@ def ejecutar_rclone_copy(
             errors="replace",
             **_subprocess_kwargs(),
         )
+        if expose_proceso is not None:
+            expose_proceso["proc"] = proceso
         for linea in proceso.stdout:
             log_fn(linea)
         proceso.wait()
@@ -1154,6 +1157,8 @@ def ejecutar_rclone_copy(
     except Exception as e:
         log_fn(f"\n❌ Exception while executing rclone: {str(e)}")
     finally:
+        if expose_proceso is not None:
+            expose_proceso["proc"] = None
         if on_finish:
             on_finish()
 
@@ -1242,8 +1247,9 @@ def ejecutar_rclone_check(
     mounts_activos: list,
     log_fn,
     on_finish=None,
+    expose_proceso: dict | None = None,
 ) -> None:
-    """Lanza rclone check en un hilo separado."""
+    """Lanza rclone check. Si *expose_proceso* es un dict, guarda el Popen en expose_proceso['proc']."""
     rclone = get_rclone_executable()
     origen_ajustado, fichero = preparar_origen_para_check(
         origen, mounts_activos, rclone_config_path
@@ -1287,6 +1293,8 @@ def ejecutar_rclone_check(
             errors="replace",
             **_subprocess_kwargs(),
         )
+        if expose_proceso is not None:
+            expose_proceso["proc"] = proceso
         for linea in proceso.stdout:
             log_fn(linea)
         proceso.wait()
@@ -1300,6 +1308,8 @@ def ejecutar_rclone_check(
     except Exception as e:
         log_fn(f"\n❌ Exception during verification: {str(e)}")
     finally:
+        if expose_proceso is not None:
+            expose_proceso["proc"] = None
         if on_finish:
             on_finish()
 

@@ -136,7 +136,7 @@ C_WARNING  = "#D29922"
 C_ERROR    = "#F85149"
 C_TEXT     = "#E6EDF3"
 C_TEXT_DIM = "#8B949E"
-C_OVERLAY  = "#1C2128"
+C_OVERLAY  = "#1C2027"
 FONT_MONO  = "Courier New"
 
 
@@ -246,6 +246,73 @@ def status_badge(text: str, color: str) -> ft.Container:
 
 def divider() -> ft.Divider:
     return ft.Divider(height=1, color=C_BORDER)
+
+
+# ============================================================================
+# SESSION PERSISTENCE (web mode — in-memory, TTL = Hypercorn process lifetime)
+# ============================================================================
+#
+# _WEB_SESSIONS[username] holds every piece of navigation state that can be
+# restored without the user's password:
+#   - servidor_minio, perfil_rclone, endpoint, extra_config
+#   - mounts_activos, usar_privilegios, credenciales_smb_usuario
+#   - copy_log_buffer  — accumulated log lines from a running/finished copy
+#   - copy_status      — "idle" | "running" | "done" | "error"
+#   - copy_proceso     — the live subprocess.Popen object (or None)
+#   - copy_origen, copy_destino  — last copy paths
+#   - copy_log_callbacks         — callables registered by the current UI page;
+#                                  multiple sessions may subscribe simultaneously
+#
+# The password is NEVER stored here.
+# ============================================================================
+
+_WEB_SESSIONS: dict[str, dict] = {}
+_LAST_WEB_USER: list[str] = [None]   # one-element list so closures can mutate it
+
+
+def _ws_save(usuario: str, state: dict) -> None:
+    """Persist navigation + copy state for *usuario* into the in-memory store."""
+    if not IS_WEB:
+        return
+    existing = _WEB_SESSIONS.get(usuario, {})
+    _WEB_SESSIONS[usuario] = {
+        # navigation state (enough to skip update/shares/minio on reconnect)
+        "servidor_minio": state.get("servidor_minio"),
+        "perfil_rclone":  state.get("perfil_rclone"),
+        "endpoint":       state.get("endpoint"),
+        "extra_config": (
+            backend.MINIO_SERVERS
+            .get(state.get("servidor_minio") or "", {})
+            .get("IRB", {})
+            .get("extra_rclone_config")
+        ),
+        # copy state — always inherited so a running copy survives reconnection
+        "copy_log_buffer":    existing.get("copy_log_buffer", []),
+        "copy_status":        existing.get("copy_status", "idle"),
+        "copy_origen":        existing.get("copy_origen", ""),
+        "copy_destino":       existing.get("copy_destino", ""),
+        "copy_log_callbacks": existing.get("copy_log_callbacks", []),
+    }
+    _LAST_WEB_USER[0] = usuario
+    print(f"[session] Saved session for {usuario!r}")
+
+
+def _ws_load(usuario: str) -> dict | None:
+    """Return the persisted session for *usuario*, or None if absent/incomplete."""
+    s = _WEB_SESSIONS.get(usuario)
+    if s and s.get("perfil_rclone") and s.get("endpoint"):
+        return s
+    return None
+
+
+def _ws_clear(usuario: str) -> None:
+    """Remove the session for *usuario*."""
+    _WEB_SESSIONS.pop(usuario, None)
+    if _LAST_WEB_USER[0] == usuario:
+        _LAST_WEB_USER[0] = None
+    print(f"[session] Cleared session for {usuario!r}")
+
+
 
 
 # ============================================================================
@@ -478,12 +545,13 @@ def _build_login_content(
     page: ft.Page,
     on_success: Callable,
     allow_custom_user: bool = True,
+    prefill_user: str = "",
 ) -> ft.Control:
 
     try:
-        default_user = getpass.getuser()
+        default_user = prefill_user or getpass.getuser()
     except Exception:
-        default_user = ""
+        default_user = prefill_user or ""
 
     user_tf, user_col = styled_field(
         "Username",
@@ -545,8 +613,29 @@ def _build_login_content(
                                 ft.Container(height=8),
                                 ft.Text("LDAP Authentication", size=18,
                                         weight=ft.FontWeight.W_600, color=C_TEXT),
-                                ft.Text("Use your IRB network credentials",
-                                        size=12, color=C_TEXT_DIM),
+                                *(
+                                    [
+                                        ft.Container(
+                                            content=ft.Row(
+                                                [
+                                                    ft.Icon(ft.Icons.RESTORE, color=C_WARNING, size=14),
+                                                    ft.Text(
+                                                        "Resuming previous session — enter your password to continue",
+                                                        size=11, color=C_WARNING,
+                                                    ),
+                                                ],
+                                                spacing=6,
+                                            ),
+                                            bgcolor=f"{C_WARNING}18",
+                                            border=ft.border.all(1, f"{C_WARNING}44"),
+                                            border_radius=6,
+                                            padding=ft.padding.symmetric(horizontal=10, vertical=6),
+                                        )
+                                    ]
+                                    if prefill_user else
+                                    [ft.Text("Use your IRB network credentials",
+                                             size=12, color=C_TEXT_DIM)]
+                                ),
                                 ft.Container(height=24),
                                 user_col,
                                 ft.Container(height=12),
@@ -1499,6 +1588,10 @@ def build_local_fs_browser(
 
     def _navigate(path: pathlib.Path):
         nav_state["current"] = path
+        # Auto-select the current folder when browsing in folder/both mode,
+        # so the user can just navigate and press Confirm without needing the ✓ icon.
+        if select_mode in ("folder", "both"):
+            on_select(str(path))
         loading_row.visible  = True
         error_text.visible   = False
         entries_col.controls.clear()
@@ -1776,12 +1869,14 @@ def _build_copy_content(
     perfil_rclone: str,
     mounts_activos: list,
     on_close: Callable,
-    endpoint: str,                 
-    credenciales_ldap: dict,       
+    endpoint: str,
+    credenciales_ldap: dict,
     extra_config: dict | None,
-    on_renew_complete: Callable, 
+    on_renew_complete: Callable,
     show_screen: Callable,
+    web_session: dict | None = None,
 ) -> ft.Control:
+    usuario_actual = credenciales_ldap["usuario"]
 
     num_cores = backend.obtener_num_cpus()
     _, rclone_config_path, _ = backend.get_rclone_paths(perfil_rclone)
@@ -1944,6 +2039,7 @@ def _build_copy_content(
     )
 
     def log(msg: str):
+        """Append *msg* to the visible log list in this UI page."""
         lines_to_add = []
         for line in msg.splitlines(keepends=True):
             if line.strip():
@@ -1959,18 +2055,64 @@ def _build_copy_content(
                             size=11, color=color,
                             font_family=FONT_MONO, selectable=True)
                 )
-        
+
         def _add():
             with _log_lock:
                 log_list.controls.extend(lines_to_add)
                 page.update()
-        
+
         ui_call(page, _add)
 
+    # ── Session-level log dispatcher (web only) ───────────────────────────
+    # _dispatch_log accumulates every line in the session buffer AND forwards
+    # to every registered UI callback (current page + any future reconnect).
+    def _dispatch_log(msg: str) -> None:
+        if IS_WEB and web_session is not None:
+            web_session["copy_log_buffer"].append(msg)
+            dead = []
+            for cb in list(web_session["copy_log_callbacks"]):
+                try:
+                    cb(msg)
+                except Exception:
+                    dead.append(cb)
+            for cb in dead:
+                try:
+                    web_session["copy_log_callbacks"].remove(cb)
+                except ValueError:
+                    pass
+        else:
+            log(msg)
+
+    # Register this page's log() as a callback so live output reaches the UI
+    if IS_WEB and web_session is not None:
+        if log not in web_session["copy_log_callbacks"]:
+            web_session["copy_log_callbacks"].append(log)
+
+
+    # ── Estado del proceso activo ─────────────────────────────────────────
+    # _active_proceso guarda el Popen de rclone en curso (copy o check).
+    # Se gestiona desde el hilo de rclone; cancel lo termina con SIGTERM.
+    _active_proceso: dict = {"proc": None}
 
     # ── Botones ────────────────────────────────────────────────────────────
-    copy_btn  = btn_primary("▶  Copy data")
-    check_btn = btn_primary("✓  Check data", disabled=True)
+    copy_btn   = btn_primary("▶  Copy data")
+    check_btn  = btn_primary("✓  Check data", disabled=True)
+    cancel_btn = ft.ElevatedButton(
+        content=ft.Row(
+            [ft.Icon(ft.Icons.STOP_CIRCLE_OUTLINED, size=16), ft.Text("Cancel")],
+            spacing=6, tight=True,
+        ),
+        visible=False,
+        style=ft.ButtonStyle(
+            bgcolor={
+                ft.ControlState.DEFAULT: C_ERROR,
+                ft.ControlState.HOVERED: "#FF6B6B",
+            },
+            color={ft.ControlState.DEFAULT: "#0D1117"},
+            shape=ft.RoundedRectangleBorder(radius=6),
+            padding=ft.padding.symmetric(horizontal=16, vertical=12),
+        ),
+    )
     mount_btn = btn_secondary("⊞  Mount destination")
     mount_btn.visible = not IS_WEB
     save_btn  = btn_secondary("↓  Save log")
@@ -1981,6 +2123,27 @@ def _build_copy_content(
             btn.disabled = False
             btn.update()
         ui_call(page, _do)
+
+    def _set_running(running: bool):
+        """Show/hide cancel button and toggle copy/check buttons."""
+        def _do():
+            cancel_btn.visible  = running
+            copy_btn.disabled   = running
+            check_btn.disabled  = running
+            page.update()
+        ui_call(page, _do)
+
+    def do_cancel(e):
+        proc = _active_proceso["proc"]
+        if proc and proc.poll() is None:
+            proc.terminate()
+            _dispatch_log("\n⚠️  Transfer cancelled by user.\n")
+            if IS_WEB and web_session is not None:
+                web_session["copy_status"] = "error"
+        else:
+            _dispatch_log("\n⚠️  No active process to cancel.\n")
+
+    cancel_btn.on_click = do_cancel
 
     # ── FilePicker (solo desktop) ──────────────────────────────────────────
     if not IS_WEB:
@@ -2093,29 +2256,51 @@ def _build_copy_content(
         metadatos = {k: (tf.value or "").strip() for k, tf in meta_fields.items()}
         flags     = (flags_tf.value or "").strip().split()
 
-        copy_btn.disabled  = True
-        check_btn.disabled = True
-        page.update()
+        _set_running(True)
 
         ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log(f"### Copy started at {ahora} ###\n")
-        log("### Metadata ###\n")
+        _dispatch_log(f"### Copy started at {ahora} ###\n")
+        _dispatch_log("### Metadata ###\n")
         for k, v in metadatos.items():
-            log(f"  {k}: {v}\n")
-        log("\n")
+            _dispatch_log(f"  {k}: {v}\n")
+        _dispatch_log("\n")
 
-        safe_thread(page, lambda: backend.ejecutar_rclone_copy(
-            origen=origen,
-            destino_perfil=perfil_rclone,
-            destino_path=destino,
-            rclone_config_path=rclone_config_path,
-            metadatos_dict=metadatos,
-            flags_adicionales=flags,
-            num_cores=num_cores,
-            log_fn=log,
-            on_success=lambda: enable_btn(check_btn),
-            on_finish=lambda: enable_btn(copy_btn),
-        )).start()
+        # Persist copy state so reconnecting sessions can see it
+        if IS_WEB and web_session is not None:
+            web_session["copy_status"]  = "running"
+            web_session["copy_origen"]  = origen
+            web_session["copy_destino"] = destino
+
+        def _on_copy_success():
+            if IS_WEB and web_session is not None:
+                web_session["copy_status"] = "done"
+            enable_btn(check_btn)
+
+        def _on_copy_finish():
+            _active_proceso["proc"] = None
+            _set_running(False)
+            if IS_WEB and web_session is not None:
+                if web_session["copy_status"] == "running":
+                    web_session["copy_status"] = "error"
+            if IS_WEB:
+                _autosave_log()
+
+        def _run_copy():
+            proc = backend.ejecutar_rclone_copy(
+                origen=origen,
+                destino_perfil=perfil_rclone,
+                destino_path=destino,
+                rclone_config_path=rclone_config_path,
+                metadatos_dict=metadatos,
+                flags_adicionales=flags,
+                num_cores=num_cores,
+                log_fn=_dispatch_log,
+                on_success=_on_copy_success,
+                on_finish=_on_copy_finish,
+                expose_proceso=_active_proceso,
+            )
+
+        safe_thread(page, _run_copy).start()
 
     # ── Check ──────────────────────────────────────────────────────────────
     def do_check(e):
@@ -2126,20 +2311,29 @@ def _build_copy_content(
             return
 
         flags = (flags_tf.value or "").strip().split()
-        check_btn.disabled = True
-        page.update()
-        log(f"\n🔍 Verifying: rclone check {origen} → {perfil_rclone}:/{destino}\n\n")
+        _set_running(True)
+        _dispatch_log(f"\n🔍 Verifying: rclone check {origen} → {perfil_rclone}:/{destino}\n\n")
 
-        safe_thread(page, lambda: backend.ejecutar_rclone_check(
-            origen=origen,
-            destino_perfil=perfil_rclone,
-            destino_path=destino,
-            rclone_config_path=rclone_config_path,
-            flags_adicionales=flags,
-            mounts_activos=mounts_activos,
-            log_fn=log,
-            on_finish=lambda: enable_btn(check_btn),
-        )).start()
+        def _on_check_finish():
+            _active_proceso["proc"] = None
+            _set_running(False)
+            if IS_WEB:
+                _autosave_log()
+
+        def _run_check():
+            backend.ejecutar_rclone_check(
+                origen=origen,
+                destino_perfil=perfil_rclone,
+                destino_path=destino,
+                rclone_config_path=rclone_config_path,
+                flags_adicionales=flags,
+                mounts_activos=mounts_activos,
+                log_fn=_dispatch_log,
+                on_finish=_on_check_finish,
+                expose_proceso=_active_proceso,
+            )
+
+        safe_thread(page, _run_check).start()
 
     # ── Montar destino ─────────────────────────────────────────────────────
     def do_mount(e):
@@ -2155,25 +2349,54 @@ def _build_copy_content(
             show_dialog(page, "Mount error", str(ex), C_ERROR)
 
     # ── Guardar log ────────────────────────────────────────────────────────
-    def do_save_log(e):
-        contenido = "\n".join(
+    def _log_content_from_buffer() -> str:
+        """Return log text from the session buffer (web) or the visible list (desktop)."""
+        if IS_WEB and web_session is not None:
+            return "".join(web_session.get("copy_log_buffer", []))
+        return "\n".join(
             c.value for c in log_list.controls
             if isinstance(c, ft.Text) and c.value
         )
+
+    def _autosave_log() -> str | None:
+        """
+        Automatically save the log to ~/bifrost-logs/ at end of copy/check.
+        Returns the saved path, or None on failure.
+        Only runs in web (OOD) mode.
+        """
+        if not IS_WEB:
+            return None
+        contenido = _log_content_from_buffer()
+        if not contenido.strip():
+            return None
+        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        log_dir = pathlib.Path.home() / "bifrost-logs"
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+            fpath = log_dir / f"bifrost-{ts}.log"
+            fpath.write_text(contenido, encoding="utf-8")
+            _dispatch_log(f"\n📄 Log auto-saved to: {fpath}\n")
+            return str(fpath)
+        except Exception as ex:
+            _dispatch_log(f"\n⚠️  Could not auto-save log: {ex}\n")
+            return None
+
+    def do_save_log(e):
+        contenido = _log_content_from_buffer()
         if not contenido.strip():
             show_dialog(page, "Save log", "No log content to save.", C_WARNING)
             return
         ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         if IS_WEB:
-            fname = f"bifrost-{ts}.log"
+            log_dir = pathlib.Path.home() / "bifrost-logs"
             try:
-                with open(fname, "w", encoding="utf-8") as f:
-                    f.write(contenido)
-                show_dialog(page, "Log saved", f"Saved as {fname} on the server.", C_ACCENT)
+                log_dir.mkdir(parents=True, exist_ok=True)
+                fpath = log_dir / f"bifrost-{ts}.log"
+                fpath.write_text(contenido, encoding="utf-8")
+                show_dialog(page, "Log saved", f"Saved to:\n{fpath}", C_ACCENT)
             except Exception as ex:
                 show_dialog(page, "Error", str(ex), C_ERROR)
         else:
-            ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             page.run_task(_save_log_picker, f"bifrost-{ts}.log")
 
     # ── Cierre ─────────────────────────────────────────────────────────────
@@ -2199,6 +2422,7 @@ def _build_copy_content(
     mount_btn.on_click = do_mount
     save_btn.on_click  = do_save_log
     close_btn.on_click = do_close
+    # cancel_btn.on_click already wired above
 
     # ── Layout ────────────────────────────────────────────────────────────
     content = ft.Column(
@@ -2239,7 +2463,7 @@ def _build_copy_content(
                         card(meta_grid),
                         ft.Container(height=16),
                         ft.Row(
-                            [copy_btn, check_btn, mount_btn, save_btn, close_btn],
+                            [copy_btn, check_btn, cancel_btn, mount_btn, save_btn, close_btn],
                             spacing=8,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             wrap=True,
@@ -2264,6 +2488,43 @@ def _build_copy_content(
     # antes de que _navigate("") intente hacer page.update() sobre controles
     # ya registrados en el árbol de Flet.
     threading.Timer(0.1, dest_browser_refresh).start()
+
+    # ── Replay historical log + show reconnect banner (web session restore) ─
+    if IS_WEB and web_session is not None:
+        buffer = list(web_session.get("copy_log_buffer", []))
+        status = web_session.get("copy_status", "idle")
+        if buffer:
+            def _replay():
+                import time
+                time.sleep(0.2)   # wait for page tree to settle
+                banner = (
+                    f"\n{'─'*60}\n"
+                    f"↩  Reconnected to existing session\n"
+                    f"   Status: {status.upper()}\n"
+                    f"   Origin:  {web_session.get('copy_origen', '')}\n"
+                    f"   Dest:    {web_session.get('copy_destino', '')}\n"
+                    f"{'─'*60}\n\n"
+                )
+                log(banner)
+                for msg in buffer:
+                    log(msg)
+                if status == "running":
+                    log("\n⚠️  Copy is still running — new output will appear below\n")
+                elif status == "done":
+                    log("\n✅  Copy finished while you were away\n")
+                    def _en():
+                        check_btn.disabled = False
+                        check_btn.update()
+                    ui_call(page, _en)
+                elif status == "error":
+                    log("\n❌  Copy ended with errors while you were away\n")
+                # Pre-fill origin/dest fields from session
+                def _prefill():
+                    if web_session.get("copy_origen"):
+                        origen_tf.value = web_session["copy_origen"]
+                    page.update()
+                ui_call(page, _prefill)
+            threading.Thread(target=_replay, daemon=True).start()
 
     return content
 
@@ -2405,6 +2666,23 @@ def main(page: ft.Page):
     page.add(body)
     page.update()
 
+    # --- WebSocket keep-alive -----------------------------------------------
+    # OOD's nginx proxy closes idle WebSocket connections (default ~60 s).
+    # Sending a Flet protocol update every 20 s resets the idle timer and
+    # prevents the Flutter client from having to reconnect (which causes the
+    # "working…" flash the user sees).
+    if IS_WEB:
+        async def _ws_heartbeat():
+            import asyncio as _aio
+            while True:
+                await _aio.sleep(20)
+                try:
+                    page.update()
+                except Exception:
+                    return
+        page.run_task(_ws_heartbeat)
+    # ------------------------------------------------------------------------
+
     def show_screen(content: ft.Control):
         body.content = content
         page.update()
@@ -2442,8 +2720,48 @@ def main(page: ft.Page):
         page.on_close = on_close
 
     def go_login():
+        # If a previous session exists for the last known user, pre-fill the
+        # username and use a special on_success that skips update/shares/minio.
+        if IS_WEB:
+            last_user = _LAST_WEB_USER[0]
+            session   = _ws_load(last_user) if last_user else None
+            if session:
+                print(f"[session] Previous session found for {last_user!r} — showing restore-login")
+                show_screen(_build_login_content(
+                    page,
+                    on_success=lambda creds: on_login_success_with_restore(creds, session),
+                    allow_custom_user=ALLOW_CUSTOM_USER,
+                    prefill_user=last_user,
+                ))
+                return
         show_screen(_build_login_content(page, on_success=on_login_success,
                                           allow_custom_user=ALLOW_CUSTOM_USER))
+
+    def on_login_success_with_restore(creds: dict, session: dict) -> None:
+        """
+        Called after password re-auth when restoring a previous web session.
+        Restores navigation state and jumps straight to copy view,
+        skipping update / shares / minio selection entirely.
+        In OOD web mode there are no CIFS mounts to restore.
+        """
+        usuario = creds["usuario"]
+        # If the user typed a different username, discard the old session
+        # and run the normal fresh flow instead.
+        if usuario != _LAST_WEB_USER[0]:
+            print(f"[session] Username changed ({_LAST_WEB_USER[0]!r} → {usuario!r}), discarding old session")
+            _ws_clear(_LAST_WEB_USER[0] or "")
+            on_login_success(creds)
+            return
+
+        print(f"[session] Restoring session for {usuario!r}")
+        state["credenciales_ldap"] = creds
+        state["servidor_minio"]    = session["servidor_minio"]
+        state["perfil_rclone"]     = session["perfil_rclone"]
+        state["endpoint"]          = session["endpoint"]
+        # mounts_activos stays [] — OOD web mode has no CIFS shares
+
+        # Jump straight to credentials-check → copy view
+        _go_credentials_or_copy()
 
     def on_login_success(creds: dict):
         state["credenciales_ldap"] = creds
@@ -2576,6 +2894,9 @@ def main(page: ft.Page):
         if not IS_WEB:
             check_rclone_installation_flet(page)
 
+        if IS_WEB and state.get("credenciales_ldap"):
+            _ws_save(state["credenciales_ldap"]["usuario"], state)
+
         _go_credentials_or_copy()
 
     def _go_credentials_or_copy():
@@ -2622,6 +2943,10 @@ def main(page: ft.Page):
     def go_copy():
         servidor     = state["servidor_minio"]
         extra_config = backend.MINIO_SERVERS.get(servidor, {}).get("IRB", {}).get("extra_rclone_config")
+        usuario      = (state.get("credenciales_ldap") or {}).get("usuario")
+        if IS_WEB and usuario:
+            _ws_save(usuario, state)
+        session = _ws_load(usuario) if (IS_WEB and usuario) else None
         show_screen(_build_copy_content(
             page,
             perfil_rclone=state["perfil_rclone"],
@@ -2631,10 +2956,15 @@ def main(page: ft.Page):
             credenciales_ldap=state["credenciales_ldap"],
             extra_config=extra_config,
             on_renew_complete=go_copy,
-            show_screen=show_screen, 
+            show_screen=show_screen,
+            web_session=session,
         ))
 
     def do_close():
+        if IS_WEB:
+            usuario = (state.get("credenciales_ldap") or {}).get("usuario")
+            if usuario:
+                _ws_clear(usuario)
         if IS_LINUX_CLUSTER and state["mounts_activos"]:
             usuario = (state["credenciales_smb"] or {}).get("usuario") or getpass.getuser()
             safe_thread(page, lambda: backend.desmontar_todos_los_shares(usuario)).start()
