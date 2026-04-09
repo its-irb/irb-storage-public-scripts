@@ -2071,7 +2071,12 @@ def _build_copy_content(
     # to every registered UI callback (current page + any future reconnect).
     def _dispatch_log(msg: str) -> None:
         if IS_WEB and web_session is not None:
-            web_session["copy_log_buffer"].append(msg)
+            buf = web_session["copy_log_buffer"]
+            buf.append(msg)
+            # Cap buffer at 5 000 entries — rclone emits ~1 line/s so this
+            # covers ~80 min; on overflow the oldest 1 000 are dropped.
+            if len(buf) > 5000:
+                del buf[:-4000]
             dead = []
             for cb in list(web_session["copy_log_callbacks"]):
                 try:
@@ -2131,8 +2136,12 @@ def _build_copy_content(
             btn.update()
         ui_call(page, _do)
 
+    _cancelling: list = [False]   # mutable flag; reset each time a new operation starts
+
     def _set_running(running: bool):
         """Show/hide cancel button and toggle copy/check buttons."""
+        if running:
+            _cancelling[0] = False   # new operation — reset cancel guard
         def _do():
             cancel_btn.visible  = running
             copy_btn.disabled   = running
@@ -2141,12 +2150,19 @@ def _build_copy_content(
         ui_call(page, _do)
 
     def do_cancel(e):
+        if _cancelling[0]:
+            return   # already cancelling — ignore duplicate clicks
         proc = _active_proceso["proc"]
         if proc and proc.poll() is None:
+            _cancelling[0] = True
             proc.terminate()
             _dispatch_log("\n⚠️  Transfer cancelled by user.\n")
             if IS_WEB and web_session is not None:
                 web_session["copy_status"] = "error"
+            # Re-enable buttons immediately — _on_copy_finish will also call
+            # _set_running(False) once the thread drains stdout, but the user
+            # should not have to wait for that.
+            _set_running(False)
         else:
             _dispatch_log("\n⚠️  No active process to cancel.\n")
 
@@ -2675,15 +2691,27 @@ def main(page: ft.Page):
     # Sending a Flet protocol update every 20 s resets the idle timer and
     # prevents the Flutter client from having to reconnect (which causes the
     # "working…" flash the user sees).
+    # A stop-event is used so the previous task exits immediately when
+    # main() is called again on reconnection, preventing task accumulation.
     if IS_WEB:
+        _hb_stop = [False]   # mutable flag accessible from the coroutine closure
+
         async def _ws_heartbeat():
             import asyncio as _aio
-            while True:
+            while not _hb_stop[0]:
                 await _aio.sleep(20)
+                if _hb_stop[0]:
+                    return
                 try:
                     page.update()
                 except Exception:
                     return
+
+        # Signal any previous heartbeat for this page object to stop,
+        # then launch a fresh one.
+        if hasattr(page, "_bifrost_hb_stop"):
+            page._bifrost_hb_stop[0] = True
+        page._bifrost_hb_stop = _hb_stop
         page.run_task(_ws_heartbeat)
     # ------------------------------------------------------------------------
 
@@ -3009,7 +3037,9 @@ if IS_WEB:
 
     WEBSOCKET_ENDPOINT = os.environ.get("FLET_WEBSOCKET_HANDLER_ENDPOINT")
     WEBPATH = os.environ.get("WEBPATH")
-    SECRET_TOKEN = os.environ.get("password")
+    SECRET_TOKEN = os.environ.get("password") or ""
+    if not SECRET_TOKEN:
+        print("[WARNING] 'password' environment variable is not set — WebSocket auth disabled", flush=True)
 
     app = FastAPI()
     flet_asgi_app  = ft.app(main,export_asgi_app=True)
@@ -3020,7 +3050,7 @@ if IS_WEB:
         if not DEV_WEB:
             token = websocket.cookies.get("bifrost_auth_token")
 
-            if token != SECRET_TOKEN:
+            if not SECRET_TOKEN or token != SECRET_TOKEN:
                 await websocket.close(code=1008)
                 return
 

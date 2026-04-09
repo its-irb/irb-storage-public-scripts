@@ -1157,6 +1157,12 @@ def ejecutar_rclone_copy(
     except Exception as e:
         log_fn(f"\n❌ Exception while executing rclone: {str(e)}")
     finally:
+        # Guarantee the subprocess is not left running if the stdout loop raised.
+        try:
+            if proceso.poll() is None:
+                proceso.terminate()
+        except Exception:
+            pass
         if expose_proceso is not None:
             expose_proceso["proc"] = None
         if on_finish:
@@ -1300,14 +1306,27 @@ def ejecutar_rclone_check(
         proceso.wait()
         if proceso.returncode == 0:
             log_fn("\n✅ Verification OK: no differences found.\n")
+        elif proceso.returncode == 1:
+            # rclone check exits 1 when differences are found — expected, not a hard error.
+            # Exit codes ≥2 indicate real failures (network, permissions, etc.).
+            log_fn(
+                "\n⚠️ Verification complete: differences found. "
+                "Check the combined report for details.\n"
+            )
         else:
             log_fn(
-                f"\n⚠️ Verification finished with code {proceso.returncode}. "
-                "Check for possible differences."
+                f"\n❌ Verification failed (exit code {proceso.returncode}). "
+                "Check for network or permissions issues.\n"
             )
     except Exception as e:
         log_fn(f"\n❌ Exception during verification: {str(e)}")
     finally:
+        # Guarantee the subprocess is not left running if the stdout loop raised.
+        try:
+            if proceso.poll() is None:
+                proceso.terminate()
+        except Exception:
+            pass
         if expose_proceso is not None:
             expose_proceso["proc"] = None
         if on_finish:
