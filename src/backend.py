@@ -692,7 +692,13 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     _s3_mount_processes.append(proceso)
 
     import time
-    time.sleep(2)
+    time.sleep(3)
+
+    # Verificar que el mount está listo antes de abrir
+    for _ in range(10):
+        if os.path.ismount(str(mount_point)):
+            break
+        time.sleep(0.5)
 
     try:
         if sistema == "Windows":
