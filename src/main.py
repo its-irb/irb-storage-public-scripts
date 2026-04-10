@@ -556,7 +556,28 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
 
     server_cards: dict[str, ft.Container] = {}
 
-    def make_server_card(srv_name: str) -> ft.Container:
+    def _update_card_styles():
+        for srv, card_c in server_cards.items():
+            is_sel = srv == selected["current"]
+            card_c.bgcolor = C_SURFACE2 if is_sel else C_SURFACE
+            card_c.border  = ft.border.all(2 if is_sel else 1,
+                                            C_PRIMARY if is_sel else C_BORDER)
+            card_c.content.controls[2].color = C_PRIMARY if is_sel else C_BORDER
+        page.update()
+
+    def on_radio_change_and_select(srv_name: str):
+        rg.value = srv_name
+        selected["current"] = srv_name
+        _update_card_styles()
+
+    def do_continue_direct(srv_name: str):
+        on_continue({
+            "servidor": srv_name,
+            "perfil":   backend.MINIO_SERVERS[srv_name]["IRB"]["profile"],
+            "endpoint": backend.MINIO_SERVERS[srv_name]["IRB"]["endpoint"],
+        })
+
+    def make_server_card(srv_name: str) -> ft.GestureDetector:
         info   = backend.MINIO_SERVERS[srv_name]["IRB"]
         is_sel = srv_name == selected["current"]
         c = ft.Container(
@@ -565,29 +586,27 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                     ft.Radio(value=srv_name, active_color=C_PRIMARY),
                     ft.Column(
                         [
-                            ft.Text(srv_name, size=14, weight=ft.FontWeight.W_600,
-                                    color=C_TEXT),
-                            ft.Text(info["endpoint"], size=11, color=C_TEXT_DIM,
-                                    font_family=FONT_MONO),
+                            ft.Text(srv_name, size=14, weight=ft.FontWeight.W_600, color=C_TEXT),
+                            ft.Text(info["endpoint"], size=11, color=C_TEXT_DIM, font_family=FONT_MONO),
                         ],
-                        spacing=2,
-                        tight=True,
-                        expand=True,
+                        spacing=2, tight=True, expand=True,
                     ),
-                    ft.Icon(ft.Icons.STORAGE,
-                            color=C_PRIMARY if is_sel else C_BORDER, size=20),
+                    ft.Icon(ft.Icons.STORAGE, color=C_PRIMARY if is_sel else C_BORDER, size=20),
                 ],
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 spacing=12,
             ),
             bgcolor=C_SURFACE2 if is_sel else C_SURFACE,
-            border=ft.border.all(2 if is_sel else 1,
-                                  C_PRIMARY if is_sel else C_BORDER),
+            border=ft.border.all(2 if is_sel else 1, C_PRIMARY if is_sel else C_BORDER),
             border_radius=8,
             padding=ft.padding.symmetric(horizontal=16, vertical=12),
         )
         server_cards[srv_name] = c
-        return c
+        return ft.GestureDetector(
+            content=c,
+            on_tap=lambda e, s=srv_name: on_radio_change_and_select(s),
+            on_double_tap=lambda e, s=srv_name: do_continue_direct(s),
+        )
 
     rg = ft.RadioGroup(
         content=ft.Column([make_server_card(s) for s in servers], spacing=8),
@@ -596,13 +615,7 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
 
     def on_radio_change(e):
         selected["current"] = rg.value
-        for srv, card_c in server_cards.items():
-            is_sel = srv == selected["current"]
-            card_c.bgcolor = C_SURFACE2 if is_sel else C_SURFACE
-            card_c.border  = ft.border.all(2 if is_sel else 1,
-                                             C_PRIMARY if is_sel else C_BORDER)
-            card_c.content.controls[2].color = C_PRIMARY if is_sel else C_BORDER
-        page.update()
+        _update_card_styles()
 
     rg.on_change = on_radio_change
 
@@ -810,10 +823,12 @@ def build_rclone_browser(
     page: ft.Page,
     perfil_rclone: str,
     on_select: Callable[[str], None],
+    on_double_tap_mount: Callable[[str], None] | None = None,
 ) -> tuple[ft.Column, Callable]:
     """
     Lista los buckets disponibles en el perfil rclone.
     Al seleccionar uno, llama on_select(bucket_name).
+    Doble click monta directamente si on_double_tap_mount está definido.
     """
     selected_state = {"bucket": None}
 
@@ -833,6 +848,11 @@ def build_rclone_browser(
         on_select(bucket_name)
         _render_buckets(selected_state.get("_all_buckets", []))
 
+    def _select_and_mount(bucket_name: str):
+        _select_bucket(bucket_name)
+        if on_double_tap_mount:
+            on_double_tap_mount(bucket_name)
+
     def _render_buckets(buckets: list):
         selected_state["_all_buckets"] = buckets
         bucket_col.controls.clear()
@@ -844,31 +864,34 @@ def build_rclone_browser(
         else:
             for bname in buckets:
                 is_sel = bname == selected_state["bucket"]
-                row = ft.Container(
-                    content=ft.Row(
-                        [
-                            ft.Icon(
-                                ft.Icons.CHECK_CIRCLE if is_sel else ft.Icons.STORAGE_OUTLINED,
-                                color=C_ACCENT if is_sel else C_PRIMARY,
-                                size=16,
-                            ),
-                            ft.Text(
-                                bname,
-                                size=13,
-                                color=C_TEXT,
-                                weight=ft.FontWeight.W_600 if is_sel else ft.FontWeight.W_400,
-                                expand=True,
-                            ),
-                        ],
-                        spacing=10,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                row = ft.GestureDetector(
+                    content=ft.Container(
+                        content=ft.Row(
+                            [
+                                ft.Icon(
+                                    ft.Icons.CHECK_CIRCLE if is_sel else ft.Icons.STORAGE_OUTLINED,
+                                    color=C_ACCENT if is_sel else C_PRIMARY,
+                                    size=16,
+                                ),
+                                ft.Text(
+                                    bname,
+                                    size=13,
+                                    color=C_TEXT,
+                                    weight=ft.FontWeight.W_600 if is_sel else ft.FontWeight.W_400,
+                                    expand=True,
+                                ),
+                            ],
+                            spacing=10,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        bgcolor=f"{C_ACCENT}18" if is_sel else C_SURFACE2,
+                        border=ft.border.all(2 if is_sel else 1, C_ACCENT if is_sel else C_BORDER),
+                        border_radius=6,
+                        padding=ft.padding.symmetric(horizontal=12, vertical=10),
+                        ink=True,
                     ),
-                    bgcolor=f"{C_ACCENT}18" if is_sel else C_SURFACE2,
-                    border=ft.border.all(2 if is_sel else 1, C_ACCENT if is_sel else C_BORDER),
-                    border_radius=6,
-                    padding=ft.padding.symmetric(horizontal=12, vertical=10),
-                    on_click=lambda e, b=bname: _select_bucket(b),
-                    ink=True,
+                    on_tap=lambda e, b=bname: _select_bucket(b),
+                    on_double_tap=lambda e, b=bname: _select_and_mount(b),
                 )
                 bucket_col.controls.append(row)
 
@@ -1282,21 +1305,12 @@ def _build_mount_bucket(
             ruta_label.value = f"→ {perfil_rclone}: (select a bucket above)"
             ruta_label.color = C_WARNING
 
-    dest_browser, dest_browser_refresh = build_rclone_browser(
-        page, perfil_rclone, on_select=on_browser_select
-    )
-    dest_browser_col = ft.Column(
-        [field_label(f"Bucket in {perfil_rclone}"), dest_browser],
-        spacing=4,
-        tight=True,
-    )
-
     # ── Montar bucket ─────────────────────────────────────────────────────
     mount_btn    = btn_secondary("⊞  Mount bucket")
     mount_status = ft.Text("", size=12, color=C_TEXT_DIM, visible=False)
 
-    def do_mount(e):
-        ruta = _dest_path["value"].strip()
+    def do_mount(e, ruta: str | None = None):
+        ruta = ruta or _dest_path["value"].strip()
         if not ruta:
             show_dialog(page, "Error", "Select a bucket first.", C_ERROR)
             return
@@ -1336,6 +1350,17 @@ def _build_mount_bucket(
         safe_thread(page, _do).start()
 
     mount_btn.on_click = do_mount
+
+    dest_browser, dest_browser_refresh = build_rclone_browser(
+        page, perfil_rclone,
+        on_select=on_browser_select,
+        on_double_tap_mount=lambda path: do_mount(None, path),
+    )
+    dest_browser_col = ft.Column(
+        [field_label(f"Bucket in {perfil_rclone}"), dest_browser],
+        spacing=4,
+        tight=True,
+    )
 
     # ── Layout ────────────────────────────────────────────────────────────
     content = ft.Column(
