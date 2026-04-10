@@ -239,12 +239,10 @@ jobs:
         uses: actions/download-artifact@v4.3.0
         with:
           path: dist
+          merge-multiple: true
 
-      - name: Aplanar dist/ (mover archivos a la raíz)
-        run: |
-          find dist -mindepth 2 -type d -name "*.app" -exec mv {} dist/ \;
-          find dist -mindepth 2 -type f -exec mv {} dist/ \;
-          ls -lah dist/
+      - name: Verificar dist
+        run: ls -lah dist/
 
       - name: Limpiar nombre de rama
         id: clean_branch
