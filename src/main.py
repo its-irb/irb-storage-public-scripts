@@ -2083,51 +2083,56 @@ def _build_copy_content(
     # cause of the "checking for updates" hang when reconnecting mid-transfer.
     import time as _time
 
+    # Lock to prevent concurrent execution of the flush from both the
+    # event-handler thread and a threading.Timer callback simultaneously.
+    _dispatch_lock = threading.Lock()
+
     def _flush_log_callbacks() -> None:
         """Push all pending lines to live UI callbacks in one batched call."""
-        if web_session is None:
-            return
-        pending = web_session.get("_dispatch_pending")
-        if not pending:
-            return
-        web_session["_dispatch_pending"] = []
-        web_session["_dispatch_last"]    = _time.monotonic()
-        web_session["_dispatch_timer"]   = None
-        combined = "".join(pending)
-        dead = []
-        for cb in list(web_session.get("copy_log_callbacks", [])):
-            try:
-                cb(combined)   # one call → one page.update()
-            except Exception:
-                dead.append(cb)
-        for cb in dead:
-            try:
-                web_session["copy_log_callbacks"].remove(cb)
-            except ValueError:
-                pass
+        with _dispatch_lock:
+            if web_session is None:
+                return
+            pending = web_session.get("_dispatch_pending")
+            if not pending:
+                return
+            web_session["_dispatch_pending"] = []
+            web_session["_dispatch_last"]    = _time.monotonic()
+            web_session["_dispatch_timer"]   = None
+            combined = "".join(pending)
+            dead = []
+            for cb in list(web_session.get("copy_log_callbacks", [])):
+                try:
+                    cb(combined)   # one call → one page.update()
+                except Exception:
+                    dead.append(cb)
+            for cb in dead:
+                try:
+                    web_session["copy_log_callbacks"].remove(cb)
+                except ValueError:
+                    pass
 
     def _dispatch_log(msg: str) -> None:
         if IS_WEB and web_session is not None:
-            buf = web_session["copy_log_buffer"]
-            buf.append(msg)
-            # Cap buffer at 5 000 entries — on overflow drop the oldest 1 000.
-            if len(buf) > 5000:
-                del buf[:-4000]
+            with _dispatch_lock:
+                buf = web_session["copy_log_buffer"]
+                buf.append(msg)
+                # Cap buffer at 5 000 entries — on overflow drop the oldest 1 000.
+                if len(buf) > 5000:
+                    del buf[:-4000]
 
-            web_session.setdefault("_dispatch_pending", []).append(msg)
+                web_session.setdefault("_dispatch_pending", []).append(msg)
 
-            now  = _time.monotonic()
-            last = web_session.get("_dispatch_last", 0.0)
+                now  = _time.monotonic()
+                last = web_session.get("_dispatch_last", 0.0)
 
+            # Schedule / flush outside the lock (cb() calls page.run_thread
+            # which must not be called while holding _dispatch_lock).
             if now - last >= 0.15:
-                # ≥150 ms since last flush — push immediately
                 old_timer = web_session.get("_dispatch_timer")
                 if old_timer:
                     old_timer.cancel()
                 _flush_log_callbacks()
             elif not web_session.get("_dispatch_timer"):
-                # Still within the throttle window — schedule a deferred flush
-                # so the tail of a burst is never silently dropped.
                 t = threading.Timer(0.2, _flush_log_callbacks)
                 t.daemon = True
                 t.start()
@@ -2203,34 +2208,19 @@ def _build_copy_content(
             _dispatch_log("\n⚠️  Transfer cancelled by user.\n")
             if IS_WEB and web_session is not None:
                 web_session["copy_status"] = "error"
-            # Re-enable buttons immediately — _on_copy_finish will also call
-            # _set_running(False) once the thread drains stdout, but the user
-            # should not have to wait for that.
-            _set_running(False)
+            # Update buttons directly here — we are already in the Flet event
+            # handler context so page.update() is safe to call without
+            # spawning a new thread (which could race with the log-dispatch
+            # timer thread and cause concurrent page.update() calls inside
+            # Flet's control-tree walker).
+            cancel_btn.visible = False
+            copy_btn.disabled  = False
+            check_btn.disabled = False
+            page.update()
         else:
             _dispatch_log("\n⚠️  No active process to cancel.\n")
 
     cancel_btn.on_click = do_cancel
-
-    # ── Cross-page running-state dispatcher (web only) ────────────────────
-    # Background finish callbacks (_on_copy_finish / _on_check_finish) are
-    # closures captured at the time copy/check was started.  If the user
-    # closes and reopens the tab, a NEW _set_running is created for the new
-    # page's buttons — but the OLD closure still holds the original one.
-    # We store the *current* page's _set_running in the session so that
-    # _dispatch_running always reaches the live page, not the dead one.
-    if IS_WEB and web_session is not None:
-        web_session["_running_callbacks"] = [_set_running]  # replace, not append
-
-    def _dispatch_running(running: bool) -> None:
-        if IS_WEB and web_session is not None:
-            for cb in list(web_session.get("_running_callbacks", [])):
-                try:
-                    cb(running)
-                except Exception:
-                    pass
-        else:
-            _set_running(running)
 
     # ── FilePicker (solo desktop) ──────────────────────────────────────────
     if not IS_WEB:
@@ -2370,7 +2360,7 @@ def _build_copy_content(
 
         def _on_copy_finish():
             _active_proceso["proc"] = None
-            _dispatch_running(False)
+            _set_running(False)
             if IS_WEB and web_session is not None:
                 if web_session["copy_status"] == "running":
                     web_session["copy_status"] = "error"
@@ -2414,7 +2404,7 @@ def _build_copy_content(
 
         def _on_check_finish():
             _active_proceso["proc"] = None
-            _dispatch_running(False)
+            _set_running(False)
             if IS_WEB and web_session is not None:
                 if web_session.get("copy_status") == "running":
                     web_session["copy_status"] = "done"
@@ -2646,6 +2636,18 @@ def _build_copy_content(
             # Always restore cancel button and form fields regardless of log
             if status == "running":
                 _set_running(True)
+                # The finish callback (_on_copy/check_finish) was created on
+                # the PREVIOUS page and calls the OLD _set_running, so it
+                # won't hide the cancel button on THIS (new) page. Poll until
+                # the process ends and update the new page's buttons then.
+                def _watch_proc_end():
+                    import time as _t
+                    while True:
+                        _t.sleep(0.5)
+                        if _active_proceso.get("proc") is None:
+                            _set_running(False)
+                            return
+                threading.Thread(target=_watch_proc_end, daemon=True).start()
 
             def _prefill():
                 if _snap_origen:
