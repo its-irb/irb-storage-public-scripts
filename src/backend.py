@@ -1134,6 +1134,13 @@ def ejecutar_rclone_copy(
     comando_str = " ".join(shlex.quote(arg) for arg in comando)
     log_fn(f"\n🧾 Full command:\n{comando_str}\n\n")
 
+    # Run rclone at a lower CPU priority so the Hypercorn/Python server
+    # process is always schedulable even when rclone saturates all cores.
+    # nice(10) means the OS will prefer processes at niceness < 10 (e.g.
+    # Hypercorn at niceness 0) when CPU is contested. Linux/macOS only;
+    # preexec_fn is silently ignored on Windows (but we also gate it).
+    _preexec = (lambda: os.nice(10)) if sys_platform != "win32" else None
+
     try:
         proceso = subprocess.Popen(
             comando,
@@ -1141,6 +1148,7 @@ def ejecutar_rclone_copy(
             stderr=subprocess.STDOUT,
             encoding="utf-8",
             errors="replace",
+            preexec_fn=_preexec,
             **_subprocess_kwargs(),
         )
         if expose_proceso is not None:
@@ -1290,6 +1298,8 @@ def ejecutar_rclone_check(
     comando_str = " ".join(shlex.quote(arg) for arg in comando)
     log_fn(f"\n🧾 Full command:\n{comando_str}\n\n")
 
+    _preexec = (lambda: os.nice(10)) if sys_platform != "win32" else None
+
     try:
         proceso = subprocess.Popen(
             comando,
@@ -1297,6 +1307,7 @@ def ejecutar_rclone_check(
             stderr=subprocess.STDOUT,
             encoding="utf-8",
             errors="replace",
+            preexec_fn=_preexec,
             **_subprocess_kwargs(),
         )
         if expose_proceso is not None:

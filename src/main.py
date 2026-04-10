@@ -2584,8 +2584,15 @@ def _build_copy_content(
         def _replay():
             import time
             time.sleep(0.2)   # wait for page tree to settle
-            # Re-read status after sleep in case the process finished during reconnect
+            # Re-read status after sleep in case the process finished during reconnect.
             status = web_session.get("copy_status", _snap_status)
+            # Secondary check: if copy_proceso["proc"] is already None the
+            # backend thread has terminated rclone even if copy_status hasn't
+            # been flipped yet (pipe drain can lag behind process exit).
+            if status == "running":
+                proc_alive = web_session.get("copy_proceso", {}).get("proc") is not None
+                if not proc_alive:
+                    status = "done"
             if buffer:
                 banner = (
                     f"\n{'─'*60}\n"
