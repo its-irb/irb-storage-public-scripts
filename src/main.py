@@ -112,8 +112,8 @@ C_OVERLAY  = "#1C2027"
 FONT_MONO  = "Courier New"
 
 
-def btn_primary(text: str, on_click=None, width=None, disabled=False) -> ft.ElevatedButton:
-    return ft.ElevatedButton(
+def btn_primary(text: str, on_click=None, width=None, disabled=False) -> ft.Button:
+    return ft.Button(
         content=ft.Text(text),
         on_click=on_click,
         disabled=disabled,
@@ -129,7 +129,7 @@ def btn_primary(text: str, on_click=None, width=None, disabled=False) -> ft.Elev
                 ft.ControlState.DISABLED: C_TEXT_DIM,
             },
             shape=ft.RoundedRectangleBorder(radius=6),
-            padding=ft.padding.symmetric(horizontal=20, vertical=12),
+            padding=ft.Padding.symmetric(horizontal=20, vertical=12),
         ),
     )
 
@@ -143,7 +143,7 @@ def btn_secondary(text: str, on_click=None, width=None) -> ft.OutlinedButton:
             color=C_TEXT,
             side=ft.BorderSide(1, C_BORDER),
             shape=ft.RoundedRectangleBorder(radius=6),
-            padding=ft.padding.symmetric(horizontal=20, vertical=12),
+            padding=ft.Padding.symmetric(horizontal=20, vertical=12),
         ),
     )
 
@@ -152,7 +152,7 @@ def card(content: ft.Control, padding=20) -> ft.Container:
     return ft.Container(
         content=content,
         bgcolor=C_SURFACE,
-        border=ft.border.all(1, C_BORDER),
+        border=ft.Border.all(1, C_BORDER),
         border_radius=10,
         padding=padding,
     )
@@ -199,7 +199,7 @@ def styled_field(
         color=C_TEXT,
         hint_style=ft.TextStyle(color=C_TEXT_DIM),
         border_radius=6,
-        content_padding=ft.padding.symmetric(horizontal=12, vertical=10),
+        content_padding=ft.Padding.symmetric(horizontal=12, vertical=10),
         text_size=13,
     )
     col = ft.Column([field_label(label), tf], spacing=4, tight=True)
@@ -210,9 +210,9 @@ def status_badge(text: str, color: str) -> ft.Container:
     return ft.Container(
         content=ft.Text(text, size=11, color=color, weight=ft.FontWeight.W_600),
         bgcolor=f"{color}22",
-        border=ft.border.all(1, f"{color}55"),
+        border=ft.Border.all(1, f"{color}55"),
         border_radius=20,
-        padding=ft.padding.symmetric(horizontal=10, vertical=4),
+        padding=ft.Padding.symmetric(horizontal=10, vertical=4),
     )
 
 
@@ -252,9 +252,9 @@ def build_header(subtitle: str = "") -> ft.Container:
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
         bgcolor=C_SURFACE,
-        border=ft.border.only(bottom=ft.BorderSide(1, C_BORDER)),
-        padding=ft.padding.symmetric(horizontal=24, vertical=16),
-        margin=ft.margin.only(bottom=24),
+        border=ft.Border.only(bottom=ft.BorderSide(1, C_BORDER)),
+        padding=ft.Padding.symmetric(horizontal=24, vertical=16),
+        margin=ft.Margin.only(bottom=24),
     )
 
 
@@ -530,7 +530,7 @@ def _build_login_content(
                             width=360,
                         ),
                         bgcolor=C_SURFACE,
-                        border=ft.border.all(1, C_BORDER),
+                        border=ft.Border.all(1, C_BORDER),
                         border_radius=12,
                         padding=36,
                     )
@@ -560,7 +560,7 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
         for srv, card_c in server_cards.items():
             is_sel = srv == selected["current"]
             card_c.bgcolor = C_SURFACE2 if is_sel else C_SURFACE
-            card_c.border  = ft.border.all(2 if is_sel else 1,
+            card_c.border  = ft.Border.all(2 if is_sel else 1,
                                             C_PRIMARY if is_sel else C_BORDER)
             card_c.content.controls[2].color = C_PRIMARY if is_sel else C_BORDER
         page.update()
@@ -597,9 +597,9 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                 spacing=12,
             ),
             bgcolor=C_SURFACE2 if is_sel else C_SURFACE,
-            border=ft.border.all(2 if is_sel else 1, C_PRIMARY if is_sel else C_BORDER),
+            border=ft.Border.all(2 if is_sel else 1, C_PRIMARY if is_sel else C_BORDER),
             border_radius=8,
-            padding=ft.padding.symmetric(horizontal=16, vertical=12),
+            padding=ft.Padding.symmetric(horizontal=16, vertical=12),
         )
         server_cards[srv_name] = c
         return ft.GestureDetector(
@@ -645,7 +645,7 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                     spacing=0,
                 ),
                 expand=True,
-                padding=ft.padding.symmetric(horizontal=24, vertical=8),
+                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
             ),
         ],
         expand=True,
@@ -672,12 +672,12 @@ def _build_credentials_content(
         expand=True,
         auto_scroll=True,
         spacing=0,
-        padding=ft.padding.all(12),
+        padding=ft.Padding.all(12),
     )
     log_container = ft.Container(
         content=log_list,
         bgcolor=C_BG,
-        border=ft.border.all(1, C_BORDER),
+        border=ft.Border.all(1, C_BORDER),
         border_radius=6,
         height=220,
     )
@@ -800,7 +800,7 @@ def _build_credentials_content(
                     spacing=0,
                 ),
                 expand=True,
-                padding=ft.padding.symmetric(horizontal=24, vertical=8),
+                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
             ),
         ],
         expand=True,
@@ -885,9 +885,9 @@ def build_rclone_browser(
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
                         bgcolor=f"{C_ACCENT}18" if is_sel else C_SURFACE2,
-                        border=ft.border.all(2 if is_sel else 1, C_ACCENT if is_sel else C_BORDER),
+                        border=ft.Border.all(2 if is_sel else 1, C_ACCENT if is_sel else C_BORDER),
                         border_radius=6,
-                        padding=ft.padding.symmetric(horizontal=12, vertical=10),
+                        padding=ft.Padding.symmetric(horizontal=12, vertical=10),
                         ink=True,
                     ),
                     on_tap=lambda e, b=bname: _select_bucket(b),
@@ -931,10 +931,10 @@ def build_rclone_browser(
                     spacing=0,
                 ),
                 bgcolor=C_SURFACE,
-                border=ft.border.all(1, C_BORDER),
+                border=ft.Border.all(1, C_BORDER),
                 border_radius=6,
                 height=220,
-                padding=ft.padding.all(8),
+                padding=ft.Padding.all(8),
             ),
         ],
         spacing=6,
@@ -976,9 +976,9 @@ def _build_mount_bucket(
     expiry_badge = ft.Container(
         content=ft.Text(expiry_text, size=11, color=color_badge, weight=ft.FontWeight.W_600),
         bgcolor=f"{color_badge}22",
-        border=ft.border.all(1, f"{color_badge}55"),
+        border=ft.Border.all(1, f"{color_badge}55"),
         border_radius=20,
-        padding=ft.padding.symmetric(horizontal=10, vertical=4),
+        padding=ft.Padding.symmetric(horizontal=10, vertical=4),
     )
 
     def show_renew_dialog(e):
@@ -989,7 +989,7 @@ def _build_mount_bucket(
             focused_border_color=C_PRIMARY,
             color=C_TEXT,
             border_radius=6,
-            content_padding=ft.padding.symmetric(horizontal=12, vertical=10),
+            content_padding=ft.Padding.symmetric(horizontal=12, vertical=10),
             text_size=13,
             width=80,
             keyboard_type=ft.KeyboardType.NUMBER,
@@ -1090,9 +1090,9 @@ def _build_mount_bucket(
                 spacing=6,
             ),
             bgcolor=f"{C_ACCENT}18",
-            border=ft.border.all(1, f"{C_ACCENT}44"),
+            border=ft.Border.all(1, f"{C_ACCENT}44"),
             border_radius=6,
-            padding=ft.padding.symmetric(horizontal=10, vertical=4),
+            padding=ft.Padding.symmetric(horizontal=10, vertical=4),
             visible=False,
         )
 
@@ -1371,8 +1371,8 @@ def _build_mount_bucket(
                     [expiry_badge, ft.Container(expand=True), renew_btn],
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                padding=ft.padding.symmetric(horizontal=24, vertical=8),
-                margin=ft.margin.only(bottom=4),
+                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
+                margin=ft.Margin.only(bottom=4),
             ),
             ft.Container(
                 content=ft.Column(
@@ -1401,7 +1401,7 @@ def _build_mount_bucket(
                     ],
                     spacing=0,
                 ),
-                padding=ft.padding.symmetric(horizontal=24, vertical=8),
+                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
             ),
         ],
         spacing=0,
