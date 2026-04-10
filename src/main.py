@@ -2340,9 +2340,18 @@ def _build_copy_content(
         _set_running(True)
         _dispatch_log(f"\n🔍 Verifying: rclone check {origen} → {perfil_rclone}:/{destino}\n\n")
 
+        # Persist state so a reconnecting session can restore form + cancel btn
+        if IS_WEB and web_session is not None:
+            web_session["copy_status"]  = "running"
+            web_session["copy_origen"]  = origen
+            web_session["copy_destino"] = destino
+
         def _on_check_finish():
             _active_proceso["proc"] = None
             _set_running(False)
+            if IS_WEB and web_session is not None:
+                if web_session.get("copy_status") == "running":
+                    web_session["copy_status"] = "done"
             if IS_WEB:
                 _autosave_log()
 
@@ -2518,11 +2527,13 @@ def _build_copy_content(
     # ── Replay historical log + show reconnect banner (web session restore) ─
     if IS_WEB and web_session is not None:
         buffer = list(web_session.get("copy_log_buffer", []))
-        status = web_session.get("copy_status", "idle")
-        if buffer:
-            def _replay():
-                import time
-                time.sleep(0.2)   # wait for page tree to settle
+
+        def _replay():
+            import time
+            time.sleep(0.2)   # wait for page tree to settle
+            # Re-read status after sleep to reflect any change during reconnect
+            status = web_session.get("copy_status", "idle")
+            if buffer:
                 banner = (
                     f"\n{'─'*60}\n"
                     f"↩  Reconnected to existing session\n"
@@ -2535,27 +2546,31 @@ def _build_copy_content(
                 for msg in buffer:
                     log(msg)
                 if status == "running":
-                    log("\n⚠️  Copy is still running — new output will appear below\n")
-                    _set_running(True)  # restore cancel button
+                    log("\n⚠️  Process is still running — new output will appear below\n")
                 elif status == "done":
-                    log("\n✅  Copy finished while you were away\n")
+                    log("\n✅  Process finished while you were away\n")
                 elif status == "error":
-                    log("\n❌  Copy ended with errors while you were away\n")
-                # Pre-fill origin/dest fields from session
-                def _prefill():
-                    if web_session.get("copy_origen"):
-                        origen_tf.value = web_session["copy_origen"]
-                    saved_dest = web_session.get("copy_destino", "")
-                    if saved_dest:
-                        _dest_path["value"] = saved_dest
-                        ruta_label.value = (
-                            f"→ All files from source will be copied into: "
-                            f"{perfil_rclone}:{saved_dest}"
-                        )
-                        ruta_label.color = C_ACCENT
-                    page.update()
-                ui_call(page, _prefill)
-            threading.Thread(target=_replay, daemon=True).start()
+                    log("\n❌  Process ended with errors while you were away\n")
+
+            # Always restore cancel button and form fields regardless of log
+            if status == "running":
+                _set_running(True)
+
+            def _prefill():
+                if web_session.get("copy_origen"):
+                    origen_tf.value = web_session["copy_origen"]
+                saved_dest = web_session.get("copy_destino", "")
+                if saved_dest:
+                    _dest_path["value"] = saved_dest
+                    ruta_label.value = (
+                        f"→ All files from source will be copied into: "
+                        f"{perfil_rclone}:{saved_dest}"
+                    )
+                    ruta_label.color = C_ACCENT
+                page.update()
+            ui_call(page, _prefill)
+
+        threading.Thread(target=_replay, daemon=True).start()
 
     return content
 
