@@ -2212,6 +2212,26 @@ def _build_copy_content(
 
     cancel_btn.on_click = do_cancel
 
+    # ── Cross-page running-state dispatcher (web only) ────────────────────
+    # Background finish callbacks (_on_copy_finish / _on_check_finish) are
+    # closures captured at the time copy/check was started.  If the user
+    # closes and reopens the tab, a NEW _set_running is created for the new
+    # page's buttons — but the OLD closure still holds the original one.
+    # We store the *current* page's _set_running in the session so that
+    # _dispatch_running always reaches the live page, not the dead one.
+    if IS_WEB and web_session is not None:
+        web_session["_running_callbacks"] = [_set_running]  # replace, not append
+
+    def _dispatch_running(running: bool) -> None:
+        if IS_WEB and web_session is not None:
+            for cb in list(web_session.get("_running_callbacks", [])):
+                try:
+                    cb(running)
+                except Exception:
+                    pass
+        else:
+            _set_running(running)
+
     # ── FilePicker (solo desktop) ──────────────────────────────────────────
     if not IS_WEB:
         file_picker   = ft.FilePicker()
@@ -2350,7 +2370,7 @@ def _build_copy_content(
 
         def _on_copy_finish():
             _active_proceso["proc"] = None
-            _set_running(False)
+            _dispatch_running(False)
             if IS_WEB and web_session is not None:
                 if web_session["copy_status"] == "running":
                     web_session["copy_status"] = "error"
@@ -2394,7 +2414,7 @@ def _build_copy_content(
 
         def _on_check_finish():
             _active_proceso["proc"] = None
-            _set_running(False)
+            _dispatch_running(False)
             if IS_WEB and web_session is not None:
                 if web_session.get("copy_status") == "running":
                     web_session["copy_status"] = "done"
@@ -2586,13 +2606,17 @@ def _build_copy_content(
             time.sleep(0.2)   # wait for page tree to settle
             # Re-read status after sleep in case the process finished during reconnect.
             status = web_session.get("copy_status", _snap_status)
-            # Secondary check: if copy_proceso["proc"] is already None the
-            # backend thread has terminated rclone even if copy_status hasn't
-            # been flipped yet (pipe drain can lag behind process exit).
-            if status == "running":
-                proc_alive = web_session.get("copy_proceso", {}).get("proc") is not None
-                if not proc_alive:
-                    status = "done"
+            # Check whether rclone is actually alive, regardless of copy_status.
+            # copy_status can be "error" after the user clicked Cancel while the
+            # process is still winding down (SIGTERM sent, proc not yet exited).
+            # It can also be "running" while proc was already None (race between
+            # the backend finally block and the copy_status update).
+            _proc = web_session.get("copy_proceso", {}).get("proc")
+            proc_alive = _proc is not None and _proc.poll() is None
+            if proc_alive:
+                status = "running"   # override — process is actually alive
+            elif status == "running":
+                status = "done"      # proc cleared before copy_status was updated
             if buffer:
                 banner = (
                     f"\n{'─'*60}\n"
