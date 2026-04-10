@@ -255,7 +255,6 @@ def divider() -> ft.Divider:
 # _WEB_SESSIONS[username] holds every piece of navigation state that can be
 # restored without the user's password:
 #   - servidor_minio, perfil_rclone, endpoint, extra_config
-#   - mounts_activos, usar_privilegios, credenciales_smb_usuario
 #   - copy_log_buffer  — accumulated log lines from a running/finished copy
 #   - copy_status      — "idle" | "running" | "done" | "error"
 #   - copy_proceso     — the live subprocess.Popen object (or None)
@@ -310,6 +309,8 @@ def _ws_load(usuario: str) -> dict | None:
 
 def _ws_clear(usuario: str) -> None:
     """Remove the session for *usuario*."""
+    # Clear callbacks first so they don't fire on a dead page object after logout.
+    _WEB_SESSIONS.get(usuario, {}).get("copy_log_callbacks", []).clear()
     _WEB_SESSIONS.pop(usuario, None)
     if _LAST_WEB_USER[0] == usuario:
         _LAST_WEB_USER[0] = None
@@ -2246,8 +2247,11 @@ def _build_copy_content(
 
     def on_browser_select(path: str):
         _dest_path["value"] = path
-        # Persist immediately so the selection survives a tab close
-        if IS_WEB and web_session is not None:
+        # Persist non-empty selections to session.
+        # Do NOT wipe copy_destino on empty path: the browser refresh timer
+        # calls on_select("") on load — that must not overwrite a destination
+        # the user already selected.
+        if IS_WEB and web_session is not None and path:
             web_session["copy_destino"] = path
         if path:
             display = f"{perfil_rclone}:{path}"
@@ -2300,7 +2304,6 @@ def _build_copy_content(
         def _on_copy_success():
             if IS_WEB and web_session is not None:
                 web_session["copy_status"] = "done"
-            enable_btn(check_btn)
 
         def _on_copy_finish():
             _active_proceso["proc"] = None
@@ -2527,19 +2530,26 @@ def _build_copy_content(
     # ── Replay historical log + show reconnect banner (web session restore) ─
     if IS_WEB and web_session is not None:
         buffer = list(web_session.get("copy_log_buffer", []))
+        # Snapshot origin/dest/status NOW, before the browser-refresh timer
+        # fires at t=0.1s and calls on_browser_select(""). Without the `and path`
+        # guard in on_browser_select that call would wipe copy_destino; with it,
+        # it doesn't — but we snapshot here as an extra safety net.
+        _snap_origen  = web_session.get("copy_origen", "")
+        _snap_destino = web_session.get("copy_destino", "")
+        _snap_status  = web_session.get("copy_status", "idle")
 
         def _replay():
             import time
             time.sleep(0.2)   # wait for page tree to settle
-            # Re-read status after sleep to reflect any change during reconnect
-            status = web_session.get("copy_status", "idle")
+            # Re-read status after sleep in case the process finished during reconnect
+            status = web_session.get("copy_status", _snap_status)
             if buffer:
                 banner = (
                     f"\n{'─'*60}\n"
                     f"↩  Reconnected to existing session\n"
                     f"   Status: {status.upper()}\n"
-                    f"   Origin:  {web_session.get('copy_origen', '')}\n"
-                    f"   Dest:    {web_session.get('copy_destino', '')}\n"
+                    f"   Origin:  {_snap_origen}\n"
+                    f"   Dest:    {_snap_destino}\n"
                     f"{'─'*60}\n\n"
                 )
                 log(banner)
@@ -2557,14 +2567,13 @@ def _build_copy_content(
                 _set_running(True)
 
             def _prefill():
-                if web_session.get("copy_origen"):
-                    origen_tf.value = web_session["copy_origen"]
-                saved_dest = web_session.get("copy_destino", "")
-                if saved_dest:
-                    _dest_path["value"] = saved_dest
+                if _snap_origen:
+                    origen_tf.value = _snap_origen
+                if _snap_destino:
+                    _dest_path["value"] = _snap_destino
                     ruta_label.value = (
                         f"→ All files from source will be copied into: "
-                        f"{perfil_rclone}:{saved_dest}"
+                        f"{perfil_rclone}:{_snap_destino}"
                     )
                     ruta_label.color = C_ACCENT
                 page.update()
