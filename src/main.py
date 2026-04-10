@@ -2246,6 +2246,9 @@ def _build_copy_content(
 
     def on_browser_select(path: str):
         _dest_path["value"] = path
+        # Persist immediately so the selection survives a tab close
+        if IS_WEB and web_session is not None:
+            web_session["copy_destino"] = path
         if path:
             display = f"{perfil_rclone}:{path}"
             ruta_label.value = f"→ All files from source will be copied into: {display}"
@@ -2542,6 +2545,14 @@ def _build_copy_content(
                 def _prefill():
                     if web_session.get("copy_origen"):
                         origen_tf.value = web_session["copy_origen"]
+                    saved_dest = web_session.get("copy_destino", "")
+                    if saved_dest:
+                        _dest_path["value"] = saved_dest
+                        ruta_label.value = (
+                            f"→ All files from source will be copied into: "
+                            f"{perfil_rclone}:{saved_dest}"
+                        )
+                        ruta_label.color = C_ACCENT
                     page.update()
                 ui_call(page, _prefill)
             threading.Thread(target=_replay, daemon=True).start()
