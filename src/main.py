@@ -309,8 +309,13 @@ def _ws_load(usuario: str) -> dict | None:
 
 def _ws_clear(usuario: str) -> None:
     """Remove the session for *usuario*."""
+    session = _WEB_SESSIONS.get(usuario, {})
     # Clear callbacks first so they don't fire on a dead page object after logout.
-    _WEB_SESSIONS.get(usuario, {}).get("copy_log_callbacks", []).clear()
+    session.get("copy_log_callbacks", []).clear()
+    # Cancel any pending throttle timer so it doesn't fire on a dead session.
+    t = session.get("_dispatch_timer")
+    if t:
+        t.cancel()
     _WEB_SESSIONS.pop(usuario, None)
     if _LAST_WEB_USER[0] == usuario:
         _LAST_WEB_USER[0] = None
@@ -2070,25 +2075,63 @@ def _build_copy_content(
     # ── Session-level log dispatcher (web only) ───────────────────────────
     # _dispatch_log accumulates every line in the session buffer AND forwards
     # to every registered UI callback (current page + any future reconnect).
+    #
+    # Throttling: instead of calling page.update() for every rclone output
+    # line (up to 15+/s with 8 parallel transfers), we batch pending lines and
+    # flush to callbacks at most every 150 ms. This keeps the Hypercorn asyncio
+    # event loop free to accept new WebSocket connections, which was the root
+    # cause of the "checking for updates" hang when reconnecting mid-transfer.
+    import time as _time
+
+    def _flush_log_callbacks() -> None:
+        """Push all pending lines to live UI callbacks in one batched call."""
+        if web_session is None:
+            return
+        pending = web_session.get("_dispatch_pending")
+        if not pending:
+            return
+        web_session["_dispatch_pending"] = []
+        web_session["_dispatch_last"]    = _time.monotonic()
+        web_session["_dispatch_timer"]   = None
+        combined = "".join(pending)
+        dead = []
+        for cb in list(web_session.get("copy_log_callbacks", [])):
+            try:
+                cb(combined)   # one call → one page.update()
+            except Exception:
+                dead.append(cb)
+        for cb in dead:
+            try:
+                web_session["copy_log_callbacks"].remove(cb)
+            except ValueError:
+                pass
+
     def _dispatch_log(msg: str) -> None:
         if IS_WEB and web_session is not None:
             buf = web_session["copy_log_buffer"]
             buf.append(msg)
-            # Cap buffer at 5 000 entries — rclone emits ~1 line/s so this
-            # covers ~80 min; on overflow the oldest 1 000 are dropped.
+            # Cap buffer at 5 000 entries — on overflow drop the oldest 1 000.
             if len(buf) > 5000:
                 del buf[:-4000]
-            dead = []
-            for cb in list(web_session["copy_log_callbacks"]):
-                try:
-                    cb(msg)
-                except Exception:
-                    dead.append(cb)
-            for cb in dead:
-                try:
-                    web_session["copy_log_callbacks"].remove(cb)
-                except ValueError:
-                    pass
+
+            web_session.setdefault("_dispatch_pending", []).append(msg)
+
+            now  = _time.monotonic()
+            last = web_session.get("_dispatch_last", 0.0)
+
+            if now - last >= 0.15:
+                # ≥150 ms since last flush — push immediately
+                old_timer = web_session.get("_dispatch_timer")
+                if old_timer:
+                    old_timer.cancel()
+                _flush_log_callbacks()
+            elif not web_session.get("_dispatch_timer"):
+                # Still within the throttle window — schedule a deferred flush
+                # so the tail of a burst is never silently dropped.
+                t = threading.Timer(0.2, _flush_log_callbacks)
+                t.daemon = True
+                t.start()
+                web_session["_dispatch_timer"] = t
         else:
             log(msg)
 
@@ -2553,8 +2596,15 @@ def _build_copy_content(
                     f"{'─'*60}\n\n"
                 )
                 log(banner)
-                for msg in buffer:
-                    log(msg)
+                # Batch all buffered lines into ONE log() call to avoid
+                # flooding the event loop with thousands of page.update()
+                # calls on reconnect (which caused the "checking for updates"
+                # hang). Display only the last 200 lines; anything older is
+                # already saved in ~/bifrost-logs/.
+                MAX_REPLAY = 200
+                if len(buffer) > MAX_REPLAY:
+                    log(f"[… {len(buffer) - MAX_REPLAY} earlier lines omitted — see ~/bifrost-logs/ for the full log …]\n")
+                log("".join(buffer[-MAX_REPLAY:]))
                 if status == "running":
                     log("\n⚠️  Process is still running — new output will appear below\n")
                 elif status == "done":
