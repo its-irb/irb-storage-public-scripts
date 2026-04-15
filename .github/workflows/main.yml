@@ -19,7 +19,6 @@ env:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # macOS — flet build macos → .app
-# Se construye para las dos apps en paralelo con matrix
 # ─────────────────────────────────────────────────────────────────────────────
 jobs:
   build-macos:
@@ -173,13 +172,16 @@ jobs:
           path: ${{ matrix.app }}/installer/*.exe
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Rocky Linux — PyInstaller onefile (solo bifrost-transfer, para el cluster)
+  # Rocky Linux — PyInstaller onefile para las dos apps
   # flet build linux no soporta onefile
   # ─────────────────────────────────────────────────────────────────────────────
   build-rocky:
     runs-on: ubuntu-latest
     container:
       image: rockylinux:9
+    strategy:
+      matrix:
+        app: [bifrost-transfer, bifrost-mount]
     steps:
       - name: Instalar dependencias sistema
         run: |
@@ -192,17 +194,17 @@ jobs:
 
       - name: Instalar dependencias Python
         run: |
-          pip install -r bifrost-transfer/src/pip-requirements.txt
-          pip install pyinstaller
+          python3.11 -m pip install -r ${{ matrix.app }}/src/pip-requirements.txt
+          python3.11 -m pip install pyinstaller
 
       - name: Copiar shared/backend.py dentro de src/
-        run: cp shared/backend.py bifrost-transfer/src/backend_shared.py
+        run: cp shared/backend.py ${{ matrix.app }}/src/backend_shared.py
 
       - name: Copiar linux-assets-downloader.sh dentro de src/
-        run: cp shared/linux-assets-downloader.sh bifrost-transfer/src/linux-assets-downloader.sh
+        run: cp shared/linux-assets-downloader.sh ${{ matrix.app }}/src/linux-assets-downloader.sh
 
       - name: Descargar rclone para Linux
-        run: cd bifrost-transfer/src && bash linux-assets-downloader.sh
+        run: cd ${{ matrix.app }}/src && bash linux-assets-downloader.sh
 
       - name: Limpiar nombre de rama
         id: clean_branch
@@ -211,15 +213,16 @@ jobs:
           echo "name=$clean" >> $GITHUB_OUTPUT
 
       - name: Escribir versión
-        run: echo "__version__ = '1.0.${{ github.run_number }}'" > bifrost-transfer/src/version.py
+        run: echo "__version__ = '1.0.${{ github.run_number }}'" > ${{ matrix.app }}/src/version.py
 
       - name: Build Rocky Linux (PyInstaller onefile)
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
+          APP: ${{ matrix.app }}
         run: |
           mkdir -p dist
-          cd bifrost-transfer/src
-          pyinstaller --onefile main.py \
+          cd ${APP}/src
+          python3.11 -m PyInstaller --onefile main.py \
             --add-data "assets/bin/rclone:." \
             --collect-all flet \
             --collect-all flet_core \
@@ -231,7 +234,7 @@ jobs:
             --hidden-import uvicorn.logging \
             --hidden-import uvicorn.loops.auto \
             --distpath ../../dist
-          mv ../../dist/main "../../dist/bifrost-transfer-${BRANCH_SUFFIX}-cluster"
+          mv ../../dist/main "../../dist/${APP}-${BRANCH_SUFFIX}-linux"
 
       - name: Verificar artefacto generado
         run: ls -lah dist/
@@ -239,8 +242,8 @@ jobs:
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
         with:
-          name: bifrost-transfer-cluster-${{ steps.clean_branch.outputs.name }}
-          path: dist/bifrost-transfer-${{ steps.clean_branch.outputs.name }}-cluster
+          name: ${{ matrix.app }}-linux-${{ steps.clean_branch.outputs.name }}
+          path: dist/${{ matrix.app }}-${{ steps.clean_branch.outputs.name }}-linux
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Release — solo en main y release
