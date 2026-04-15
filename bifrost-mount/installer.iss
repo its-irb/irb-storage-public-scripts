@@ -4,14 +4,17 @@
 #ifndef BranchSuffix
   #define BranchSuffix "local"
 #endif
+#ifndef AppName
+  #define AppName "bifrost-mount"
+#endif
 
 [Setup]
-AppName=Bifrost
+AppName=Bifrost-mount
 AppVersion={#AppVersion}
-DefaultDirName={autopf}\Bifrost
-DefaultGroupName=Bifrost
+DefaultDirName={autopf}\Bifrost-mount
+DefaultGroupName=Bifrost-mount
 OutputDir=installer
-OutputBaseFilename=bifrost-{#BranchSuffix}-windows
+OutputBaseFilename={#AppName}-{#BranchSuffix}-windows
 Compression=lzma
 SolidCompression=yes
 
@@ -21,10 +24,10 @@ Source: "dist\*"; \
   Flags: recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\Bifrost"; Filename: "{app}\bifrost.exe"
-Name: "{autodesktop}\Bifrost";  Filename: "{app}\bifrost.exe"
+Name: "{autoprograms}\Bifrost-mount"; Filename: "{app}\bifrost-mount.exe"
+Name: "{autodesktop}\Bifrost-mount";  Filename: "{app}\bifrost-mount.exe"
 
 [Run]
-Filename: "{app}\bifrost.exe"; \
-  Description: "Launch Bifrost"; \
+Filename: "{app}\bifrost-mount.exe"; \
+  Description: "Launch Bifrost-mount"; \
   Flags: nowait postinstall skipifsilent
