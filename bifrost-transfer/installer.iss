@@ -4,14 +4,17 @@
 #ifndef BranchSuffix
   #define BranchSuffix "local"
 #endif
+#ifndef AppName
+  #define AppName "bifrost-transfer"
+#endif
 
 [Setup]
 AppName=Bifrost
 AppVersion={#AppVersion}
-DefaultDirName={autopf}\Bifrost
+DefaultDirName={autopf}\Bifrost-transfer
 DefaultGroupName=Bifrost
 OutputDir=installer
-OutputBaseFilename=bifrost-{#BranchSuffix}-windows
+OutputBaseFilename={#AppName}-{#BranchSuffix}-windows
 Compression=lzma
 SolidCompression=yes
 
@@ -21,10 +24,10 @@ Source: "dist\*"; \
   Flags: recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\Bifrost"; Filename: "{app}\bifrost.exe"
-Name: "{autodesktop}\Bifrost";  Filename: "{app}\bifrost.exe"
+Name: "{autoprograms}\Bifrost-transfer"; Filename: "{app}\bifrost-transfer.exe"
+Name: "{autodesktop}\Bifrost-transfer";  Filename: "{app}\bifrost-transfer.exe"
 
 [Run]
-Filename: "{app}\bifrost.exe"; \
-  Description: "Launch Bifrost"; \
+Filename: "{app}\bifrost-transfer.exe"; \
+  Description: "Launch Bifrost Transfer"; \
   Flags: nowait postinstall skipifsilent

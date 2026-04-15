@@ -1,5 +1,5 @@
 [tool.flet]
-app_name = "bifrost"
+app_name = "bifrost-transfer"
 
 [tool.flet.app]
 # archivos extra a empaquetar dentro del ejecutable
