@@ -44,10 +44,20 @@ jobs:
         run: cp shared/backend.py ${{ matrix.app }}/src/backend_shared.py
 
       - name: Copiar macos-assets-downloader.sh dentro de src/
-        run: cp shared/macos-assets-downloader.sh ${{ matrix.app }}/src/macos-assets-downloader.sh
+        run: |
+          if [ "${{ matrix.app }}" = "bifrost-transfer" ]; then
+            cp shared/macos-assets-downloader.sh ${{ matrix.app }}/src/macos-assets-downloader.sh
+          else
+            cp shared/macos-rclone-downloader.sh ${{ matrix.app }}/src/macos-rclone-downloader.sh
+          fi
 
       - name: Descargar rclone y fuse-t para macOS
-        run: cd ${{ matrix.app }}/src && bash macos-assets-downloader.sh
+        run: |
+          if [ "${{ matrix.app }}" = "bifrost-transfer" ]; then
+            cd ${{ matrix.app }}/src && bash macos-assets-downloader.sh
+          else
+            cd ${{ matrix.app }}/src && bash macos-rclone-downloader.sh
+          fi
 
       - name: Limpiar nombre de rama
         id: clean_branch
@@ -69,6 +79,7 @@ jobs:
           echo "y" | flet build macos --output dist --no-rich-output
 
       - name: Añadir fuse_t.framework al bundle
+        if: matrix.app == 'bifrost-transfer'
         run: |
           APP_BUNDLE=$(find ${{ matrix.app }}/dist -maxdepth 1 -name "*.app" | head -1)
           cp -R ${{ matrix.app }}/src/frameworks/fuse_t.framework \
@@ -83,15 +94,13 @@ jobs:
           BUNDLE=$(find . -maxdepth 1 -name "*.app" | head -1 | sed 's|./||')
           echo "App bundle encontrado: $BUNDLE"
           mv "$BUNDLE" "${APP}-${BRANCH_SUFFIX}-macos.app"
-          zip -r "${APP}-${BRANCH_SUFFIX}-macos.app.zip" "${APP}-${BRANCH_SUFFIX}-macos.app"
-          rm -rf "${APP}-${BRANCH_SUFFIX}-macos.app"
           ls -lah .
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
         with:
           name: ${{ matrix.app }}-macos-${{ steps.clean_branch.outputs.name }}
-          path: ${{ matrix.app }}/dist/${{ matrix.app }}-${{ steps.clean_branch.outputs.name }}-macos.app
+          path: ${{ matrix.app }}/dist/*.app
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Windows — flet build windows + Inno Setup
