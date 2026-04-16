@@ -81,7 +81,11 @@ jobs:
         run: |
           cd ${APP}/dist
           BUNDLE=$(find . -maxdepth 1 -name "*.app" | head -1 | sed 's|./||')
+          echo "App bundle encontrado: $BUNDLE"
           mv "$BUNDLE" "${APP}-${BRANCH_SUFFIX}-macos.app"
+          zip -r "${APP}-${BRANCH_SUFFIX}-macos.app.zip" "${APP}-${BRANCH_SUFFIX}-macos.app"
+          rm -rf "${APP}-${BRANCH_SUFFIX}-macos.app"
+          ls -lah .
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
@@ -274,20 +278,31 @@ jobs:
           clean=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
           echo "name=$clean" >> $GITHUB_OUTPUT
 
-      - name: Zipear .app bundles de macOS
+      #- name: Zipear .app bundles de macOS
+      #  env:
+      #    BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
+      #  run: |
+      #    cd dist
+      #    for APP in bifrost-transfer bifrost-mount; do
+      #      BUNDLE="${APP}-${BRANCH_SUFFIX}-macos.app"
+      #      if [ -d "$BUNDLE" ]; then
+      #        zip -r "${BUNDLE}.zip" "$BUNDLE"
+      #        rm -rf "$BUNDLE"
+      #        echo "Zipeado: ${BUNDLE}.zip"
+      #      fi
+      #    done
+       #   ls -lah .
+
+      - name: Verificar artefactos macOS
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
         run: |
-          cd dist
+          ls -lah dist/
           for APP in bifrost-transfer bifrost-mount; do
-            BUNDLE="${APP}-${BRANCH_SUFFIX}-macos.app"
-            if [ -d "$BUNDLE" ]; then
-              zip -r "${BUNDLE}.zip" "$BUNDLE"
-              rm -rf "$BUNDLE"
-              echo "Zipeado: ${BUNDLE}.zip"
-            fi
+            test -f "dist/${APP}-${BRANCH_SUFFIX}-macos.app.zip" \
+              && echo "OK: ${APP}" \
+              || echo "WARNING: ${APP} no encontrado"
           done
-          ls -lah .
 
       - name: Crear GitHub Release
         uses: softprops/action-gh-release@v2

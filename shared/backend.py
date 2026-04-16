@@ -699,7 +699,6 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     #else:
     #    print(f"[mount] Warning: mount point not ready after 15s: {mount_point}")
 
-
     #try:
     #    if sistema == "Windows":
     #        os.startfile(str(mount_point))
