@@ -691,17 +691,23 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     proceso = subprocess.Popen(comando,env=env, **_subprocess_kwargs())
     _s3_mount_processes.append(proceso)
 
-    import time
-    time.sleep(2)
+    #import time
+    #for _ in range(30):
+    #    time.sleep(0.5)
+    #    if os.path.ismount(mount_point):
+    #        break
+    #else:
+    #    print(f"[mount] Warning: mount point not ready after 15s: {mount_point}")
 
-    try:
-        if sistema == "Windows":
-            os.startfile(str(mount_point))
-        else:
-            opener = {"Darwin": ["open"], "Linux": ["xdg-open"]}
-            subprocess.Popen(opener[sistema] + [str(mount_point)])
-    except Exception as e:
-        print(f"Mount successful, but could not open file explorer: {e}")
+
+    #try:
+    #    if sistema == "Windows":
+    #        os.startfile(str(mount_point))
+    #    else:
+    #        opener = {"Darwin": ["open"], "Linux": ["xdg-open"]}
+    #        subprocess.Popen(opener[sistema] + [str(mount_point)])
+    #except Exception as e:
+    #    print(f"Mount successful, but could not open file explorer: {e}")
 
 
 # ============================================================================
@@ -1033,15 +1039,36 @@ def desmontar_todos_los_shares(usuario_actual: str) -> None:
 
 
 def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
-    """Desmonta un punto de montaje concreto."""
     def _log(msg):
         print(msg)
         if log_fn:
             log_fn(msg)
 
+    # 1. Matar el proceso rclone que tiene este mount_point
+    global _s3_mount_processes
+    mount_point_abs = str(Path(mount_point).resolve())
+    for proceso in list(_s3_mount_processes):
+        # El comando del proceso contiene el mount_point como último argumento
+        try:
+            cmdline = proceso.args if hasattr(proceso, 'args') else []
+            if any(str(Path(arg).resolve()) == mount_point_abs for arg in cmdline if arg):
+                _log(f"[unmount] Terminating rclone process for {mount_point}")
+                proceso.terminate()
+                try:
+                    proceso.wait(timeout=3)
+                except Exception:
+                    proceso.kill()
+                _s3_mount_processes.remove(proceso)
+                break
+        except Exception as ex:
+            _log(f"[unmount] Warning checking process: {ex}")
+
+    # 2. Unmount del filesystem (por si acaso, o para mounts de sesiones anteriores)
     if not os.path.isdir(mount_point) or not os.path.ismount(mount_point):
         return
     try:
+        import time
+        time.sleep(0.5)  # dar tiempo al proceso a terminar
         sistema = platform.system()
         if sistema == "Linux":
             subprocess.run(["fusermount", "-u", mount_point], check=True)
@@ -1055,7 +1082,6 @@ def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
             )
     except Exception as e:
         _log(f"\n⚠️ Could not unmount {mount_point}: {str(e)}\n")
-
 
 def resolver_mount_point_destino(perfil_rclone: str, ruta_destino: str) -> str:
     """Calcula la ruta local del mount point para un prefijo S3 dado."""
