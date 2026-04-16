@@ -41,7 +41,7 @@ jobs:
           pip install -r ${{ matrix.app }}/src/pip-requirements.txt
 
       - name: Copiar shared/backend.py dentro de src/
-        run: cp shared/backend.py ${{ matrix.app }}/src/backend_shared.py
+        run: cp shared/backend.py ${{ matrix.app }}/src/backend.py
 
       - name: Copiar macos-assets-downloader.sh dentro de src/
         run: |
@@ -124,7 +124,7 @@ jobs:
 
       - name: Copiar shared/backend.py dentro de src/
         shell: pwsh
-        run: Copy-Item shared/backend.py ${{ matrix.app }}/src/backend_shared.py
+        run: Copy-Item shared/backend.py ${{ matrix.app }}/src/backend.py
 
       - name: Copiar windows-assets-downloader.sh dentro de src/
         shell: bash
@@ -211,7 +211,7 @@ jobs:
           python3.11 -m pip install pyinstaller
 
       - name: Copiar shared/backend.py dentro de src/
-        run: cp shared/backend.py ${{ matrix.app }}/src/backend_shared.py
+        run: cp shared/backend.py ${{ matrix.app }}/src/backend.py
 
       - name: Copiar linux-assets-downloader.sh dentro de src/
         run: cp shared/linux-assets-downloader.sh ${{ matrix.app }}/src/linux-assets-downloader.sh
