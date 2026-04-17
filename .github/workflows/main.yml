@@ -45,7 +45,7 @@ jobs:
 
       - name: Copiar macos-assets-downloader.sh dentro de src/
         run: |
-          if [ "${{ matrix.app }}" = "bifrost-transfer" ]; then
+          if [ "${{ matrix.app }}" = "bifrost-mount" ]; then
             cp shared/macos-assets-downloader.sh ${{ matrix.app }}/src/macos-assets-downloader.sh
           else
             cp shared/macos-rclone-downloader.sh ${{ matrix.app }}/src/macos-rclone-downloader.sh
@@ -53,7 +53,7 @@ jobs:
 
       - name: Descargar rclone y fuse-t para macOS
         run: |
-          if [ "${{ matrix.app }}" = "bifrost-transfer" ]; then
+          if [ "${{ matrix.app }}" = "bifrost-mount" ]; then
             cd ${{ matrix.app }}/src && bash macos-assets-downloader.sh
           else
             cd ${{ matrix.app }}/src && bash macos-rclone-downloader.sh
@@ -79,7 +79,7 @@ jobs:
           echo "y" | flet build macos --output dist --no-rich-output
 
       - name: Añadir fuse_t.framework al bundle
-        if: matrix.app == 'bifrost-transfer'
+        if: matrix.app == 'bifrost-mount'
         run: |
           APP_BUNDLE=$(find ${{ matrix.app }}/dist -maxdepth 1 -name "*.app" | head -1)
           cp -R ${{ matrix.app }}/src/frameworks/fuse_t.framework \
