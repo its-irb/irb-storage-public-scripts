@@ -1043,55 +1043,71 @@ def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
         if log_fn:
             log_fn(msg)
 
-    # 1. Matar el proceso rclone que tiene este mount_point
     global _s3_mount_processes
     mount_point_abs = str(Path(mount_point).resolve())
+    proceso_encontrado = None
+
     for proceso in list(_s3_mount_processes):
-        # El comando del proceso contiene el mount_point como último argumento
         try:
             cmdline = proceso.args if hasattr(proceso, 'args') else []
-            # Resolve each arg individually — args like "remote:path" (rclone syntax)
-            # raise ValueError/OSError on Windows because ':' is invalid in paths,
-            # so we skip them silently and only match filesystem path args.
+            # Fix Bug 1: resolver cada arg individualmente, saltando los que no son paths
             matched = False
-            for _arg in cmdline:
-                if not _arg:
+            for arg in cmdline:
+                if not arg:
                     continue
                 try:
-                    if str(Path(_arg).resolve()) == mount_point_abs:
+                    if str(Path(arg).resolve()) == mount_point_abs:
                         matched = True
                         break
-                except Exception:
-                    pass  # non-path arg (e.g. "minio-profile:bucket"), skip
+                except (OSError, ValueError):
+                    # args como "irbminio:bucket" no son paths válidos en Windows — ignorar
+                    continue
             if matched:
-                _log(f"[unmount] Terminating rclone process for {mount_point}")
-                proceso.terminate()
-                try:
-                    proceso.wait(timeout=3)
-                except Exception:
-                    proceso.kill()
+                proceso_encontrado = proceso
                 _s3_mount_processes.remove(proceso)
                 break
         except Exception as ex:
             _log(f"[unmount] Warning checking process: {ex}")
 
-    # 2. Unmount del filesystem (por si acaso, o para mounts de sesiones anteriores)
-    if not os.path.isdir(mount_point) or not os.path.ismount(mount_point):
-        return
+    if proceso_encontrado is not None:
+        _log(f"[unmount] Sending Ctrl-C to PID {proceso_encontrado.pid} for {mount_point}")
+        sistema = platform.system()
+        if sistema == "Windows":
+            # GenerateConsoleCtrlEvent es el método correcto para WinFSP
+            # TerminateProcess (.terminate()) puede dejar la unidad en estado colgado
+            import ctypes
+            try:
+                ctypes.windll.kernel32.GenerateConsoleCtrlEvent(0, proceso_encontrado.pid)  # 0 = CTRL_C_EVENT
+                try:
+                    proceso_encontrado.wait(timeout=5)
+                except Exception:
+                    _log(f"[unmount] Ctrl-C timeout, forcing kill on PID {proceso_encontrado.pid}")
+                    proceso_encontrado.kill()
+            except Exception as e:
+                _log(f"[unmount] GenerateConsoleCtrlEvent failed: {e}, falling back to kill")
+                proceso_encontrado.kill()
+        else:
+            proceso_encontrado.terminate()
+            try:
+                proceso_encontrado.wait(timeout=3)
+            except Exception:
+                proceso_encontrado.kill()
+    else:
+        _log(f"[unmount] No active process found for {mount_point}, trying filesystem unmount")
+
+    # Fallback: unmount a nivel de filesystem para mounts de sesiones anteriores
+    sistema = platform.system()
+    if sistema == "Windows":
+        return  # WinFSP se desmonta al matar el proceso — no hay fusermount
     try:
         import time
-        time.sleep(0.5)  # dar tiempo al proceso a terminar
-        sistema = platform.system()
+        time.sleep(0.5)
+        if not os.path.isdir(mount_point) or not os.path.ismount(mount_point):
+            return
         if sistema == "Linux":
             subprocess.run(["fusermount", "-u", mount_point], check=True)
         elif sistema == "Darwin":
             subprocess.run(["umount", mount_point], check=True)
-        elif sistema == "Windows":
-            subprocess.run(
-                ["taskkill", "/F", "/FI", f"WINDOWTITLE eq {mount_point}*"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
     except Exception as e:
         _log(f"\n⚠️ Could not unmount {mount_point}: {str(e)}\n")
 
