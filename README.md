@@ -1,78 +1,112 @@
 # BIFROST
-**Herramienta de transferencia de datos a MinIO S3 — IRB Barcelona**
+**Herramientas de acceso al almacenamiento MinIO S3 — IRB Barcelona**
 
----
+Este repositorio contiene dos aplicaciones de escritorio (Flet/Python) para interactuar con el servidor MinIO S3 de IRB Barcelona:
 
-## Qué hace
+| App | Carpeta | Función |
+|---|---|---|
+| **bifrost-transfer** | `bifrost-transfer/` | Copia datos desde carpetas de red (SMB/CIFS) o local a buckets de MinIO S3, con verificación de integridad y etiquetado automático de metadatos. |
+| **bifrost-mount** | `bifrost-mount/` | Monta carpetas de MinIO S3 como unidad local en el ordenador. |
 
-BIFROST te permite:
-- Copiar datos desde carpetas de red (SMB/CIFS) o desde local a buckets de MinIO S3, con verificación de integridad y etiquetado automático de metadatos en cada objeto transferido
-- Montar carpetas de MinIO S3 como unidad local en tu ordenador
+Ambas aplicaciones comparten el backend definido en `shared/backend.py` (LDAP, rclone, SMB, S3).
 
 ---
 
 ## Requisitos
 
-**Dependencias**
+- **Estar conectado a la VPN de Nexica** (Forticlient)
 
-Las dependencias como el binario de rclone o fuse-t (este segundo en el caso de Mac OS) se empaquetan dentro del ejecutable, y no es necesario tenerlas instaladas en el equipo.
+**Dependencias binarias**
 
-Durante el desarrollo, estas dependencias se buscan en `src/assets/bin` y `src/frameworks` respectivamente. Si no se encuentran entonces el programa hace fallback a las versiones instaladas en el equipo. Para descargar las versiones recomendadas de las dependencias se pueden ejecutar los scripts`{platform}-assets-downloader.sh` dentro de `src`.
-
-El framework de fuse-t se copia a posteriori dentro del .app para que flet no rompa los enlaces simbólicos.
-
-**Estar conectado a la VPN de Nexica** (Forticlient)
+Las dependencias como el binario de `rclone` o el framework `fuse-t` (este último solo en macOS, usado por `bifrost-mount`) se empaquetan dentro del ejecutable y no es necesario tenerlas instaladas en el equipo.
 
 ---
 
-## Archivos
+## Estructura del repositorio
 
-| Archivo | Función |
-|---|---|
-| `src/main.py` | Interfaz gráfica. Punto de entrada. |
-| `src/backend.py` | Toda la lógica de negocio (LDAP, rclone, SMB, S3). |
-| `minio-sts-credentials-request.py` | Genera credenciales temporales de acceso al servidor de Minio de IRB Barcelona.|
+```
+bifrost-mount/          # App de montado de buckets S3
+  src/
+    main.py             # Interfaz gráfica (Flet). Punto de entrada.
+    pip-requirements.txt
+    version.py
+    assets/bin/         # Binarios empaquetados (rclone, etc.)
+    frameworks/         # fuse-t framework (macOS)
+  pyproject.toml        # Configuración de flet build
+  installer.iss         # Inno Setup (instalador Windows)
+
+bifrost-transfer/       # App de transferencia de datos a S3
+  src/
+    main.py             # Interfaz gráfica (Flet). Punto de entrada.
+    pip-requirements.txt
+    version.py
+    assets/bin/         # Binarios empaquetados (rclone, etc.)
+    frameworks/
+    storage/            # Datos temporales de transferencia
+  pyproject.toml        # Configuración de flet build
+  installer.iss         # Inno Setup (instalador Windows)
+  build.sh              # Script de build
+
+shared/
+  backend.py            # Lógica de negocio compartida (LDAP, rclone, SMB, S3)
+  linux-assets-downloader.sh
+  macos-assets-downloader.sh
+  macos-rclone-downloader.sh
+  windows-assets-downloader.sh
+
+old/
+  minio-sts-credentials-request.py  # Script legacy para generar credenciales STS
+```
 
 ---
 
-## Cómo ejecutar
+## Cómo ejecutar (desarrollo)
 
-La primera vez se ha de crear el virtual environment:
+Los pasos son los mismos para ambas apps. Ejecutar desde la carpeta de la app (`bifrost-mount/` o `bifrost-transfer/`).
+
+La primera vez, crear el virtual environment:
 ```bash
 python -m venv venv
-source venv/bin/activate
+source venv/bin/activate          # macOS / Linux
+# .\venv\Scripts\Activate.ps1     # Windows PowerShell
 python -m pip install --upgrade pip
 python -m pip install -r ./src/pip-requirements.txt
 ```
 
-Y cada vez que se quiera ejecutar se ha de cargar el virtual envoironment:
+Cada vez que se quiera ejecutar, cargar el virtual environment y lanzar:
 ```bash
 source venv/bin/activate
-```
-
-```bash
 flet run
 ```
 
-Para iniciar sesión con un usuario distinto al del sistema:
+Opciones adicionales (disponibles en ambas apps):
 ```bash
-flet run --customuser
+flet run --customuser   # Iniciar sesión con un usuario distinto al del sistema
+flet run --update       # Forzar la auto-actualización
 ```
 
-Para lanzar forzar la auto-actualización:
+`bifrost-transfer` también soporta modo web (Open OnDemand / cluster Linux):
 ```bash
-flet run --update
+python src/main.py --web
+# o bien:
+BIFROST_DEV=1 flet run   # Simular modo web en desarrollo
 ```
 
-## Preparar el entorno para empaquetar.
+Para simular el modo Linux cluster en `bifrost-mount`:
+```bash
+BIFROST_LINUX=1 flet run
+```
 
-Flet build utiliza los parámetros definidos en `pyproject.toml`.
+---
 
-Si se actualizan los paquetes del virtual environment se ha de regenerar el archivo `pip-requirements.txt` y luego importarlo al `pyproject.toml`:
+## Empaquetar
 
+`flet build` utiliza los parámetros definidos en `pyproject.toml` de cada app.
+
+Si se actualizan los paquetes del virtual environment, regenerar `pip-requirements.txt` e importarlo al `pyproject.toml`:
 ```bash
 python -m pip freeze > src/pip-requirements.txt
 uv add -r pip-requirements.txt
 ```
 
-Para generar un instalador para windows se ha utilizado Inno Setup, que empaqueta toda la carpeta generada popr flet en un solo .exe que después puede instalarse de la forma habitual. En este caso el archivo de configuración es `installer.iss`.
+Para generar un instalador de Windows se utiliza **Inno Setup**, que empaqueta toda la carpeta generada por `flet build` en un único `.exe` instalable. El archivo de configuración es `installer.iss` en la raíz de cada app.

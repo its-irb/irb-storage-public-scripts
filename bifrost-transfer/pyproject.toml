@@ -10,9 +10,9 @@ path = "src"
 # ]
 
 [project]
-name = "bifrost"
+name = "bifrost-transfer"
 version = "2.0.0"
-description = "Bifrost"
+description = "Bifrost Transfer"
 authors = [
   {name = "Ona Pérez"}
 ]
