@@ -1011,8 +1011,16 @@ def build_rclone_browser(
             if not _first_load_done["value"]:
                 for bname in buckets:
                     mp = backend.resolver_mount_point_destino(perfil_rclone, bname)
-                    if os.path.ismount(mp):
-                        mounted_state[bname] = mp
+                    if sys.platform == "win32":
+                        if os.path.isdir(mp):
+                            try:
+                                os.listdir(mp)
+                                mounted_state[bname] = mp
+                            except OSError:
+                                pass
+                    else:
+                        if os.path.ismount(mp):
+                            mounted_state[bname] = mp
                 _first_load_done["value"] = True
 
             def _show():
@@ -1449,6 +1457,7 @@ def _build_mount_bucket(
 
                 # Abrir explorador
                 try:
+                    import time, platform as _platform
                     sistema = _platform.system()
                     if sistema == "Windows":
                         os.startfile(mp)

@@ -638,6 +638,13 @@ def get_expiration_from_session_token(session_token: str):
 #        "--read-only",
 #    ], env=env)
 
+def _get_s3_mount_base() -> Path:
+    """Devuelve la carpeta raíz donde se crean los mount points S3."""
+    if platform.system() == "Windows":
+        return Path("C:/rclone-mounts")
+    return Path.home() / "rclone-mounts"
+
+
 
 def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> None:
     import shutil
@@ -669,7 +676,7 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     else:
         raise EnvironmentError(f"Unsupported OS: {sistema}")
 
-    mount_base = Path.home() / "rclone-mounts" / rclone_profile
+    mount_base = _get_s3_mount_base() / rclone_profile
     prefix_sanitizado = s3_prefix.strip("/").replace("/", "_")
     mount_point = mount_base / prefix_sanitizado
 
@@ -1113,7 +1120,7 @@ def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
 
 def resolver_mount_point_destino(perfil_rclone: str, ruta_destino: str) -> str:
     """Calcula la ruta local del mount point para un prefijo S3 dado."""
-    mount_base = Path.home() / "rclone-mounts" / perfil_rclone
+    mount_base = _get_s3_mount_base()  / perfil_rclone
     prefix_sanitizado = ruta_destino.replace("/", "_")
     return str(mount_base / prefix_sanitizado)
 
