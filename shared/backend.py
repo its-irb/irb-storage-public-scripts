@@ -1050,7 +1050,20 @@ def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
         # El comando del proceso contiene el mount_point como último argumento
         try:
             cmdline = proceso.args if hasattr(proceso, 'args') else []
-            if any(str(Path(arg).resolve()) == mount_point_abs for arg in cmdline if arg):
+            # Resolve each arg individually — args like "remote:path" (rclone syntax)
+            # raise ValueError/OSError on Windows because ':' is invalid in paths,
+            # so we skip them silently and only match filesystem path args.
+            matched = False
+            for _arg in cmdline:
+                if not _arg:
+                    continue
+                try:
+                    if str(Path(_arg).resolve()) == mount_point_abs:
+                        matched = True
+                        break
+                except Exception:
+                    pass  # non-path arg (e.g. "minio-profile:bucket"), skip
+            if matched:
                 _log(f"[unmount] Terminating rclone process for {mount_point}")
                 proceso.terminate()
                 try:

@@ -847,6 +847,11 @@ def build_rclone_browser(
         mounted_state = {}
     selected_state = {"bucket": None}
 
+    # Flag to detect mounts from previous sessions only on the initial load.
+    # Subsequent refreshes (triggered after each mount) must NOT re-add buckets
+    # that were just unmounted — that would create a race with _unmount_all.
+    _first_load_done = {"value": False}
+
     bucket_col  = ft.Column(spacing=6, tight=True)
     loading_row = ft.Row(
         [
@@ -878,9 +883,10 @@ def build_rclone_browser(
         def _do():
             try:
                 backend.desmontar_punto_montaje(mp)
-                mounted_state.pop(bucket_name, None)
             except Exception as ex:
                 print(f"[unmount] Error: {ex}")
+            finally:
+                mounted_state.pop(bucket_name, None)
             def _refresh():
                 if selected_state["bucket"] == bucket_name:
                     selected_state["bucket"] = None
@@ -894,9 +900,10 @@ def build_rclone_browser(
             for bname, mp in list(mounted_state.items()):
                 try:
                     backend.desmontar_punto_montaje(mp)
-                    mounted_state.pop(bname, None)
                 except Exception as ex:
                     print(f"[unmount_all] Error {bname}: {ex}")
+                finally:
+                    mounted_state.pop(bname, None)
             def _refresh():
                 selected_state["bucket"] = None
                 on_select("")
@@ -998,11 +1005,15 @@ def build_rclone_browser(
 
         try:
             buckets = backend.rclone_lsd(perfil_rclone, "", timeout=15)
-            # Detectar mounts activos de sesiones anteriores
-            for bname in buckets:
-                mp = backend.resolver_mount_point_destino(perfil_rclone, bname)
-                if os.path.ismount(mp):
-                    mounted_state[bname] = mp
+            # Detectar mounts activos de sesiones anteriores — solo en la carga inicial.
+            # En recargas posteriores (después de montar un bucket) no re-añadimos entradas:
+            # evita una race condition donde _load sobreescribe mounted_state tras un unmount.
+            if not _first_load_done["value"]:
+                for bname in buckets:
+                    mp = backend.resolver_mount_point_destino(perfil_rclone, bname)
+                    if os.path.ismount(mp):
+                        mounted_state[bname] = mp
+                _first_load_done["value"] = True
 
             def _show():
                 loading_row.visible = False
