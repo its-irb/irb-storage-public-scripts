@@ -36,6 +36,8 @@ import subprocess
 import threading
 import traceback
 from typing import Callable
+import pathlib
+from datetime import datetime
 
 import flet as ft
 
@@ -122,6 +124,18 @@ C_TEXT_DIM = "#8B949E"
 C_OVERLAY  = "#1C2027"
 FONT_MONO  = "Courier New"
 
+# ── Log persistente ───────────────────────────────────────────────────────
+_LOG_DIR  = pathlib.Path.home() / "bifrost-mount-logs"
+_LOG_FILE = _LOG_DIR / f"bifrost-mount-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+
+def _write_to_log_file(msg: str) -> None:
+    """Escribe msg en el fichero de log de sesión. Falla silenciosamente."""
+    try:
+        _LOG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(msg if msg.endswith("\n") else msg + "\n")
+    except Exception:
+        pass
 
 def btn_primary(text: str, on_click=None, width=None, disabled=False) -> ft.Button:
     return ft.Button(
@@ -699,6 +713,7 @@ def _build_credentials_content(
 
     def log(msg: str, color: str = C_TEXT):
         print(msg.rstrip())
+        _write_to_log_file(msg) 
         def _add():
             log_list.controls.append(
                 ft.Text(msg.rstrip("\n"), size=11, color=color,
