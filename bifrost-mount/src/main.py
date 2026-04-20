@@ -910,6 +910,7 @@ def build_rclone_browser(
             ui_call(page, _refresh)
         threading.Thread(target=_do, daemon=True).start()
 
+
     def _unmount_all():
         def _do():
             for bname, mp in list(mounted_state.items()):
