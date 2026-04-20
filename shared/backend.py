@@ -1053,6 +1053,7 @@ def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
     global _s3_mount_processes
     mount_point_abs = str(Path(mount_point).resolve())
     proceso_encontrado = None
+    print(_s3_mount_processes)
 
     for proceso in list(_s3_mount_processes):
         try:
@@ -1071,6 +1072,7 @@ def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
                     continue
             if matched:
                 proceso_encontrado = proceso
+                print(f"proceso encontrado {proceso_encontrado}")
                 _s3_mount_processes.remove(proceso)
                 break
         except Exception as ex:
@@ -1084,7 +1086,8 @@ def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
             # TerminateProcess (.terminate()) puede dejar la unidad en estado colgado
             import ctypes
             try:
-                ctypes.windll.kernel32.GenerateConsoleCtrlEvent(0, proceso_encontrado.pid)  # 0 = CTRL_C_EVENT
+                #ctypes.windll.kernel32.GenerateConsoleCtrlEvent(0, proceso_encontrado.pid)  # 0 = CTRL_C_EVENT
+                subprocess.run([f"taskkill", "/PID", str(proceso_encontrado.pid), "/F"], check=True)
                 try:
                     proceso_encontrado.wait(timeout=5)
                 except Exception:
