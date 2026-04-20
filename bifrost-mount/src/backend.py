@@ -1051,20 +1051,30 @@ def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
             log_fn(msg)
 
     global _s3_mount_processes
-    mount_point_abs = str(Path(mount_point).resolve())
+    #mount_point_abs = str(Path(mount_point).resolve())
+    try:
+        mount_point_abs = str(Path(mount_point).resolve()).rstrip("\\").rstrip("/")
+    except OSError:
+        mount_point_abs = str(Path(mount_point).absolute()).rstrip("\\").rstrip("/")
     proceso_encontrado = None
-    print(_s3_mount_processes)
+
+    print(f"[debug] S3 processes: {_s3_mount_processes}")
 
     for proceso in list(_s3_mount_processes):
+        print(f"[debug matching] mount_point_abs={mount_point_abs!r}")
         try:
             cmdline = proceso.args if hasattr(proceso, 'args') else []
+            print(f"[debug matching] cmdline args={cmdline}")
             # Fix Bug 1: resolver cada arg individualmente, saltando los que no son paths
             matched = False
             for arg in cmdline:
                 if not arg:
                     continue
                 try:
-                    if str(Path(arg).resolve()) == mount_point_abs:
+                    arg_norm = os.path.normcase(os.path.normpath(arg))
+                    mp_norm  = os.path.normcase(os.path.normpath(mount_point_abs))
+                    print(f"[debug matching] arg_norm: {arg_norm}, mount_point_abs: {mp_norm}")
+                    if arg_norm == mp_norm:
                         matched = True
                         break
                 except (OSError, ValueError):
@@ -1087,7 +1097,9 @@ def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
             import ctypes
             try:
                 #ctypes.windll.kernel32.GenerateConsoleCtrlEvent(0, proceso_encontrado.pid)  # 0 = CTRL_C_EVENT
-                subprocess.run([f"taskkill", "/PID", str(proceso_encontrado.pid), "/F" , "/T"], check=True)
+                result = subprocess.run([f"taskkill", "/PID", str(proceso_encontrado.pid), "/F" , "/T"], check=True, capture_output=True,
+                text=True)
+                print(f"[taskkill] Output: {result.stdout}")
                 try:
                     proceso_encontrado.wait(timeout=5)
                 except Exception:

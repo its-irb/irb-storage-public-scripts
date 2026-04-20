@@ -915,6 +915,19 @@ def build_rclone_browser(
             for bname, mp in list(mounted_state.items()):
                 try:
                     backend.desmontar_punto_montaje(mp)
+                except OSError as ex:
+                    # WinError 1005: WinFSP volume already in inconsistent state
+                    # El proceso rclone probablemente ya no existe (perdido tras rebuild)
+                    # Forzar taskkill por nombre como fallback
+                    print(f"[unmount_all] OSError {bname}: {ex} — trying taskkill fallback")
+                    if sys.platform == "win32":
+                        try:
+                            subprocess.run(
+                                ["taskkill", "/F", "/IM", "rclone.exe"],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            )
+                        except Exception:
+                            pass
                 except Exception as ex:
                     print(f"[unmount_all] Error {bname}: {ex}")
                 finally:

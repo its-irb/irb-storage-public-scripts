@@ -9,10 +9,10 @@
 #endif
 
 [Setup]
-AppName=Bifrost
+AppName=Bifrost-transfer
 AppVersion={#AppVersion}
 DefaultDirName={autopf}\Bifrost-transfer
-DefaultGroupName=Bifrost
+DefaultGroupName=Bifrost-transfer
 OutputDir=installer
 OutputBaseFilename={#AppName}-{#BranchSuffix}-windows
 Compression=lzma
