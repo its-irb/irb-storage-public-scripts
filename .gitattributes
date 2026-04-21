@@ -1,0 +1,4 @@
+# forzar LF para scripts y archivos unix
+*.sh text eol=lf
+src/assets/fuse_t.framework/** text eol=lf
+src/assets/bin/rclone binary

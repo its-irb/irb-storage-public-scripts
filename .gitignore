@@ -25,12 +25,23 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+src/build/
+src/assets/*
+!src/assets/**/.keep
+!src/assets/icon.png
+!src/assets/splash.png
+src/frameworks/*
+!src/frameworks/**/.keep
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+
+# Bundle
+minio/version.py
+./src/assets/*
 
 # Installer logs
 pip-log.txt
@@ -170,3 +181,9 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 .DS_Store
+rclone-bin/
+
+
+# Storage temporal
+src/storage/temp/
+src/storage/data/

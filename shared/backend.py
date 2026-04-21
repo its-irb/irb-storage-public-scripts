@@ -18,13 +18,15 @@ Módulos cubiertos:
 - Ejecución de comandos rclone (copy, check)
 """
 
+
 import os
+import stat
 import re
 import sys
 import json
 import time
 import shlex
-import atexit
+#import atexit
 import getpass
 import platform
 import subprocess
@@ -33,7 +35,7 @@ import threading
 import urllib.parse
 from pathlib import Path
 from datetime import datetime, timezone
-from sys import platform as sys_platform
+from sys import path, platform as sys_platform
 
 import boto3
 import jwt
@@ -44,6 +46,8 @@ from ldap3 import Server, Connection, SUBTREE, SIMPLE
 from xml.etree import ElementTree as etree
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+_s3_mount_processes: list[subprocess.Popen] = []
 
 
 # ============================================================================
@@ -64,11 +68,21 @@ def get_rclone_executable() -> str:
     """
     rclone_name = "rclone.exe" if sys_platform == "win32" else "rclone"
 
+    print(f"[debug] Looking for rclone: {rclone_name}")
+    print(f"[debug] FLET_APP_STORAGE_TEMP: {os.environ.get('FLET_APP_STORAGE_TEMP')}")
+    print(f"[debug] frozen: {getattr(sys, 'frozen', False)}")
+    print(f"[debug] __file__: {Path(__file__).parent}")
+    print(f"[debug] sys.argv[0]: {sys.argv[0]}")
+
     # 1. PyInstaller frozen bundle
     if getattr(sys, "frozen", False):
         bundled = Path(sys._MEIPASS) / rclone_name
         if bundled.exists():
             return str(bundled)
+    else:
+        asset = Path(__file__).parent / "assets" / "bin" / rclone_name
+        if asset.exists():
+            return str(asset.resolve())
 
     # 2. Junto al script / ejecutable (dev o distribución manual)
     exe_dir = Path(sys.argv[0]).resolve().parent
@@ -104,6 +118,16 @@ MINIO_SERVERS = {
             "profile": "irbminio",
             "endpoint": "http://irbminio.sc.irbbarcelona.org:9000"
         }
+    },
+    "minio": {
+        "IRB": {
+            "profile": "minio",
+            "endpoint": "https://minio.sc.irbbarcelona.org:9000",
+            "extra_rclone_config": {
+                "no_check_bucket": "true",
+                "region": "eu-south-2",
+            }
+        }
     }
 }
 
@@ -113,7 +137,6 @@ try:
     from version import __version__
 except ImportError:
     __version__ = "1.0.1"
-
 
 # ============================================================================
 # COMPROBACIÓN DE VERSIÓN / ACTUALIZACIONES (lógica pura, sin GUI)
@@ -125,7 +148,6 @@ def _parse_version(v: str) -> tuple:
         return tuple(int(x) for x in v.strip("v").split("."))
     except Exception:
         return (0,)
-
 
 def check_update_version(force_update: bool = False) -> str | None:
     """
@@ -167,11 +189,11 @@ def should_check_for_updates() -> bool:
     """
     if "--update" in sys.argv:
         return True
-    if not getattr(sys, 'frozen', False):
+    if not getattr(sys, 'frozen', False) and not os.environ.get('FLET_APP_STORAGE_TEMP'):
         print("ℹ️ Running as Python script (not compiled). Skipping update check.")
         return False
     executable_name = os.path.basename(sys.argv[0] if hasattr(sys, 'argv') else '')
-    if '_linux_cluster' in executable_name:
+    if '_linux_cluster' in executable_name or '_cluster' in executable_name:
         return False
     if os.environ.get('SLURM_JOB_ID'):
         return False
@@ -255,6 +277,7 @@ def obtener_ruta_rclone_conf() -> Path:
         [rclone, "config", "file"],
         text=True,
         stderr=subprocess.STDOUT,
+        **_subprocess_kwargs(),
     ).strip()
 
     lines = [l.strip().strip('"').strip("'") for l in out.splitlines() if l.strip()]
@@ -299,12 +322,6 @@ def traducir_ruta_a_remote(ruta_local: str, mounts_activos: list) -> str:
     return ruta_local
 
 
-def is_brew_installed() -> bool:
-    """Comprueba si Homebrew está instalado."""
-    import shutil
-    return shutil.which("brew") is not None
-
-
 def detect_rclone_installed() -> bool:
     """
     Devuelve True si rclone está disponible (bundleado o en el PATH).
@@ -312,48 +329,18 @@ def detect_rclone_installed() -> bool:
     """
     try:
         rclone = get_rclone_executable()
+        if not os.access(rclone, os.X_OK):
+            st = os.stat(rclone)
+            os.chmod(rclone, st.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         subprocess.check_call(
             [rclone, "--version"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            **_subprocess_kwargs(),
         )
         return True
     except Exception:
         return False
-
-
-def install_rclone_macos() -> None:
-    """Instala rclone y fuse-t en macOS vía Homebrew (llamadas bloqueantes)."""
-    os.system("brew tap macos-fuse-t/homebrew-cask")
-    os.system("brew install fuse-t")
-    os.system("sudo -v ; curl https://rclone.org/install.sh | sudo bash")
-
-
-def ensure_fuse_macos() -> None:
-    """
-    Comprueba si fuse-t está instalado en macOS y lo instala vía Homebrew si no.
-
-    Raises:
-        EnvironmentError: si fuse-t no está y no se puede instalar.
-    """
-    if _check_fuse_macos():
-        print("✅ fuse-t already installed.")
-        return
-    print("⚠️ fuse-t not detected. Installing via Homebrew...")
-    if not is_brew_installed():
-        raise EnvironmentError(
-            "macFUSE/fuse-t not detected and Homebrew is not installed. "
-            "Please install Homebrew first: https://brew.sh/ — "
-            "then run: brew tap macos-fuse-t/homebrew-cask && brew install fuse-t"
-        )
-    os.system("brew tap macos-fuse-t/homebrew-cask")
-    os.system("brew install fuse-t")
-    if not _check_fuse_macos():
-        raise EnvironmentError(
-            "fuse-t installation failed. Please install it manually:\n"
-            "  brew tap macos-fuse-t/homebrew-cask\n"
-            "  brew install fuse-t"
-        )
 
 
 def open_file(path: str) -> None:
@@ -426,12 +413,13 @@ def _check_winfsp_windows() -> bool:
 
 def _check_fuse_macos() -> bool:
     """Detecta específicamente fuse-t en macOS (no macFUSE ni osxfuse)."""
-    return any(p.exists() for p in (
+    return any(p.exists() for p in (*(
         Path("/usr/local/lib/libfuse-t.dylib"),
         Path("/Library/Filesystems/fuse-t.fs"),
         Path("/usr/local/include/fuse-t"),
+        Path(__file__).parent / "frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t",
+        ),*( str(Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t",) if os.environ.get("FLET_APP_STORAGE_TEMP") else ())
     ))
-
 
 def _check_fuse_linux() -> bool:
     """Detecta FUSE en Linux."""
@@ -448,8 +436,18 @@ def _check_fuse_linux() -> bool:
 
 
 # ============================================================================
+# PARA SOLUCIONAR PROBLEMA DE VENTANA DE CONSOLA EN WINDOWS AL LANZAR SUBPROCESOS (RCLONE)
+# ============================================================================
+def _subprocess_kwargs() -> dict:
+    """Suprime la ventana de consola en Windows para subprocesos."""
+    if sys_platform == "win32":
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
+
+# ============================================================================
 # AUTENTICACIÓN STS (MinIO) Y GESTIÓN DE CREDENCIALES RCLONE
 # ============================================================================
+
 
 def get_credentials(endpoint: str, username: str, password: str, durationseconds: int = 86400) -> dict | None:
     """
@@ -458,14 +456,14 @@ def get_credentials(endpoint: str, username: str, password: str, durationseconds
     Returns:
         Dict con AccessKeyId, SecretAccessKey, SessionToken o None si falla.
     """
-    params = {
+    payload = {
         "Action": "AssumeRoleWithLDAPIdentity",
         "LDAPUsername": username,
         "LDAPPassword": password,
         "DurationSeconds": durationseconds,
         "Version": "2011-06-15",
     }
-    r = requests.post(endpoint, params=params)
+    r = requests.post(endpoint, data=payload)
 
     print(f"[STS] HTTP {r.status_code}")
     if r.status_code >= 400:
@@ -500,6 +498,19 @@ def get_credentials(endpoint: str, username: str, password: str, durationseconds
         _, _, tag = el.tag.rpartition("}")
         credentials[tag] = el.text
     return credentials
+    
+
+def get_usuario_from_session_token(session_token: str) -> str | None:
+    """Extrae el usuario del JWT del session_token de MinIO."""
+    try:
+        payload = jwt.decode(session_token, options={"verify_signature": False})
+        #print(f"[token] payload keys: {list(payload.keys())}")
+        usuario = payload.get("ldapUsername") or payload.get("sub")
+        print(f"[token] ldapUsername={usuario!r}")
+        return usuario
+    except Exception as e:
+        print(f"Error leyendo usuario del token: {e}")
+        return None
 
 def configure_rclone(
     aws_access_key_id: str,
@@ -507,6 +518,7 @@ def configure_rclone(
     aws_session_token: str,
     endpoint: str,
     profilename: str = "minio-gordo",
+    extra_config: dict | None = None,
 ) -> None:
     """Crea o actualiza un perfil S3/MinIO en rclone.conf con las credenciales STS."""
     rclone_config_directory_path, rclone_config_file_path, _ = get_rclone_paths(profilename)
@@ -532,15 +544,25 @@ def configure_rclone(
         resto = re.sub(r'access_key_id = (.+)',  "access_key_id = " + aws_access_key_id,  resto, 1)
         resto = re.sub(r'secret_access_key = (.+)', "secret_access_key = " + aws_secret_access_key, resto, 1)
         resto = re.sub(r'session_token = (.+)',  "session_token = " + aws_session_token, resto, 1)
+        if extra_config:
+            for key, value in extra_config.items():
+                pattern = rf'{re.escape(key)} = (.+)'
+                if re.search(pattern, resto):
+                    resto = re.sub(pattern, f"{key} = {value}", resto, 1)
+                else:
+                    resto = re.sub(r'(\n\[)', f"\n{key} = {value}\n\\1", resto, 1) \
+                            if re.search(r'\n\[', resto) else resto + f"{key} = {value}\n"
         full_config_file_string_editado = res[0] + "[" + profilename + "]" + resto
     else:
         print("Creating profile in rclone config file.")
+        extra_lines = "".join(f"{k} = {v}\n" for k, v in (extra_config or {}).items())
         resto = (
             f"\n[{profilename}]\ntype = s3\nprovider = Minio\n"
             f"endpoint = {endpoint}\nacl = bucket-owner-full-control\nenv_auth = false\n"
             f"access_key_id = {aws_access_key_id}\n"
             f"secret_access_key = {aws_secret_access_key}\n"
             f"session_token = {aws_session_token}\n"
+            f"{extra_lines}" 
         )
         full_config_file_string_editado = full_config_file_string + resto
 
@@ -597,17 +619,31 @@ def get_expiration_from_session_token(session_token: str):
         return None
 
 
-def mount_rclone_S3_bucket_to_folder(mount_point_folder: str, servidor_s3_rcloneconfig: str, bucket: str) -> None:
-    """Monta un bucket S3/MinIO completo en una carpeta local."""
-    rclone = get_rclone_executable()
-    print(f"Mounting {servidor_s3_rcloneconfig}:{bucket} to {mount_point_folder}")
-    subprocess.Popen([
-        rclone, "mount",
-        servidor_s3_rcloneconfig + ":" + bucket,
-        mount_point_folder,
-        "--allow-non-empty",
-        "--read-only",
-    ])
+#def mount_rclone_S3_bucket_to_folder(mount_point_folder: str, servidor_s3_rcloneconfig: str, bucket: str) -> None:
+#    """Monta un bucket S3/MinIO completo en una carpeta local."""
+#    rclone = get_rclone_executable()
+#    print(f"Mounting {servidor_s3_rcloneconfig}:{bucket} to {mount_point_folder}")
+#    env = {**os.environ}
+#    if sys_platform == "darwin":
+#        if getattr(sys, "frozen", False):   
+#            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys._MEIPASS) / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
+#        else:
+#            if (Path(__file__).parent / "assets" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t").exists():
+#                env["CGOFUSE_LIBFUSE_PATH"] = str(Path(__file__).parent / "assets" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
+#    subprocess.Popen([
+#        rclone, "mount",
+#        servidor_s3_rcloneconfig + ":" + bucket,
+#        mount_point_folder,
+#        "--allow-non-empty",
+#        "--read-only",
+#    ], env=env)
+
+def _get_s3_mount_base() -> Path:
+    """Devuelve la carpeta raíz donde se crean los mount points S3."""
+    if platform.system() == "Windows":
+        return Path("C:/rclone-mounts")
+    return Path.home() / "rclone-mounts"
+
 
 
 def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> None:
@@ -619,9 +655,15 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
         raise EnvironmentError(str(e))
 
     sistema = platform.system()
+    env = {**os.environ}
     if sistema == "Darwin":
         if not _check_fuse_macos():
-            raise EnvironmentError("macFUSE not detected. Download from: https://osxfuse.github.io")
+            raise EnvironmentError("fuse-t not detected. Download it with macos-third-party-assets-downloader.sh")
+        if getattr(sys, "frozen", False):
+            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
+        else:
+            if (Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t").exists():
+                env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
     elif sistema == "Windows":
         if not _check_winfsp_windows():
             raise EnvironmentError("WinFSP not detected. Download from: https://winfsp.dev")
@@ -634,7 +676,7 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     else:
         raise EnvironmentError(f"Unsupported OS: {sistema}")
 
-    mount_base = Path.home() / "rclone-mounts" / rclone_profile
+    mount_base = _get_s3_mount_base() / rclone_profile
     prefix_sanitizado = s3_prefix.strip("/").replace("/", "_")
     mount_point = mount_base / prefix_sanitizado
 
@@ -647,25 +689,31 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     if sistema != "Windows":
         mount_point.mkdir(parents=True, exist_ok=True)
     else:
-        mount_point.parent.mkdir(parents=True, exist_ok=True)
+       mount_point.parent.mkdir(parents=True, exist_ok=True)
 
     comando = [rclone, "mount", f"{rclone_profile}:{s3_prefix}", str(mount_point), "--read-only", "--links"]
     if sistema != "Windows":
         comando.append("--allow-non-empty")
 
-    subprocess.Popen(comando)
+    proceso = subprocess.Popen(comando,env=env, **_subprocess_kwargs())
+    _s3_mount_processes.append(proceso)
 
-    import time
-    time.sleep(1)
+    #import time
+    #for _ in range(30):
+    #    time.sleep(0.5)
+    #    if os.path.ismount(mount_point):
+    #        break
+    #else:
+    #    print(f"[mount] Warning: mount point not ready after 15s: {mount_point}")
 
-    try:
-        if sistema == "Windows":
-            os.startfile(str(mount_point))
-        else:
-            opener = {"Darwin": ["open"], "Linux": ["xdg-open"]}
-            subprocess.Popen(opener[sistema] + [str(mount_point)])
-    except Exception as e:
-        print(f"Mount successful, but could not open file explorer: {e}")
+    #try:
+    #    if sistema == "Windows":
+    #        os.startfile(str(mount_point))
+    #    else:
+    #        opener = {"Darwin": ["open"], "Linux": ["xdg-open"]}
+    #        subprocess.Popen(opener[sistema] + [str(mount_point)])
+    #except Exception as e:
+    #    print(f"Mount successful, but could not open file explorer: {e}")
 
 
 # ============================================================================
@@ -845,7 +893,11 @@ def crear_perfil_rclone_smb(
         "domain": "IRBBARCELONA",
         "host":   host,
         "user":   username,
-        "pass":   subprocess.getoutput(f"{shlex.quote(rclone)} obscure {shlex.quote(password)}"),
+        "pass":   subprocess.check_output(
+            [rclone, "obscure", password],
+            text=True,
+            **_subprocess_kwargs(),
+        ).strip(),
     }
     with open(config_path, "w") as f:
         config.write(f)
@@ -867,6 +919,7 @@ def actualizar_password_perfiles_rclone(
         resultado = subprocess.run(
             [rclone, "obscure", nueva_password],
             capture_output=True, text=True, check=True,
+            **_subprocess_kwargs(),
         )
         password_obscurecida = resultado.stdout.strip()
     except subprocess.CalledProcessError as e:
@@ -953,7 +1006,7 @@ def montar_share_rclone(
     })
     print(f"Montando {comando}...")
     try:
-        proceso = subprocess.Popen(comando, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        proceso = subprocess.Popen(comando, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **_subprocess_kwargs())
         for _ in range(30):
             time.sleep(1)
             if os.path.ismount(punto_montaje):
@@ -992,36 +1045,116 @@ def desmontar_todos_los_shares(usuario_actual: str) -> None:
 
 
 def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
-    """Desmonta un punto de montaje concreto."""
     def _log(msg):
         print(msg)
         if log_fn:
             log_fn(msg)
 
-    if not os.path.isdir(mount_point) or not os.path.ismount(mount_point):
-        return
+    global _s3_mount_processes
+    #mount_point_abs = str(Path(mount_point).resolve())
     try:
+        mount_point_abs = str(Path(mount_point).resolve()).rstrip("\\").rstrip("/")
+    except OSError:
+        mount_point_abs = str(Path(mount_point).absolute()).rstrip("\\").rstrip("/")
+    proceso_encontrado = None
+
+    print(f"[debug] S3 processes: {_s3_mount_processes}")
+
+    for proceso in list(_s3_mount_processes):
+        print(f"[debug matching] mount_point_abs={mount_point_abs!r}")
+        try:
+            cmdline = proceso.args if hasattr(proceso, 'args') else []
+            print(f"[debug matching] cmdline args={cmdline}")
+            # Fix Bug 1: resolver cada arg individualmente, saltando los que no son paths
+            matched = False
+            for arg in cmdline:
+                if not arg:
+                    continue
+                try:
+                    arg_norm = os.path.normcase(os.path.normpath(arg))
+                    mp_norm  = os.path.normcase(os.path.normpath(mount_point_abs))
+                    print(f"[debug matching] arg_norm: {arg_norm}, mount_point_abs: {mp_norm}")
+                    if arg_norm == mp_norm:
+                        matched = True
+                        break
+                except (OSError, ValueError):
+                    # args como "irbminio:bucket" no son paths válidos en Windows — ignorar
+                    continue
+            if matched:
+                proceso_encontrado = proceso
+                print(f"proceso encontrado {proceso_encontrado}")
+                _s3_mount_processes.remove(proceso)
+                break
+        except Exception as ex:
+            _log(f"[unmount] Warning checking process: {ex}")
+
+    if proceso_encontrado is not None:
+        _log(f"[unmount] Sending Ctrl-C to PID {proceso_encontrado.pid} for {mount_point}")
         sistema = platform.system()
+        if sistema == "Windows":
+            # GenerateConsoleCtrlEvent es el método correcto para WinFSP
+            # TerminateProcess (.terminate()) puede dejar la unidad en estado colgado
+            import ctypes
+            try:
+                #ctypes.windll.kernel32.GenerateConsoleCtrlEvent(0, proceso_encontrado.pid)  # 0 = CTRL_C_EVENT
+                result = subprocess.run([f"taskkill", "/PID", str(proceso_encontrado.pid), "/F" , "/T"], check=True, capture_output=True,
+                text=True)
+                print(f"[taskkill] Output: {result.stdout}")
+                try:
+                    proceso_encontrado.wait(timeout=5)
+                except Exception:
+                    _log(f"[unmount] Ctrl-C timeout, forcing kill on PID {proceso_encontrado.pid}")
+                    proceso_encontrado.kill()
+            except Exception as e:
+                _log(f"[unmount] GenerateConsoleCtrlEvent failed: {e}, falling back to kill")
+                proceso_encontrado.kill()
+        else:
+            proceso_encontrado.terminate()
+            try:
+                proceso_encontrado.wait(timeout=3)
+            except Exception:
+                proceso_encontrado.kill()
+    else:
+        _log(f"[unmount] No active process found for {mount_point}, trying filesystem unmount")
+
+    # Fallback: unmount a nivel de filesystem para mounts de sesiones anteriores
+    sistema = platform.system()
+    if sistema == "Windows":
+        return  # WinFSP se desmonta al matar el proceso — no hay fusermount
+    try:
+        import time
+        time.sleep(0.5)
+        if not os.path.isdir(mount_point) or not os.path.ismount(mount_point):
+            return
         if sistema == "Linux":
             subprocess.run(["fusermount", "-u", mount_point], check=True)
         elif sistema == "Darwin":
             subprocess.run(["umount", mount_point], check=True)
-        elif sistema == "Windows":
-            subprocess.run(
-                ["taskkill", "/F", "/FI", f"WINDOWTITLE eq {mount_point}*"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
     except Exception as e:
         _log(f"\n⚠️ Could not unmount {mount_point}: {str(e)}\n")
 
-
 def resolver_mount_point_destino(perfil_rclone: str, ruta_destino: str) -> str:
     """Calcula la ruta local del mount point para un prefijo S3 dado."""
-    mount_base = Path.home() / "rclone-mounts" / perfil_rclone
+    mount_base = _get_s3_mount_base()  / perfil_rclone
     prefix_sanitizado = ruta_destino.replace("/", "_")
     return str(mount_base / prefix_sanitizado)
 
+def desmontar_todos_los_mounts_s3() -> None:
+    """Mata todos los procesos rclone mount de S3 activos."""
+    global _s3_mount_processes
+    print(f"[atexit] Terminating {len(_s3_mount_processes)} S3 mount processes...")
+    for proceso in _s3_mount_processes:
+        try:
+            proceso.terminate()
+            proceso.wait(timeout=3)
+        except Exception as e:
+            print(f"[atexit] Error terminating rclone mount: {e}")
+            try:
+                proceso.kill()
+            except Exception:
+                pass
+    _s3_mount_processes.clear()
+    print("[atexit] All S3 mounts terminated.")
 
 # ============================================================================
 # OPERACIONES RCLONE (COPY / CHECK)
@@ -1045,11 +1178,13 @@ def ejecutar_rclone_copy(
     log_fn,
     on_success=None,
     on_finish=None,
+    expose_proceso: dict | None = None,
 ) -> None:
-    """Lanza rclone copy en un hilo separado."""
+    """Lanza rclone copy. Si *expose_proceso* es un dict, guarda el Popen en expose_proceso['proc']."""
     rclone = get_rclone_executable()
     tag_string   = construir_tag_string(metadatos_dict)
     header_value = f"x-amz-tagging:{tag_string}"
+
 
     comando = [
         rclone, "copy",
@@ -1075,6 +1210,13 @@ def ejecutar_rclone_copy(
     comando_str = " ".join(shlex.quote(arg) for arg in comando)
     log_fn(f"\n🧾 Full command:\n{comando_str}\n\n")
 
+    # Run rclone at a lower CPU priority so the Hypercorn/Python server
+    # process is always schedulable even when rclone saturates all cores.
+    # nice(10) means the OS will prefer processes at niceness < 10 (e.g.
+    # Hypercorn at niceness 0) when CPU is contested. Linux/macOS only;
+    # preexec_fn is silently ignored on Windows (but we also gate it).
+    _preexec = (lambda: os.nice(10)) if sys_platform != "win32" else None
+
     try:
         proceso = subprocess.Popen(
             comando,
@@ -1082,7 +1224,11 @@ def ejecutar_rclone_copy(
             stderr=subprocess.STDOUT,
             encoding="utf-8",
             errors="replace",
+            preexec_fn=_preexec,
+            **_subprocess_kwargs(),
         )
+        if expose_proceso is not None:
+            expose_proceso["proc"] = proceso
         for linea in proceso.stdout:
             log_fn(linea)
         proceso.wait()
@@ -1095,6 +1241,14 @@ def ejecutar_rclone_copy(
     except Exception as e:
         log_fn(f"\n❌ Exception while executing rclone: {str(e)}")
     finally:
+        # Guarantee the subprocess is not left running if the stdout loop raised.
+        try:
+            if proceso.poll() is None:
+                proceso.terminate()
+        except Exception:
+            pass
+        if expose_proceso is not None:
+            expose_proceso["proc"] = None
         if on_finish:
             on_finish()
 
@@ -1109,6 +1263,7 @@ def es_directorio_rclone(ruta_rclone: str, config_path: str) -> bool:
             check=True,
             encoding="utf-8",
             errors="replace",
+            **_subprocess_kwargs(),
         )
         if not resultado.stdout:
             return False
@@ -1182,8 +1337,9 @@ def ejecutar_rclone_check(
     mounts_activos: list,
     log_fn,
     on_finish=None,
+    expose_proceso: dict | None = None,
 ) -> None:
-    """Lanza rclone check en un hilo separado."""
+    """Lanza rclone check. Si *expose_proceso* es un dict, guarda el Popen en expose_proceso['proc']."""
     rclone = get_rclone_executable()
     origen_ajustado, fichero = preparar_origen_para_check(
         origen, mounts_activos, rclone_config_path
@@ -1218,6 +1374,8 @@ def ejecutar_rclone_check(
     comando_str = " ".join(shlex.quote(arg) for arg in comando)
     log_fn(f"\n🧾 Full command:\n{comando_str}\n\n")
 
+    _preexec = (lambda: os.nice(10)) if sys_platform != "win32" else None
+
     try:
         proceso = subprocess.Popen(
             comando,
@@ -1225,20 +1383,39 @@ def ejecutar_rclone_check(
             stderr=subprocess.STDOUT,
             encoding="utf-8",
             errors="replace",
+            preexec_fn=_preexec,
+            **_subprocess_kwargs(),
         )
+        if expose_proceso is not None:
+            expose_proceso["proc"] = proceso
         for linea in proceso.stdout:
             log_fn(linea)
         proceso.wait()
         if proceso.returncode == 0:
             log_fn("\n✅ Verification OK: no differences found.\n")
+        elif proceso.returncode == 1:
+            # rclone check exits 1 when differences are found — expected, not a hard error.
+            # Exit codes ≥2 indicate real failures (network, permissions, etc.).
+            log_fn(
+                "\n⚠️ Verification complete: differences found. "
+                "Check the combined report for details.\n"
+            )
         else:
             log_fn(
-                f"\n⚠️ Verification finished with code {proceso.returncode}. "
-                "Check for possible differences."
+                f"\n❌ Verification failed (exit code {proceso.returncode}). "
+                "Check for network or permissions issues.\n"
             )
     except Exception as e:
         log_fn(f"\n❌ Exception during verification: {str(e)}")
     finally:
+        # Guarantee the subprocess is not left running if the stdout loop raised.
+        try:
+            if proceso.poll() is None:
+                proceso.terminate()
+        except Exception:
+            pass
+        if expose_proceso is not None:
+            expose_proceso["proc"] = None
         if on_finish:
             on_finish()
 
@@ -1258,6 +1435,122 @@ def verificar_ruta_rclone_accesible(perfil: str, ruta: str, timeout: int = 5) ->
         return result.returncode == 0
     except (subprocess.TimeoutExpired, Exception):
         return False
+
+
+def rclone_lsd(perfil: str, path: str = "", timeout: int = 15) -> list[str]:
+    """
+    Lista las subcarpetas/buckets de un path en un perfil rclone.
+    
+    Args:
+        perfil: nombre del perfil rclone (ej. "irbminio")
+        path:   path dentro del perfil. "" = raíz (lista buckets)
+    
+    Returns:
+        Lista ordenada de nombres de carpeta.
+    
+    Raises:
+        RuntimeError: si rclone lsd falla.
+    """
+    rclone = get_rclone_executable()
+    _, rclone_cfg, _ = get_rclone_paths(perfil)
+    target = f"{perfil}:{path}" if path else f"{perfil}:"
+
+    result = subprocess.run(
+        [rclone, "lsd", target, "--config", rclone_cfg],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        **_subprocess_kwargs(),
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or f"rclone lsd failed (code {result.returncode})")
+
+    folders = []
+    for line in result.stdout.splitlines():
+        # formato: "          -1 2024-01-01 00:00:00        -1 folder_name"
+        parts = line.strip().split(None, 4)
+        if len(parts) == 5:
+            folders.append(parts[4])
+    return sorted(folders)
+
+
+def rclone_lsf(perfil: str, path: str = "", timeout: int = 15) -> list[tuple[str, str]]:
+    """
+    Lista ficheros Y carpetas de un path en un perfil rclone.
+    - Solo profundidad 1 (no recursivo)
+    - Máximo 50 ficheros (muestra aviso si hay más con "…more")
+    - Encoding UTF-8 con reemplazo para evitar UnicodeDecodeError en Windows
+    """
+    rclone = get_rclone_executable()
+    _, rclone_cfg, _ = get_rclone_paths(perfil)
+    target = f"{perfil}:{path}" if path else f"{perfil}:"
+
+    MAX_FILES = 30
+
+    # ── Directorios ───────────────────────────────────────────────────────
+    res_dirs = subprocess.run(
+        [rclone, "lsd", target, "--config", rclone_cfg],
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+        **_subprocess_kwargs(),
+    )
+    dirs = []
+    if res_dirs.returncode == 0:
+        for line in (res_dirs.stdout or "").splitlines():
+            parts = line.strip().split(None, 4)
+            if len(parts) == 5:
+                dirs.append(("d", parts[4]))
+
+    # ── Ficheros (solo nivel inmediato, sin recursión) ────────────────────
+    res_files = subprocess.run(
+        [
+            rclone, "lsf", target,
+            "--files-only",
+            "--max-depth", "1",
+            #"--max-count", str(MAX_FILES + 1),  # pedimos uno más para detectar si hay más. Lo quitamos porque no está en la versión de rclone que usamos
+            "--config", rclone_cfg,
+        ],
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+        **_subprocess_kwargs(),
+    )
+    print(f"[lsf] returncode={res_files.returncode}")
+    print(f"[lsf] stdout={res_files.stdout!r}")
+    print(f"[lsf] stderr={res_files.stderr!r}")
+    files = []
+    truncated = False
+    if res_files.returncode == 0:
+        raw_files = []
+        for line in (res_files.stdout or "").splitlines():
+            name = line.strip().rstrip("/")
+            if name:
+                raw_files.append(name)
+
+        if len(raw_files) > MAX_FILES:
+            truncated = True
+            raw_files = raw_files[:MAX_FILES]
+
+        files = [("f", name) for name in raw_files]
+
+    # Si ambos fallan con error real (no solo vacío), lanzar excepción
+    dirs_failed  = res_dirs.returncode != 0 and (res_dirs.stderr or "").strip()
+    files_failed = res_files.returncode != 0 and (res_files.stderr or "").strip()
+    if dirs_failed and files_failed:
+        raise RuntimeError(
+            (res_dirs.stderr or res_files.stderr or "rclone lsf failed").strip()
+        )
+
+    result = sorted(dirs) + sorted(files)
+
+    # Marcador especial para que el browser muestre "X ficheros más..."
+    if truncated:
+        result.append(("more", f"… more than {MAX_FILES} files (not shown)"))
+
+    return result
 
 
 # ============================================================================
