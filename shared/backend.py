@@ -638,6 +638,13 @@ def get_expiration_from_session_token(session_token: str):
 #        "--read-only",
 #    ], env=env)
 
+def _get_s3_mount_base() -> Path:
+    """Devuelve la carpeta raíz donde se crean los mount points S3."""
+    if platform.system() == "Windows":
+        return Path("C:/rclone-mounts")
+    return Path.home() / "rclone-mounts"
+
+
 
 def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> None:
     import shutil
@@ -669,7 +676,7 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     else:
         raise EnvironmentError(f"Unsupported OS: {sistema}")
 
-    mount_base = Path.home() / "rclone-mounts" / rclone_profile
+    mount_base = _get_s3_mount_base() / rclone_profile
     prefix_sanitizado = s3_prefix.strip("/").replace("/", "_")
     mount_point = mount_base / prefix_sanitizado
 
@@ -691,17 +698,22 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     proceso = subprocess.Popen(comando,env=env, **_subprocess_kwargs())
     _s3_mount_processes.append(proceso)
 
-    import time
-    time.sleep(2)
+    #import time
+    #for _ in range(30):
+    #    time.sleep(0.5)
+    #    if os.path.ismount(mount_point):
+    #        break
+    #else:
+    #    print(f"[mount] Warning: mount point not ready after 15s: {mount_point}")
 
-    try:
-        if sistema == "Windows":
-            os.startfile(str(mount_point))
-        else:
-            opener = {"Darwin": ["open"], "Linux": ["xdg-open"]}
-            subprocess.Popen(opener[sistema] + [str(mount_point)])
-    except Exception as e:
-        print(f"Mount successful, but could not open file explorer: {e}")
+    #try:
+    #    if sistema == "Windows":
+    #        os.startfile(str(mount_point))
+    #    else:
+    #        opener = {"Darwin": ["open"], "Linux": ["xdg-open"]}
+    #        subprocess.Popen(opener[sistema] + [str(mount_point)])
+    #except Exception as e:
+    #    print(f"Mount successful, but could not open file explorer: {e}")
 
 
 # ============================================================================
@@ -1033,33 +1045,97 @@ def desmontar_todos_los_shares(usuario_actual: str) -> None:
 
 
 def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
-    """Desmonta un punto de montaje concreto."""
     def _log(msg):
         print(msg)
         if log_fn:
             log_fn(msg)
 
-    if not os.path.isdir(mount_point) or not os.path.ismount(mount_point):
-        return
+    global _s3_mount_processes
+    #mount_point_abs = str(Path(mount_point).resolve())
     try:
+        mount_point_abs = str(Path(mount_point).resolve()).rstrip("\\").rstrip("/")
+    except OSError:
+        mount_point_abs = str(Path(mount_point).absolute()).rstrip("\\").rstrip("/")
+    proceso_encontrado = None
+
+    print(f"[debug] S3 processes: {_s3_mount_processes}")
+
+    for proceso in list(_s3_mount_processes):
+        print(f"[debug matching] mount_point_abs={mount_point_abs!r}")
+        try:
+            cmdline = proceso.args if hasattr(proceso, 'args') else []
+            print(f"[debug matching] cmdline args={cmdline}")
+            # Fix Bug 1: resolver cada arg individualmente, saltando los que no son paths
+            matched = False
+            for arg in cmdline:
+                if not arg:
+                    continue
+                try:
+                    arg_norm = os.path.normcase(os.path.normpath(arg))
+                    mp_norm  = os.path.normcase(os.path.normpath(mount_point_abs))
+                    print(f"[debug matching] arg_norm: {arg_norm}, mount_point_abs: {mp_norm}")
+                    if arg_norm == mp_norm:
+                        matched = True
+                        break
+                except (OSError, ValueError):
+                    # args como "irbminio:bucket" no son paths válidos en Windows — ignorar
+                    continue
+            if matched:
+                proceso_encontrado = proceso
+                print(f"proceso encontrado {proceso_encontrado}")
+                _s3_mount_processes.remove(proceso)
+                break
+        except Exception as ex:
+            _log(f"[unmount] Warning checking process: {ex}")
+
+    if proceso_encontrado is not None:
+        _log(f"[unmount] Sending Ctrl-C to PID {proceso_encontrado.pid} for {mount_point}")
         sistema = platform.system()
+        if sistema == "Windows":
+            # GenerateConsoleCtrlEvent es el método correcto para WinFSP
+            # TerminateProcess (.terminate()) puede dejar la unidad en estado colgado
+            import ctypes
+            try:
+                #ctypes.windll.kernel32.GenerateConsoleCtrlEvent(0, proceso_encontrado.pid)  # 0 = CTRL_C_EVENT
+                result = subprocess.run([f"taskkill", "/PID", str(proceso_encontrado.pid), "/F" , "/T"], check=True, capture_output=True,
+                text=True)
+                print(f"[taskkill] Output: {result.stdout}")
+                try:
+                    proceso_encontrado.wait(timeout=5)
+                except Exception:
+                    _log(f"[unmount] Ctrl-C timeout, forcing kill on PID {proceso_encontrado.pid}")
+                    proceso_encontrado.kill()
+            except Exception as e:
+                _log(f"[unmount] GenerateConsoleCtrlEvent failed: {e}, falling back to kill")
+                proceso_encontrado.kill()
+        else:
+            proceso_encontrado.terminate()
+            try:
+                proceso_encontrado.wait(timeout=3)
+            except Exception:
+                proceso_encontrado.kill()
+    else:
+        _log(f"[unmount] No active process found for {mount_point}, trying filesystem unmount")
+
+    # Fallback: unmount a nivel de filesystem para mounts de sesiones anteriores
+    sistema = platform.system()
+    if sistema == "Windows":
+        return  # WinFSP se desmonta al matar el proceso — no hay fusermount
+    try:
+        import time
+        time.sleep(0.5)
+        if not os.path.isdir(mount_point) or not os.path.ismount(mount_point):
+            return
         if sistema == "Linux":
             subprocess.run(["fusermount", "-u", mount_point], check=True)
         elif sistema == "Darwin":
             subprocess.run(["umount", mount_point], check=True)
-        elif sistema == "Windows":
-            subprocess.run(
-                ["taskkill", "/F", "/FI", f"WINDOWTITLE eq {mount_point}*"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
     except Exception as e:
         _log(f"\n⚠️ Could not unmount {mount_point}: {str(e)}\n")
 
-
 def resolver_mount_point_destino(perfil_rclone: str, ruta_destino: str) -> str:
     """Calcula la ruta local del mount point para un prefijo S3 dado."""
-    mount_base = Path.home() / "rclone-mounts" / perfil_rclone
+    mount_base = _get_s3_mount_base()  / perfil_rclone
     prefix_sanitizado = ruta_destino.replace("/", "_")
     return str(mount_base / prefix_sanitizado)
 
