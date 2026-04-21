@@ -41,7 +41,6 @@ from datetime import datetime
 
 import flet as ft
 
-import sys, os
 # Dev: añadir shared/ al path si no está ya en él
 _shared = os.path.join(os.path.dirname(__file__), "..", "..", "shared")
 if os.path.isdir(_shared):
@@ -504,12 +503,17 @@ def _build_login_content(
 
         def _auth():
             creds = {"usuario": user, "password": pwd}
-            ok    = backend.validar_credenciales_ldap(creds)
+            ok, motivo = backend.validar_credenciales_ldap(creds)
             if ok:
                 ui_call(page, lambda: on_success(creds))
             else:
+                msg = (
+                    "⚠️ Cannot reach the IRB network. Are you connected to the VPN?"
+                    if motivo == "vpn"
+                    else "Invalid credentials. Please try again."
+                )
                 def _fail():
-                    error_text.value   = "Invalid credentials. Please try again."
+                    error_text.value   = msg
                     error_text.visible = True
                     login_btn.disabled = False
                     loading.visible    = False
@@ -1313,8 +1317,9 @@ def _build_mount_bucket(
                     return
 
                 admin_creds = {"usuario": admin_user, "password": pwd}
-                if not backend.validar_credenciales_ldap(admin_creds):
-                    err.value   = "Invalid admin credentials."
+                ok, motivo = backend.validar_credenciales_ldap(admin_creds)
+                if not ok:
+                    err.value   = "⚠️ Cannot reach the IRB network. Are you connected to the VPN?" if motivo == "vpn" else "Invalid admin credentials."
                     err.visible = True
                     page.update()
                     return

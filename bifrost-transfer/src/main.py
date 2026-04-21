@@ -58,6 +58,11 @@ from typing import Callable
 
 import flet as ft
 
+# Dev: añadir shared/ al path si no está ya en él
+_shared = os.path.join(os.path.dirname(__file__), "..", "..", "shared")
+if os.path.isdir(_shared):
+    sys.path.insert(0, os.path.abspath(_shared))
+
 import backend
 
 # ============================================================================
@@ -351,7 +356,7 @@ def build_header(subtitle: str = "") -> ft.Container:
                         ft.Row(
                             [
                                 ft.Text(
-                                    "BIFROST",
+                                    "BIFROST - TRANSFER",
                                     size=22,
                                     weight=ft.FontWeight.W_700,
                                     color=C_PRIMARY,
@@ -529,7 +534,7 @@ def _build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
             ft.Column(
                 [
                     ft.Icon(ft.Icons.SYNC, color=C_PRIMARY, size=48),
-                    ft.Text("BIFROST", size=32, weight=ft.FontWeight.W_700,
+                    ft.Text("BIFROST -TRANSFER", size=32, weight=ft.FontWeight.W_700,
                             color=C_TEXT, font_family=FONT_MONO),
                     ft.Text("IRB Data Transfer Tool", size=14, color=C_TEXT_DIM),
                     ft.Container(height=24),
@@ -605,12 +610,17 @@ def _build_login_content(
 
         def _auth():
             creds = {"usuario": user, "password": pwd}
-            ok    = backend.validar_credenciales_ldap(creds)
+            ok, motivo = backend.validar_credenciales_ldap(creds)
             if ok:
                 ui_call(page, lambda: on_success(creds))
             else:
+                msg = (
+                    "⚠️ Cannot reach the IRB network. Are you connected to the VPN?"
+                    if motivo == "vpn"
+                    else "Invalid credentials. Please try again."
+                )
                 def _fail():
-                    error_text.value   = "Invalid credentials. Please try again."
+                    error_text.value   = msg
                     error_text.visible = True
                     login_btn.disabled = False
                     loading.visible    = False
@@ -878,8 +888,9 @@ def _show_smb_cred_dialog(
             page.update()
             return
         creds = {"usuario": usuario_actual, "password": pwd}
-        if not es_admin_its and not backend.validar_credenciales_ldap(creds):
-            err.value   = "Invalid credentials."
+        ok, motivo = backend.validar_credenciales_ldap(creds)
+        if not es_admin_its and not ok:
+            err.value   = "⚠️ Cannot reach the IRB network. Are you connected to the VPN?" if motivo == "vpn" else "Invalid credentials."
             err.visible = True
             page.update()
             return
@@ -2190,7 +2201,8 @@ def _build_copy_content(
         ),
     )
     mount_btn = btn_secondary("⊞  Mount destination")
-    mount_btn.visible = not IS_WEB
+    #mount_btn.visible = not IS_WEB
+    mount_btn.visible = False
     save_btn  = btn_secondary("↓  Save log")
     close_btn = btn_secondary("✕  Close")
 
@@ -2260,15 +2272,17 @@ def _build_copy_content(
 
         async def _save_log_picker(file_name: str):
             result = await save_picker.save_file(file_name=file_name)
-            if result and result.path:
+            # no hace el save log bien, flet devuelve str y no path
+            path = result.path if hasattr(result, "path") else result
+            if path:
                 contenido = "\n".join(
                     c.value for c in log_list.controls
                     if isinstance(c, ft.Text) and c.value
                 )
                 try:
-                    with open(result.path, "w", encoding="utf-8") as f:
+                    with open(path, "w", encoding="utf-8") as f:
                         f.write(contenido)
-                    show_dialog(page, "Log saved", f"Saved to:\n{result.path}", C_ACCENT)
+                    show_dialog(page, "Log saved", f"Saved to:\n{path}", C_ACCENT)
                 except Exception as ex:
                     show_dialog(page, "Error", str(ex), C_ERROR)
 
@@ -2754,7 +2768,7 @@ exit /b 1
 # ============================================================================
 
 def main(page: ft.Page):
-    page.title             = "BIFROST — IRB Data Transfer"
+    page.title             = "BIFROST — TRANSFER"
     page.bgcolor           = C_BG
     page.window.width      = 1100
     page.window.height     = 820
