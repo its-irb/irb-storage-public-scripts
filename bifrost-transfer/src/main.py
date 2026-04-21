@@ -84,7 +84,17 @@ STS_AUTO_RENEWAL_DAYS = 7
 # ============================================================================
 
 def ui_call(page: ft.Page, fn: Callable) -> None:
-    page.run_thread(fn)
+    # Use run_task (asyncio coroutine) instead of run_thread (ThreadPoolExecutor).
+    # Flet's ObjectPatch.from_diff walks control.controls as a live list with no
+    # lock; run_thread runs fn() in a thread pool *in parallel* to the asyncio
+    # event loop, so concurrent .controls.clear()/.extend() from the thread pool
+    # races with the diff walker → IndexError: list index out of range.
+    # run_task schedules the coroutine on the same asyncio event loop; since
+    # _compare_lists contains no `await`, no run_task coroutine can preempt it
+    # mid-iteration, eliminating the race entirely.
+    async def _wrapper():
+        fn()
+    page.run_task(_wrapper)
 
 # ============================================================================
 # PARA EVITAR PROBLEMAS DE CODIFICACIÓN EN CONSOLA (ESPECIALMENTE EN WINDOWS)
@@ -1868,8 +1878,10 @@ def show_local_fs_modal(
     page.show_dialog(dlg)
     page.update()
 
-    # Arrancar carga inicial después de que el modal esté en el árbol
-    threading.Timer(0.1, refresh_fn).start()
+    # Arrancar carga inicial después de que el modal esté en el árbol.
+    # Route through ui_call so the control mutations run on the asyncio event
+    # loop and cannot race with ObjectPatch.from_diff (same fix as main browser).
+    threading.Timer(0.1, lambda: ui_call(page, refresh_fn)).start()
 
 
 # ============================================================================
@@ -2581,7 +2593,9 @@ def _build_copy_content(
     # show_screen() haya procesado el widget y page.update() se haya ejecutado
     # antes de que _navigate("") intente hacer page.update() sobre controles
     # ya registrados en el árbol de Flet.
-    threading.Timer(0.1, dest_browser_refresh).start()
+    # The timer fires on a threading.Timer thread; routing through ui_call keeps
+    # all control mutations on the asyncio event loop (same fix as ui_call above).
+    threading.Timer(0.1, lambda: ui_call(page, dest_browser_refresh)).start()
 
     # ── Replay historical log + show reconnect banner (web session restore) ─
     if IS_WEB and web_session is not None:
