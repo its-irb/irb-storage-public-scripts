@@ -746,7 +746,7 @@ def get_ldap_groups(usuario: str) -> list[str]:
     return cn_grupos
 
 
-def validar_credenciales_ldap(credenciales_ldap: dict | None) -> bool:
+def validar_credenciales_ldap(credenciales_ldap: dict | None) -> tuple[bool, str | None]:
     """Valida credenciales LDAP mediante un bind autenticado."""
     if not credenciales_ldap:
         return False
@@ -756,18 +756,23 @@ def validar_credenciales_ldap(credenciales_ldap: dict | None) -> bool:
     try:
         conn = Connection(server, auto_bind=True)
         conn.search(LDAP_BASE_DN, f"(cn={usuario})", SUBTREE, attributes=["dn"])
+        print(f"[debug] - LDAP: Search for user '{usuario}' returned {len(conn.entries)} entries.")
         if not conn.entries:
-            return False
+            print("[debug] - LDAP: No se encontró el usuario. conn.entries")
+            return False, "invalid"
         user_dn = conn.entries[0].entry_dn
         conn_auth = Connection(server, user=user_dn, password=password, authentication=SIMPLE)
+        print(f"[debug] - LDAP: Validating credentials for user: {conn_auth}")
         if conn_auth.bind():
             conn_auth.unbind()
             conn.unbind()
-            return True
-        return False
+            return True, None
+        return False, "invalid"
     except Exception as e:
         print(f"LDAP validation error: {e}")
-        return False
+        if "invalid server address" in str(e).lower():
+            return False, "vpn"
+        return False, "invalid"
 
 
 def construir_credenciales_smb(
@@ -1098,7 +1103,7 @@ def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
             try:
                 #ctypes.windll.kernel32.GenerateConsoleCtrlEvent(0, proceso_encontrado.pid)  # 0 = CTRL_C_EVENT
                 result = subprocess.run([f"taskkill", "/PID", str(proceso_encontrado.pid), "/F" , "/T"], check=True, capture_output=True,
-                text=True)
+                text=True, **_subprocess_kwargs())
                 print(f"[taskkill] Output: {result.stdout}")
                 try:
                     proceso_encontrado.wait(timeout=5)
