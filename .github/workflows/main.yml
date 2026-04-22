@@ -198,17 +198,20 @@ jobs:
     steps:
       - name: Instalar dependencias sistema
         run: |
-          dnf install -y --allowerasing python3.11 python3.11-pip python3.11-devel gcc make \
-            glibc-devel unzip zip curl
-          python3.11 -m pip install --upgrade pip setuptools wheel
+          dnf install -y --allowerasing \
+            python3.12 python3.12-pip python3.12-devel \
+            gcc make glibc-devel unzip zip curl \
+            libX11 libXext libXrender libXtst libXi \
+            gtk3 glib2 pango cairo mesa-libGL \
+            dbus-libs at-spi2-atk cups-libs
+          python3.12 -m pip install --upgrade pip setuptools wheel
 
       - name: Checkout código
         uses: actions/checkout@v6.0.2
 
       - name: Instalar dependencias Python
         run: |
-          python3.11 -m pip install -r ${{ matrix.app }}/src/pip-requirements.txt
-          python3.11 -m pip install pyinstaller
+          python3.12 -m pip install -r ${{ matrix.app }}/src/pip-requirements.txt
 
       - name: Copiar shared/backend.py dentro de src/
         run: cp shared/backend.py ${{ matrix.app }}/src/backend.py
@@ -228,29 +231,27 @@ jobs:
       - name: Escribir versión
         run: echo "__version__ = '1.0.${{ github.run_number }}'" > ${{ matrix.app }}/src/version.py
 
-      - name: Build Rocky Linux (PyInstaller onefile)
+      - name: Build Rocky Linux (flet build linux)
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
           APP: ${{ matrix.app }}
         run: |
-          mkdir -p dist
-          cd ${APP}/src
-          python3.11 -m PyInstaller --onefile main.py \
-            --add-data "assets/bin/rclone:." \
-            --collect-all flet \
-            --collect-all flet_core \
-            --hidden-import flet.fastapi \
-            --hidden-import uvicorn \
-            --hidden-import uvicorn.lifespan.on \
-            --hidden-import uvicorn.protocols.http.auto \
-            --hidden-import uvicorn.protocols.websockets.auto \
-            --hidden-import uvicorn.logging \
-            --hidden-import uvicorn.loops.auto \
-            --distpath ../../dist
-          mv ../../dist/main "../../dist/${APP}-${BRANCH_SUFFIX}-linux"
+          cd ${APP}
+          echo "y" | flet build linux --output dist --no-rich-output
 
+      - name: Renombrar binario
+        env:
+          BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
+          APP: ${{ matrix.app }}
+        run: |
+          cd ${APP}/dist
+          BINARY=$(find . -maxdepth 2 -type f -executable | head -1 | sed 's|./||')
+          echo "Binario encontrado: $BINARY"
+          mv "$BINARY" "${APP}-${BRANCH_SUFFIX}-linux"
+          ls -lah .
+          
       - name: Verificar artefacto generado
-        run: ls -lah dist/
+        run: ls -lah ${{ matrix.app }}/dist/
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
