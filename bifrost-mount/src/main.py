@@ -574,12 +574,176 @@ def _build_login_content(
 
     return content
 
+# ============================================================================
+# VISTA: SELECCIÓN DE TIPO DE MONTAJE
+# ============================================================================
+
+def _build_mount_type_content(
+    page: ft.Page,
+    on_minio: Callable,
+    on_project: Callable,
+) -> ft.Control:
+    """Pantalla inicial de elección: Project vs MinIO Bucket."""
+
+    def make_option_card(
+        icon: str,
+        title: str,
+        description: str,
+        accent: str,
+        on_click_fn: Callable,
+    ) -> ft.GestureDetector:
+        c = ft.Container(
+            content=ft.Row(
+                [
+                    ft.Container(
+                        content=ft.Icon(icon, color=accent, size=28),
+                        bgcolor=f"{accent}18",
+                        border_radius=10,
+                        padding=ft.Padding.all(14),
+                    ),
+                    ft.Container(width=16),
+                    ft.Column(
+                        [
+                            ft.Text(title, size=15, weight=ft.FontWeight.W_600, color=C_TEXT),
+                            ft.Text(description, size=12, color=C_TEXT_DIM),
+                        ],
+                        spacing=3,
+                        expand=True,
+                    ),
+                    ft.Icon(ft.Icons.ARROW_FORWARD_IOS, color=C_BORDER, size=14),
+                ],
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            bgcolor=C_SURFACE,
+            border=ft.Border.all(1, C_BORDER),
+            border_radius=10,
+            padding=ft.Padding.symmetric(horizontal=20, vertical=18),
+        )
+
+        def on_hover(e: ft.HoverEvent):
+            c.bgcolor = C_SURFACE2 if e.data == "true" else C_SURFACE
+            c.border  = ft.Border.all(1, accent if e.data == "true" else C_BORDER)
+            page.update()
+
+        return ft.GestureDetector(
+            content=ft.Container(content=c, on_hover=on_hover),
+            on_tap=lambda e: on_click_fn(),
+        )
+
+    minio_card = make_option_card(
+        icon=ft.Icons.STORAGE,
+        title="MinIO Bucket",
+        description="Mount a MinIO/S3 bucket via rclone",
+        accent=C_PRIMARY,
+        on_click_fn=on_minio,
+    )
+
+    project_card = make_option_card(
+        icon=ft.Icons.FOLDER_SPECIAL,
+        title="Project",
+        description="Mount a shared project storage",
+        accent=C_ACCENT,
+        on_click_fn=on_project,
+    )
+
+    return ft.Column(
+        [
+            build_header("Mount"),
+            ft.Container(expand=True),
+            ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Icon(ft.Icons.UPLOAD_FILE, color=C_PRIMARY, size=40),
+                        ft.Container(height=8),
+                        ft.Text(
+                            "What do you want to mount?",
+                            size=18,
+                            weight=ft.FontWeight.W_700,
+                            color=C_TEXT,
+                        ),
+                        ft.Text(
+                            "Select a storage type to continue",
+                            size=12,
+                            color=C_TEXT_DIM,
+                        ),
+                        ft.Container(height=32),
+                        project_card,
+                        ft.Container(height=12),
+                        minio_card,
+                    ],
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=0,
+                ),
+                width=420,
+                padding=ft.Padding.all(36),
+                bgcolor=C_SURFACE,
+                border=ft.Border.all(1, C_BORDER),
+                border_radius=12,
+            ),
+            ft.Container(expand=True),
+        ],
+        expand=True,
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        spacing=0,
+    )
+
+
+# ============================================================================
+# VISTA: PLACEHOLDER PROYECTO
+# ============================================================================
+
+def _build_project_placeholder(
+    page: ft.Page,
+    on_back: Callable,
+) -> ft.Control:
+    """Pantalla provisional para el flujo de 'Project' (pendiente de implementar)."""
+
+    back_btn = btn_secondary("← Back", on_click=lambda e: on_back())
+
+    return ft.Column(
+        [
+            build_header("Project Mount"),
+            ft.Container(
+                content=ft.Row(
+                    [back_btn, ft.Container(expand=True)],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
+                margin=ft.Margin.only(bottom=4),
+            ),
+            ft.Container(expand=True),
+            ft.Column(
+                [
+                    ft.Icon(ft.Icons.CONSTRUCTION, color=C_TEXT_DIM, size=48),
+                    ft.Container(height=16),
+                    ft.Text(
+                        "Coming soon",
+                        size=18,
+                        weight=ft.FontWeight.W_600,
+                        color=C_TEXT_DIM,
+                    ),
+                    ft.Text(
+                        "Project mount is not yet implemented.",
+                        size=13,
+                        color=C_TEXT_DIM,
+                    ),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=6,
+            ),
+            ft.Container(expand=True),
+        ],
+        expand=True,
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        spacing=0,
+    )
+
 
 # ============================================================================
 # VISTA: SELECCIÓN DE SERVIDOR MINIO
 # ============================================================================
 
-def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
+def _build_minio_content(page: ft.Page, on_continue: Callable, on_back: Callable | None = None) -> ft.Control:
     servers  = list(backend.MINIO_SERVERS.keys())
     selected = {"current": servers[0]}
 
@@ -656,9 +820,20 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
             "endpoint": backend.MINIO_SERVERS[srv]["IRB"]["endpoint"],
         })
 
+    back_btn = btn_secondary("← Back", on_click=lambda e: on_back() if on_back else None)
+
     content = ft.Column(
         [
             build_header("MinIO Server"),
+            ft.Container(
+                content=ft.Row(
+                    [back_btn, ft.Container(expand=True)],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
+                margin=ft.Margin.only(bottom=4),
+                visible=on_back is not None,
+            ),
             ft.Container(
                 content=ft.Column(
                     [
@@ -1600,27 +1775,27 @@ def _build_mount_bucket(
 # VERIFICACIÓN DE RCLONE EN DESKTOP
 # ============================================================================
 
-def check_rclone_installation_flet(page: ft.Page) -> None:
-    if not backend.detect_rclone_installed():
-        sistema = sys.platform
-        if sistema == "darwin":
-            show_dialog(
-                page,
-                "Rclone not found",
-                "Download it with macos-third-party-assets-downloader.sh.\n",
-                C_ERROR,
-            )
-            sys.exit(1)
-        elif sistema == "win32":
-            show_dialog(
-                page,
-                "Rclone.exe not found",
-                "Download rclone.exe and place it in the same folder as this executable.\n"
-                "https://rclone.org/downloads/\n\n"
-                "Also install WinFsp from https://winfsp.dev/rel/",
-                C_ERROR,
-            )
-            sys.exit(1)
+# def check_rclone_installation_flet(page: ft.Page) -> None:
+#     if not backend.detect_rclone_installed():
+#         sistema = sys.platform
+#         if sistema == "darwin":
+#             show_dialog(
+#                 page,
+#                 "Rclone not found",
+#                 "Download it with macos-third-party-assets-downloader.sh.\n",
+#                 C_ERROR,
+#             )
+#             sys.exit(1)
+#         elif sistema == "win32":
+#             show_dialog(
+#                 page,
+#                 "Rclone.exe not found",
+#                 "Download rclone.exe and place it in the same folder as this executable.\n"
+#                 "https://rclone.org/downloads/\n\n"
+#                 "Also install WinFsp from https://winfsp.dev/rel/",
+#                 C_ERROR,
+#             )
+#             sys.exit(1)
 
 
 # ============================================================================
@@ -1746,16 +1921,22 @@ def main(page: ft.Page):
 
     def on_login_success(creds: dict):
         state["credenciales_ldap"] = creds
-        go_minio()
+        go_mount_type()
+
+    def go_mount_type():
+        show_screen(_build_mount_type_content(page, on_minio=go_minio, on_project=go_project))
+
+    def go_project():
+        show_screen(_build_project_placeholder(page, on_back=go_mount_type))
 
     def go_minio():
-        show_screen(_build_minio_content(page, on_continue=on_minio_selected))
+        show_screen(_build_minio_content(page, on_continue=on_minio_selected, on_back=go_mount_type))
 
     def on_minio_selected(eleccion: dict):
         state["servidor_minio"] = eleccion["servidor"]
         state["perfil_rclone"]  = eleccion["perfil"]
         state["endpoint"]       = eleccion["endpoint"]
-        check_rclone_installation_flet(page)
+        # check_rclone_installation_flet(page)
         _go_credentials_or_mount()
 
     def _go_credentials_or_mount():
