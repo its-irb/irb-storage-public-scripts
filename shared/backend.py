@@ -695,6 +695,8 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     if sistema != "Windows":
         comando.append("--allow-non-empty")
 
+    time.sleep(2)
+
     proceso = subprocess.Popen(comando,env=env, **_subprocess_kwargs())
     _s3_mount_processes.append(proceso)
 
