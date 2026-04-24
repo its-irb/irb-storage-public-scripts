@@ -1479,7 +1479,8 @@ def _build_mount_bucket(
                 # Esperar a que el mount esté listo (máx 10s)
                 import time, platform as _platform
                 sistema = _platform.system()
-                for _ in range(50):
+                # Esperar hasta 30s en lugar de 10s
+                for _ in range(150):
                     time.sleep(0.2)
                     try:
                         os.listdir(mp)
