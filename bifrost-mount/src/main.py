@@ -1487,6 +1487,8 @@ def _build_mount_bucket(
                     except OSError:
                         pass
 
+                time.sleep(2)  # espera extra antes de abrir el explorador
+
                 mounted_state[ruta] = mp
 
                 # Abrir explorador
