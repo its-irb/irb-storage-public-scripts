@@ -1,4 +1,5 @@
 from __future__ import annotations
+import time
 
 
 """
@@ -35,10 +36,18 @@ import subprocess
 import threading
 import traceback
 from typing import Callable
+import pathlib
+from datetime import datetime
 
 import flet as ft
 
+# Dev: añadir shared/ al path si no está ya en él
+_shared = os.path.join(os.path.dirname(__file__), "..", "..", "shared")
+if os.path.isdir(_shared):
+    sys.path.insert(0, os.path.abspath(_shared))
+
 import backend
+
 
 # ============================================================================
 # MODO DE EJECUCIÓN
@@ -65,10 +74,13 @@ def ui_call(page: ft.Page, fn: Callable) -> None:
 # ============================================================================
 # PARA EVITAR PROBLEMAS DE CODIFICACIÓN EN CONSOLA (ESPECIALMENTE EN WINDOWS)
 # ============================================================================
-if sys.stdout and hasattr(sys.stdout, 'buffer'):
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-if sys.stderr and hasattr(sys.stderr, 'buffer'):
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+try:
+    if sys.stdout and hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+    if sys.stderr and hasattr(sys.stderr, 'buffer'):
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+except Exception:
+    pass
 
 
 # ============================================================================
@@ -111,6 +123,18 @@ C_TEXT_DIM = "#8B949E"
 C_OVERLAY  = "#1C2027"
 FONT_MONO  = "Courier New"
 
+# ── Log persistente ───────────────────────────────────────────────────────
+_LOG_DIR  = pathlib.Path.home() / "bifrost-mount-logs"
+_LOG_FILE = _LOG_DIR / f"bifrost-mount-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+
+def _write_to_log_file(msg: str) -> None:
+    """Escribe msg en el fichero de log de sesión. Falla silenciosamente."""
+    try:
+        _LOG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(msg if msg.endswith("\n") else msg + "\n")
+    except Exception:
+        pass
 
 def btn_primary(text: str, on_click=None, width=None, disabled=False) -> ft.Button:
     return ft.Button(
@@ -479,12 +503,17 @@ def _build_login_content(
 
         def _auth():
             creds = {"usuario": user, "password": pwd}
-            ok    = backend.validar_credenciales_ldap(creds)
+            ok, motivo = backend.validar_credenciales_ldap(creds)
             if ok:
                 ui_call(page, lambda: on_success(creds))
             else:
+                msg = (
+                    "⚠️ Cannot reach the IRB network. Are you connected to the VPN?"
+                    if motivo == "vpn"
+                    else "Invalid credentials. Please try again."
+                )
                 def _fail():
-                    error_text.value   = "Invalid credentials. Please try again."
+                    error_text.value   = msg
                     error_text.visible = True
                     login_btn.disabled = False
                     loading.visible    = False
@@ -688,6 +717,7 @@ def _build_credentials_content(
 
     def log(msg: str, color: str = C_TEXT):
         print(msg.rstrip())
+        _write_to_log_file(msg) 
         def _add():
             log_list.controls.append(
                 ft.Text(msg.rstrip("\n"), size=11, color=color,
@@ -824,13 +854,22 @@ def build_rclone_browser(
     perfil_rclone: str,
     on_select: Callable[[str], None],
     on_double_tap_mount: Callable[[str], None] | None = None,
+    mounted_state: dict | None = None,
 ) -> tuple[ft.Column, Callable]:
     """
     Lista los buckets disponibles en el perfil rclone.
     Al seleccionar uno, llama on_select(bucket_name).
     Doble click monta directamente si on_double_tap_mount está definido.
+    mounted_state: dict compartido {bucket_name: mount_point} para trackear mounts.
     """
+    if mounted_state is None:
+        mounted_state = {}
     selected_state = {"bucket": None}
+
+    # Flag to detect mounts from previous sessions only on the initial load.
+    # Subsequent refreshes (triggered after each mount) must NOT re-add buckets
+    # that were just unmounted — that would create a race with _unmount_all.
+    _first_load_done = {"value": False}
 
     bucket_col  = ft.Column(spacing=6, tight=True)
     loading_row = ft.Row(
@@ -853,6 +892,61 @@ def build_rclone_browser(
         if on_double_tap_mount:
             on_double_tap_mount(bucket_name)
 
+    unmount_all_btn = btn_secondary("⊠  Unmount all")
+    unmount_all_btn.visible = False
+
+    def _unmount_bucket(bucket_name: str):
+        mp = mounted_state.get(bucket_name)
+        if not mp:
+            return
+        def _do():
+            try:
+                backend.desmontar_punto_montaje(mp)
+            except Exception as ex:
+                print(f"[unmount] Error: {ex}")
+            finally:
+                mounted_state.pop(bucket_name, None)
+            def _refresh():
+                if selected_state["bucket"] == bucket_name:
+                    selected_state["bucket"] = None
+                    on_select("")          # notificar al caller
+                _render_buckets(selected_state.get("_all_buckets", []))
+            ui_call(page, _refresh)
+        threading.Thread(target=_do, daemon=True).start()
+
+
+    def _unmount_all():
+        def _do():
+            for bname, mp in list(mounted_state.items()):
+                try:
+                    backend.desmontar_punto_montaje(mp)
+                except OSError as ex:
+                    # WinError 1005: WinFSP volume already in inconsistent state
+                    # El proceso rclone probablemente ya no existe (perdido tras rebuild)
+                    # Forzar taskkill por nombre como fallback
+                    print(f"[unmount_all] OSError {bname}: {ex} — trying taskkill fallback")
+                    if sys.platform == "win32":
+                        try:
+                            subprocess.run(
+                                ["taskkill", "/F", "/IM", "rclone.exe"],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            )
+                        except Exception:
+                            pass
+                except Exception as ex:
+                    print(f"[unmount_all] Error {bname}: {ex}")
+                finally:
+                    mounted_state.pop(bname, None)
+            def _refresh():
+                selected_state["bucket"] = None
+                on_select("")
+                _render_buckets(selected_state.get("_all_buckets", []))
+            ui_call(page, _refresh)
+        threading.Thread(target=_do, daemon=True).start()
+
+    unmount_all_btn.on_click = lambda e: _unmount_all()
+
+
     def _render_buckets(buckets: list):
         selected_state["_all_buckets"] = buckets
         bucket_col.controls.clear()
@@ -863,29 +957,66 @@ def build_rclone_browser(
             )
         else:
             for bname in buckets:
-                is_sel = bname == selected_state["bucket"]
+                is_sel     = bname == selected_state["bucket"]
+                is_mounted = bname in mounted_state
+
+                if is_mounted:
+                    bg_color     = f"{C_BORDER}55"   # gris semitransparente
+                    border_color = C_TEXT_DIM        # gris oscuro
+                    border_width = 1
+                    icon         = ft.Icons.CHECK_CIRCLE_OUTLINE
+                    icon_color   = C_TEXT_DIM
+                    text_weight  = ft.FontWeight.W_400
+                elif is_sel:
+                    bg_color     = f"{C_PRIMARY}18"
+                    border_color = C_PRIMARY
+                    border_width = 2
+                    icon         = ft.Icons.STORAGE_OUTLINED
+                    icon_color   = C_PRIMARY
+                    text_weight  = ft.FontWeight.W_600
+                else:
+                    bg_color     = C_SURFACE2
+                    border_color = C_BORDER
+                    border_width = 1
+                    icon         = ft.Icons.STORAGE_OUTLINED
+                    icon_color   = C_PRIMARY
+                    text_weight  = ft.FontWeight.W_400
+
+                unmount_btn = ft.IconButton(
+                    icon=ft.Icons.EJECT_OUTLINED,
+                    icon_color=C_ERROR,
+                    icon_size=16,
+                    tooltip="Unmount",
+                    visible=is_mounted,
+                    on_click=lambda e, b=bname: _unmount_bucket(b),
+                )
+
                 row = ft.GestureDetector(
                     content=ft.Container(
                         content=ft.Row(
                             [
-                                ft.Icon(
-                                    ft.Icons.CHECK_CIRCLE if is_sel else ft.Icons.STORAGE_OUTLINED,
-                                    color=C_ACCENT if is_sel else C_PRIMARY,
-                                    size=16,
-                                ),
+                                ft.Icon(icon, color=icon_color, size=16),
                                 ft.Text(
                                     bname,
                                     size=13,
                                     color=C_TEXT,
-                                    weight=ft.FontWeight.W_600 if is_sel else ft.FontWeight.W_400,
+                                    weight=text_weight,
                                     expand=True,
                                 ),
+                                ft.Container(
+                                    content=ft.Text("mounted", size=10, color=C_TEXT_DIM),
+                                    bgcolor=f"{C_BORDER}88",
+                                    border_radius=4,
+                                    padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                    visible=is_mounted,
+                                ),
+                                #unmount_btn,
                             ],
                             spacing=10,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
-                        bgcolor=f"{C_ACCENT}18" if is_sel else C_SURFACE2,
-                        border=ft.Border.all(2 if is_sel else 1, C_ACCENT if is_sel else C_BORDER),
+                        bgcolor=bg_color,
+                        border=ft.Border.all(border_width, border_color),
                         border_radius=6,
                         padding=ft.Padding.symmetric(horizontal=12, vertical=10),
                         ink=True,
@@ -895,6 +1026,7 @@ def build_rclone_browser(
                 )
                 bucket_col.controls.append(row)
 
+        unmount_all_btn.visible = len(mounted_state) > 0
         page.update()
 
     def _load():
@@ -906,6 +1038,23 @@ def build_rclone_browser(
 
         try:
             buckets = backend.rclone_lsd(perfil_rclone, "", timeout=15)
+            # Detectar mounts activos de sesiones anteriores — solo en la carga inicial.
+            # En recargas posteriores (después de montar un bucket) no re-añadimos entradas:
+            # evita una race condition donde _load sobreescribe mounted_state tras un unmount.
+            if not _first_load_done["value"]:
+                for bname in buckets:
+                    mp = backend.resolver_mount_point_destino(perfil_rclone, bname)
+                    if sys.platform == "win32":
+                        if os.path.isdir(mp):
+                            try:
+                                os.listdir(mp)
+                                mounted_state[bname] = mp
+                            except OSError:
+                                pass
+                    else:
+                        if os.path.ismount(mp):
+                            mounted_state[bname] = mp
+                _first_load_done["value"] = True
 
             def _show():
                 loading_row.visible = False
@@ -936,12 +1085,13 @@ def build_rclone_browser(
                 height=220,
                 padding=ft.Padding.all(8),
             ),
+            #unmount_all_btn,
         ],
         spacing=6,
         tight=True,
     )
 
-    return browser_widget, lambda: threading.Thread(target=_load, daemon=True).start()
+    return browser_widget, lambda: threading.Thread(target=_load, daemon=True).start(), unmount_all_btn
 
 
 # ============================================================================
@@ -958,6 +1108,8 @@ def _build_mount_bucket(
     extra_config: dict | None,
     on_renew_complete: Callable,
     show_screen: Callable,
+    mounted_state: dict | None = None,
+    on_back: Callable | None = None,
 ) -> ft.Control:
     usuario_actual = credenciales_ldap["usuario"]
 
@@ -1064,6 +1216,7 @@ def _build_mount_bucket(
         page.update()
 
     renew_btn = btn_secondary("🔑 Renew credentials", on_click=show_renew_dialog)
+    back_btn  = btn_secondary("← Back", on_click=lambda e: on_back()) if on_back else None
 
     # ── Sección CIFS (solo Linux) ─────────────────────────────────────────
     if IS_LINUX_CLUSTER:
@@ -1164,8 +1317,9 @@ def _build_mount_bucket(
                     return
 
                 admin_creds = {"usuario": admin_user, "password": pwd}
-                if not backend.validar_credenciales_ldap(admin_creds):
-                    err.value   = "Invalid admin credentials."
+                ok, motivo = backend.validar_credenciales_ldap(admin_creds)
+                if not ok:
+                    err.value   = "⚠️ Cannot reach the IRB network. Are you connected to the VPN?" if motivo == "vpn" else "Invalid admin credentials."
                     err.visible = True
                     page.update()
                     return
@@ -1288,6 +1442,8 @@ def _build_mount_bucket(
 
     # ── Destino: selector de buckets ──────────────────────────────────────
     _dest_path = {"value": ""}
+    if mounted_state is None:
+        mounted_state = {}
 
     ruta_label = ft.Text(
         f"→ {perfil_rclone}: (select a bucket above)",
@@ -1298,12 +1454,6 @@ def _build_mount_bucket(
 
     def on_browser_select(path: str):
         _dest_path["value"] = path
-        if path:
-            ruta_label.value = f"→ Would mount: {perfil_rclone}:{path}"
-            ruta_label.color = C_ACCENT
-        else:
-            ruta_label.value = f"→ {perfil_rclone}: (select a bucket above)"
-            ruta_label.color = C_WARNING
 
     # ── Montar bucket ─────────────────────────────────────────────────────
     mount_btn    = btn_secondary("⊞  Mount bucket")
@@ -1324,10 +1474,45 @@ def _build_mount_bucket(
         def _do():
             try:
                 backend.mount_rclone_S3_prefix_to_folder(perfil_rclone, ruta)
+                mp = backend.resolver_mount_point_destino(perfil_rclone, ruta)
+
+                # Esperar a que el mount esté listo (máx 10s)
+                import time, platform as _platform
+                sistema = _platform.system()
+                for _ in range(50):
+                    time.sleep(0.2)
+                    try:
+                        os.listdir(mp)
+                        break
+                    except OSError:
+                        pass
+
+                mounted_state[ruta] = mp
+
+                # Abrir explorador
+                try:
+                    import time, platform as _platform
+                    sistema = _platform.system()
+                    if sistema == "Windows":
+                        os.startfile(mp)
+                    else:
+                        subprocess.Popen({"Darwin": ["open"], "Linux": ["xdg-open"]}[sistema] + [mp])
+                except Exception as ex:
+                    print(f"[mount] Could not open explorer: {ex}")
+
                 def _ok():
                     mount_btn.disabled   = False
-                    mount_status.value   = "✅ Mounted! Opening folder..."
+                    mount_status.value   = "✅ Mounted!"
                     mount_status.color   = C_ACCENT
+                    def _clear_status():
+                        import time; time.sleep(3)
+                        def _hide():
+                            mount_status.value   = ""
+                            mount_status.visible = False
+                            page.update()
+                        ui_call(page, _hide)
+                    threading.Thread(target=_clear_status, daemon=True).start()
+                    threading.Timer(0.2, dest_browser_refresh).start()
                     page.update()
                 ui_call(page, _ok)
             except EnvironmentError as ex:
@@ -1351,10 +1536,11 @@ def _build_mount_bucket(
 
     mount_btn.on_click = do_mount
 
-    dest_browser, dest_browser_refresh = build_rclone_browser(
+    dest_browser, dest_browser_refresh, unmount_all_btn  = build_rclone_browser(
         page, perfil_rclone,
         on_select=on_browser_select,
         on_double_tap_mount=lambda path: do_mount(None, path),
+        mounted_state=mounted_state
     )
     dest_browser_col = ft.Column(
         [field_label(f"Bucket in {perfil_rclone}"), dest_browser],
@@ -1368,7 +1554,7 @@ def _build_mount_bucket(
             build_header(f"Mount — {perfil_rclone}"),
             ft.Container(
                 content=ft.Row(
-                    [expiry_badge, ft.Container(expand=True), renew_btn],
+                    [back_btn, expiry_badge, ft.Container(expand=True), renew_btn],
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 padding=ft.Padding.symmetric(horizontal=24, vertical=8),
@@ -1384,8 +1570,6 @@ def _build_mount_bucket(
                             ft.Column(
                                 [
                                     dest_browser_col,
-                                    ft.Container(height=6),
-                                    ruta_label,
                                     ft.Container(height=12),
                                 ],
                                 spacing=0,
@@ -1393,7 +1577,7 @@ def _build_mount_bucket(
                         ),
                         ft.Container(height=16),
                         ft.Row(
-                            [mount_btn, mount_status],
+                            [mount_btn, unmount_all_btn, mount_status],
                             spacing=8,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
@@ -1498,6 +1682,7 @@ def main(page: ft.Page):
         "servidor_minio":    None,
         "perfil_rclone":     None,
         "endpoint":          None,
+        "mounted_per_perfil": {},
     }
 
     import atexit
@@ -1611,7 +1796,13 @@ def main(page: ft.Page):
 
     def go_mount():
         servidor     = state["servidor_minio"]
+        perfil       = state["perfil_rclone"]
         extra_config = backend.MINIO_SERVERS.get(servidor, {}).get("IRB", {}).get("extra_rclone_config")
+
+        # Recuperar o crear el mounted_state para este perfil
+        if perfil not in state["mounted_per_perfil"]:
+            state["mounted_per_perfil"][perfil] = {}
+
         show_screen(_build_mount_bucket(
             page,
             perfil_rclone=state["perfil_rclone"],
@@ -1622,6 +1813,8 @@ def main(page: ft.Page):
             extra_config=extra_config,
             on_renew_complete=go_mount,
             show_screen=show_screen,
+            mounted_state=state["mounted_per_perfil"][perfil], 
+            on_back=go_minio,
         ))
 
     def do_close():
@@ -1631,7 +1824,6 @@ def main(page: ft.Page):
         page.window.close()
 
     show_screen(_build_update_content(page, on_continue=go_login))
-
 
 # ============================================================================
 # ENTRY POINT
