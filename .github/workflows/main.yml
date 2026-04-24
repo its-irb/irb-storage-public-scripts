@@ -96,11 +96,17 @@ jobs:
           mv "$BUNDLE" "${APP}-${BRANCH_SUFFIX}-macos.app"
           ls -lah .
 
+      - name: Crear DMG
+        uses: L-Super/create-dmg-actions@v1.0.3
+        with:
+          dmg_name: ${{ matrix.app }}-${{ steps.clean_branch.outputs.name }}-macos
+          src_dir: ${{ matrix.app }}/dist/${{ matrix.app }}-${{ steps.clean_branch.outputs.name }}-macos.app
+
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
         with:
           name: ${{ matrix.app }}-macos-${{ steps.clean_branch.outputs.name }}
-          path: ${{ matrix.app }}/dist/*.app
+          path: "*.dmg"
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Windows — flet build windows + Inno Setup
@@ -187,6 +193,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────────
   # Rocky Linux — PyInstaller onefile para las dos apps
   # flet build linux no soporta onefile
+  # flet solo soporta devian y ubuntu, y como tenemos Rocky Linux 9, flet no es compatible.
+  # https://flet.dev/docs/getting-started/installation/ : Flet supports Debian 10, 11 and 12 and Ubuntu 20.04, 22.04 and 24.04 LTS.
   # ─────────────────────────────────────────────────────────────────────────────
   build-rocky:
     runs-on: ubuntu-latest
@@ -302,16 +310,32 @@ jobs:
       #    done
        #   ls -lah .
 
-      - name: Verificar artefactos macOS
+      # - name: Verificar artefactos macOS
+      #   env:
+      #     BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
+      #   run: |
+      #     ls -lah dist/
+      #     for APP in bifrost-transfer bifrost-mount; do
+      #       test -f "dist/${APP}-${BRANCH_SUFFIX}-macos.app.zip" \
+      #         && echo "OK: ${APP}" \
+      #         || echo "WARNING: ${APP} no encontrado"
+      #     done
+
+      #Por si queremos quitar el nombre de la rama de los archivos finales, aunque no es tan importante porque ya se incluye en el tag de la release.
+      - name: Eliminar sufijo de rama de los nombres de archivo
+        shell: bash
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
         run: |
-          ls -lah dist/
-          for APP in bifrost-transfer bifrost-mount; do
-            test -f "dist/${APP}-${BRANCH_SUFFIX}-macos.app.zip" \
-              && echo "OK: ${APP}" \
-              || echo "WARNING: ${APP} no encontrado"
+          for file in dist/*; do
+            [[ -f "$file" ]] || continue
+            base=$(basename "$file")
+            new_name="${base/-${BRANCH_SUFFIX}/}"
+            if [[ "$base" != "$new_name" ]]; then
+              mv "$file" "dist/$new_name"
+            fi
           done
+          ls -lah dist/
 
       - name: Crear GitHub Release
         uses: softprops/action-gh-release@v2
