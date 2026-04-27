@@ -44,7 +44,6 @@ Fixes aplicados respecto al piloto inicial:
 """
 
 
-
 import os
 import sys
 import io
