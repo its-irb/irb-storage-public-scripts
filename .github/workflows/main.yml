@@ -163,8 +163,9 @@ jobs:
           pip install build
           python -m build shared/ --outdir shared/dist/
           WHEEL=$(ls $(pwd)/shared/dist/bifrost_backend-*.whl)
+          WHEEL_WIN=$(cygpath -w "$WHEEL")
           sed -i "s|\"bifrost-backend\"|\"bifrost-backend @ file://${WHEEL}\"|" ${{ matrix.app }}/pyproject.toml
-          
+
       - name: Build Windows
         shell: bash
         env:
@@ -245,6 +246,9 @@ jobs:
         run: |
           python3.11 -m pip install build
           python3.11 -m build shared/ --outdir shared/dist/
+          WHEEL=$(ls $(pwd)/shared/dist/bifrost_backend-*.whl)
+          ssed -i "s|\"bifrost-backend\"|\"bifrost-backend @ file://${WHEEL}\"|" ${{ matrix.app }}/pyproject.toml
+
 
       - name: Build Rocky Linux (PyInstaller onefile)
         env:
