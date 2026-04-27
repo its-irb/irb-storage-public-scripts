@@ -38,10 +38,7 @@ jobs:
       - name: Instalar dependencias Python
         run: |
           pip install --upgrade pip
-          pip install -r ${{ matrix.app }}/src/pip-requirements.txt
-
-      - name: Copiar shared/backend.py dentro de src/
-        run: cp shared/backend.py ${{ matrix.app }}/src/backend.py
+          pip install -r shared/pip-requirements.txt
 
       - name: Copiar macos-assets-downloader.sh dentro de src/
         run: |
@@ -126,11 +123,7 @@ jobs:
           python-version: "3.12"
 
       - name: Instalar dependencias Python
-        run: pip install -r ${{ matrix.app }}/src/pip-requirements.txt
-
-      - name: Copiar shared/backend.py dentro de src/
-        shell: pwsh
-        run: Copy-Item shared/backend.py ${{ matrix.app }}/src/backend.py
+        run: pip install -r shared/pip-requirements.txt
 
       - name: Copiar windows-assets-downloader.sh dentro de src/
         shell: bash
@@ -215,11 +208,8 @@ jobs:
 
       - name: Instalar dependencias Python
         run: |
-          python3.11 -m pip install -r ${{ matrix.app }}/src/pip-requirements.txt
+          python3.11 -m pip install -r shared/pip-requirements.txt
           python3.11 -m pip install pyinstaller
-
-      - name: Copiar shared/backend.py dentro de src/
-        run: cp shared/backend.py ${{ matrix.app }}/src/backend.py
 
       - name: Copiar linux-assets-downloader.sh dentro de src/
         run: cp shared/linux-assets-downloader.sh ${{ matrix.app }}/src/linux-assets-downloader.sh

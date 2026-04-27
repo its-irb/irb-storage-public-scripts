@@ -66,11 +66,11 @@ Los pasos son los mismos para ambas apps. Ejecutar desde la carpeta de la app (`
 
 La primera vez, crear el virtual environment:
 ```bash
-python -m venv venv
+python -m venv .venv
 source venv/bin/activate          # macOS / Linux
 # .\venv\Scripts\Activate.ps1     # Windows PowerShell
 python -m pip install --upgrade pip
-python -m pip install -r ./src/pip-requirements.txt
+python -m pip install -r ./shared/pip-requirements.txt
 ```
 
 Cada vez que se quiera ejecutar, cargar el virtual environment y lanzar:

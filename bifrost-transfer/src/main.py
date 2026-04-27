@@ -59,12 +59,14 @@ from typing import Callable
 
 import flet as ft
 
-# Dev: añadir shared/ al path si no está ya en él
-_shared = os.path.join(os.path.dirname(__file__), "..", "..", "shared")
-if os.path.isdir(_shared):
-    sys.path.insert(0, os.path.abspath(_shared))
+# # Dev: añadir shared/ al path si no está ya en él
+# _shared = os.path.join(os.path.dirname(__file__), "..", "..", "shared")
+# if os.path.isdir(_shared):
+#     sys.path.insert(0, os.path.abspath(_shared))
 
-import backend
+# import backend
+
+from bifrost_backend import backend
 
 # ============================================================================
 # MODO DE EJECUCIÓN
