@@ -187,3 +187,6 @@ rclone-bin/
 # Storage temporal
 src/storage/temp/
 src/storage/data/
+
+
+.claude/
