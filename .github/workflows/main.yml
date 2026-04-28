@@ -38,7 +38,7 @@ jobs:
       - name: Instalar dependencias Python
         run: |
           pip install --upgrade pip
-          pip install -r shared/pip-requirements.txt
+          pip install -r shared/requirements.txt
 
       - name: Copiar macos-assets-downloader.sh dentro de src/
         run: |
@@ -73,9 +73,9 @@ jobs:
       - name: Build bifrost-backend wheel
         run: |
           pip install build
-          python -m build shared/ --outdir shared/dist/
-          WHEEL=$(ls $(pwd)/shared/dist/bifrost_backend-*.whl)
-          sed -i '' "s|\"bifrost-backend\"|\"bifrost-backend @ file://${WHEEL}\"|" ${{ matrix.app }}/pyproject.toml
+          python -m build shared/ --outdir ${{ matrix.app }}/src/
+          WHEEL=$(ls $(pwd)/${{ matrix.app }}/src/bifrost_backend-*.whl)
+          sed -i '' 's|"bifrost-backend",|"bifrost-backend @ file://'"${WHEEL}"'",|' ${{ matrix.app }}/pyproject.toml
 
       - name: Build macOS
         run: |
@@ -130,7 +130,7 @@ jobs:
           python-version: "3.12"
 
       - name: Instalar dependencias Python
-        run: pip install -r shared/pip-requirements.txt
+        run: pip install -r shared/requirements.txt
 
       - name: Copiar windows-assets-downloader.sh dentro de src/
         shell: bash
@@ -161,15 +161,16 @@ jobs:
         shell: pwsh
         run: |
           pip install build
-          python -m build shared/ --outdir shared/dist/
-          $WHEEL = (Get-ChildItem shared/dist/bifrost_backend-*.whl).FullName
-          $WHEEL = $WHEEL.Replace('\', '/')
-          (Get-Content ${{ matrix.app }}/pyproject.toml) -replace '"bifrost-backend"', "`"bifrost-backend @ file:///$WHEEL`"" | Set-Content ${{ matrix.app }}/pyproject.toml
-            
+          python -m build shared/ --outdir "${{ matrix.app }}/src/"
+          $wheel = (Get-ChildItem "${{ matrix.app }}/src/bifrost_backend-*.whl").FullName.Replace('\', '/')
+          (Get-Content "${{ matrix.app }}/pyproject.toml" -Raw) `
+            -replace '"bifrost-backend",', "`"bifrost-backend @ file:///$wheel`"," |
+            Set-Content "${{ matrix.app }}/pyproject.toml" -NoNewline 
+
       - name: Añadir override screen_brightness_windows para Windows
         shell: bash
         run: |
-          sed -i 's/\[tool.flet.flutter.pubspec.dependency_overrides\]/[tool.flet.flutter.pubspec.dependency_overrides]\nscreen_brightness_windows = "2.0.1"/' \
+          sed -i 's/\[tool.flet.flutter.pubspec.dependency_overrides\]/[tool.flet.flutter.pubspec.dependency_overrides]\nscreen_brightness_windows = "2.1.0"/' \
             ${{ matrix.app }}/pyproject.toml
             
       - name: Build Windows
@@ -230,7 +231,7 @@ jobs:
 
       - name: Instalar dependencias Python
         run: |
-          python3.11 -m pip install -r shared/pip-requirements.txt
+          python3.11 -m pip install -r shared/requirements.txt
           python3.11 -m pip install pyinstaller
 
       - name: Copiar linux-assets-downloader.sh dentro de src/
@@ -251,11 +252,10 @@ jobs:
       - name: Build bifrost-backend wheel
         run: |
           python3.11 -m pip install build
-          python3.11 -m build shared/ --outdir shared/dist/
-          WHEEL=$(ls $(pwd)/shared/dist/bifrost_backend-*.whl)
-          sed -i "s|\"bifrost-backend\"|\"bifrost-backend @ file://${WHEEL}\"|" ${{ matrix.app }}/pyproject.toml
-
-
+          python3.11 -m build shared/ --outdir ${{ matrix.app }}/src/
+          WHEEL=$(ls $(pwd)/${{ matrix.app }}/src/bifrost_backend-*.whl)
+          sed -i 's|"bifrost-backend",|"bifrost-backend @ file://'"${WHEEL}"'",|' ${{ matrix.app }}/pyproject.toml
+          
       - name: Build Rocky Linux (PyInstaller onefile)
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
