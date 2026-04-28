@@ -168,10 +168,19 @@ jobs:
             Set-Content "${{ matrix.app }}/pyproject.toml" -NoNewline 
 
       - name: Añadir override screen_brightness_windows para Windows
-        shell: bash
+        shell: python
         run: |
-          sed -i 's/\[tool.flet.flutter.pubspec.dependency_overrides\]/[tool.flet.flutter.pubspec.dependency_overrides]\nscreen_brightness_windows = "2.1.0"/' \
-            ${{ matrix.app }}/pyproject.toml
+          import re, pathlib
+          p = pathlib.Path("${{ matrix.app }}/pyproject.toml")
+          content = p.read_text()
+          section = "[tool.flet.flutter.pubspec.dependency_overrides]"
+          override_line = 'screen_brightness_windows = "2.1.0"'
+          if override_line not in content:
+              content = content.replace(
+                  section,
+                  section + "\n" + override_line
+              )
+              p.write_text(content)
             
       - name: Build Windows
         shell: bash
@@ -255,7 +264,7 @@ jobs:
           python3.11 -m build shared/ --outdir ${{ matrix.app }}/src/
           WHEEL=$(ls $(pwd)/${{ matrix.app }}/src/bifrost_backend-*.whl)
           sed -i 's|"bifrost-backend",|"bifrost-backend @ file://'"${WHEEL}"'",|' ${{ matrix.app }}/pyproject.toml
-          
+
       - name: Build Rocky Linux (PyInstaller onefile)
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
