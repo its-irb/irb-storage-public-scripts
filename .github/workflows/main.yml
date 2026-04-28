@@ -166,6 +166,12 @@ jobs:
           $WHEEL = $WHEEL.Replace('\', '/')
           (Get-Content ${{ matrix.app }}/pyproject.toml) -replace '"bifrost-backend"', "`"bifrost-backend @ file:///$WHEEL`"" | Set-Content ${{ matrix.app }}/pyproject.toml
             
+      - name: Añadir override screen_brightness_windows para Windows
+        shell: bash
+        run: |
+          sed -i 's/\[tool.flet.flutter.pubspec.dependency_overrides\]/[tool.flet.flutter.pubspec.dependency_overrides]\nscreen_brightness_windows = "2.0.1"/' \
+            ${{ matrix.app }}/pyproject.toml
+            
       - name: Build Windows
         shell: bash
         env:
