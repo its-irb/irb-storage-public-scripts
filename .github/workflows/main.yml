@@ -158,14 +158,14 @@ jobs:
             ${{ matrix.app }}/pyproject.toml
 
       - name: Build bifrost-backend wheel
-        shell: bash
+        shell: pwsh
         run: |
           pip install build
           python -m build shared/ --outdir shared/dist/
-          WHEEL=$(ls $(pwd)/shared/dist/bifrost_backend-*.whl)
-          WHEEL_WIN=$(cygpath -w "$WHEEL")
-          sed -i "s|\"bifrost-backend\"|\"bifrost-backend @ file://${WHEEL}\"|" ${{ matrix.app }}/pyproject.toml
-
+          $WHEEL = (Get-ChildItem shared/dist/bifrost_backend-*.whl).FullName
+          $WHEEL = $WHEEL.Replace('\', '/')
+          (Get-Content ${{ matrix.app }}/pyproject.toml) -replace '"bifrost-backend"', "`"bifrost-backend @ file:///$WHEEL`"" | Set-Content ${{ matrix.app }}/pyproject.toml
+            
       - name: Build Windows
         shell: bash
         env:
@@ -247,7 +247,7 @@ jobs:
           python3.11 -m pip install build
           python3.11 -m build shared/ --outdir shared/dist/
           WHEEL=$(ls $(pwd)/shared/dist/bifrost_backend-*.whl)
-          ssed -i "s|\"bifrost-backend\"|\"bifrost-backend @ file://${WHEEL}\"|" ${{ matrix.app }}/pyproject.toml
+          sed -i "s|\"bifrost-backend\"|\"bifrost-backend @ file://${WHEEL}\"|" ${{ matrix.app }}/pyproject.toml
 
 
       - name: Build Rocky Linux (PyInstaller onefile)
