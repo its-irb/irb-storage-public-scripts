@@ -166,27 +166,6 @@ jobs:
           (Get-Content "${{ matrix.app }}/pyproject.toml" -Raw) `
             -replace '"bifrost-backend",', "`"bifrost-backend @ file:///$wheel`"," |
             Set-Content "${{ matrix.app }}/pyproject.toml" -NoNewline 
-
-      - name: Forzar screen_brightness_windows compatible
-        shell: python
-        run: |
-          from pathlib import Path
-
-          p = Path("${{ matrix.app }}/pyproject.toml")
-          content = p.read_text()
-
-          section = "[tool.flet.flutter.pubspec.dependency_overrides]"
-          override = 'screen_brightness_windows = "1.0.0"'
-
-          if section not in content:
-              content += f"\n\n{section}\n{override}\n"
-          elif "screen_brightness_windows" not in content:
-              content = content.replace(section, f"{section}\n{override}")
-
-          # Evitar override conflictivo mientras debugueas
-          content = content.replace('connectivity_plus = "7.0.0"\n', '')
-
-          p.write_text(content)
             
       - name: Build Windows
         shell: bash

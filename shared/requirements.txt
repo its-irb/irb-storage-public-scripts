@@ -9,7 +9,7 @@ charset-normalizer==3.4.4
 click==8.3.1
 cryptography==46.0.3
 fastapi==0.135.2
-flet==0.82.2
+flet==0.84.0
 flet-web==0.82.2
 h11==0.16.0
 h2==4.3.0
