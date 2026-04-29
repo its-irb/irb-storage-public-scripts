@@ -218,18 +218,19 @@ jobs:
         run: |
           $pubspec = "${{ matrix.app }}/build/flutter/pubspec.yaml"
           if (Test-Path $pubspec) {
-            $content = Get-Content $pubspec -Raw
-            # Eliminar la línea con screen_brightness_windows
-            $content = $content -replace '\s*screen_brightness_windows:.*\n', ''
-            $content = $content -replace '\s*screen_brightness:.*\n', ''
-            Set-Content $pubspec $content -NoNewline
+            $lines = Get-Content $pubspec
+            $filtered = $lines | Where-Object {
+              $_ -notmatch 'screen_brightness_windows' -and
+              $_ -notmatch '^\s*screen_brightness\s*:'
+            }
+            $filtered | Set-Content $pubspec
             Write-Host "pubspec.yaml parcheado"
-            Get-Content $pubspec | Select-String "brightness"
+            Select-String "brightness" $pubspec
           } else {
             Write-Host "ERROR: pubspec.yaml no encontrado"
             exit 1
           }
-
+            
       - name: Build Windows (segunda pasada, sin screen_brightness)
         shell: bash
         env:
