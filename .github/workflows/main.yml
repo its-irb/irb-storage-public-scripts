@@ -74,33 +74,10 @@ jobs:
         run: |
           pip install build
           python -m build shared/ --outdir ${{ matrix.app }}/src/
-
-          python <<'PY'
-          from pathlib import Path
-          import glob
-          import tomllib
-
-          app = "${{ matrix.app }}"
-          pyproject = Path(app) / "pyproject.toml"
-
-          wheels = glob.glob(f"{app}/src/bifrost_backend-*.whl")
-          if not wheels:
-              raise SystemExit("No se encontró bifrost_backend-*.whl")
-
-          wheel_uri = Path(wheels[0]).resolve().as_uri()
-
-          content = pyproject.read_text()
-          content = content.replace(
-              '"bifrost-backend",',
-              f'"bifrost-backend @ {wheel_uri}",'
-          )
-
-          pyproject.write_text(content)
-
-          tomllib.loads(pyproject.read_text())
-          print("pyproject.toml OK")
-          print(wheel_uri)
-          PY
+          
+          WHEEL=$(ls $(pwd)/${{ matrix.app }}/src/bifrost_backend-*.whl)
+          echo "$WHEEL" >> ${{ matrix.app }}/src/pip-requirements.txt
+          echo "Wheel añadido: $WHEEL"
 
       - name: Build macOS
         run: |
@@ -187,6 +164,10 @@ jobs:
         run: |
           pip install build
           python -m build shared/ --outdir "${{ matrix.app }}/src/"
+          
+          $wheel = (Get-ChildItem "${{ matrix.app }}/src/bifrost_backend-*.whl").FullName
+          Add-Content "${{ matrix.app }}/src/pip-requirements.txt" "`n$wheel"
+          Write-Host "Wheel añadido: $wheel"
 
       - name: Build Windows
         shell: bash
