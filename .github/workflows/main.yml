@@ -176,14 +176,6 @@ jobs:
         run: |
           sed -i 's/^version = .*/version = "1.0.${{ github.run_number }}"/' \
             ${{ matrix.app }}/pyproject.toml
-            
-      - name: Build Windows (primera passada - instal·la Flutter)
-        shell: bash
-        env:
-          PYTHONUTF8: "1"
-        run: |
-          cd ${{ matrix.app }}
-          echo "y" | flet build windows --output dist --no-rich-output || true
 
       - name: Build bifrost-backend wheel
         shell: pwsh
@@ -213,25 +205,30 @@ jobs:
           print("OK:", wheel_uri)
           '@ | python
 
-      - name: Fix screen_brightness_windows - descargar versión correcta
+      - name: Build Windows (primera passada - instal·la Flutter)
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          cd ${{ matrix.app }}
+          echo "y" | flet build windows --output dist --no-rich-output || true
+
+      - name: Fix screen_brightness_windows headers
         shell: pwsh
         run: |
-          # Flutter l'instal·la flet, busquem on és
-          $flutterPath = "$env:LOCALAPPDATA\flet\flutter\bin\flutter.bat"
-          if (Test-Path $flutterPath) {
-            & $flutterPath pub cache add screen_brightness_windows 2.1.0
-          } else {
-            Write-Host "Flutter no trobat a $flutterPath, llistant:"
-            Get-ChildItem "$env:LOCALAPPDATA\flet\" -Recurse -Filter "flutter.bat" | Select-Object FullName
-          }
+          # Veure on ha instal·lat flet les coses
+          Write-Host "=== LOCALAPPDATA ==="
+          Get-ChildItem "$env:LOCALAPPDATA" -Directory | Select-Object Name
           
-          $header = "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev\screen_brightness_windows-2.1.0\windows\include\screen_brightness_windows\screen_brightness_changed_stream_handler.h"
-          if (Test-Path $header) {
-            Write-Host "Header trobat!"
-          } else {
-            Write-Host "Header NO trobat"
-          }
-
+          Write-Host "=== Buscar flutter.bat ==="
+          Get-ChildItem "C:\Users\runneradmin" -Recurse -Filter "flutter.bat" -ErrorAction SilentlyContinue | Select-Object FullName
+          
+          Write-Host "=== Buscar pub cache ==="
+          Get-ChildItem "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev\" -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "screen_brightness*" } | Select-Object Name
+          
+          Write-Host "=== build/flutter exists? ==="
+          Test-Path "${{ matrix.app }}\build\flutter"
+          
       - name: Build Windows
         shell: bash
         env:
