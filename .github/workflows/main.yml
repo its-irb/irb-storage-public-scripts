@@ -75,7 +75,7 @@ jobs:
           pip install build
           python -m build shared/ --outdir ${{ matrix.app }}/src/
           
-          WHEEL=$(ls $(pwd)/${{ matrix.app }}/src/bifrost_backend-*.whl)
+          WHEEL=$(ls ${{ matrix.app }}/src/bifrost_backend-*.whl | xargs basename)
           echo "$WHEEL" >> ${{ matrix.app }}/src/pip-requirements.txt
           echo "Wheel añadido: $WHEEL"
 
@@ -165,9 +165,9 @@ jobs:
           pip install build
           python -m build shared/ --outdir "${{ matrix.app }}/src/"
           
-          $wheel = (Get-ChildItem "${{ matrix.app }}/src/bifrost_backend-*.whl").FullName
-          Add-Content "${{ matrix.app }}/src/pip-requirements.txt" "`n$wheel"
-          Write-Host "Wheel añadido: $wheel"
+          $wheelName = (Get-ChildItem "${{ matrix.app }}/src/bifrost_backend-*.whl").Name
+          Add-Content "${{ matrix.app }}/src/pip-requirements.txt" "`n$wheelName"
+          Write-Host "Wheel añadido: $wheelName"
 
       - name: Build Windows
         shell: bash
