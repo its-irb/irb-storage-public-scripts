@@ -58,4 +58,4 @@ dependencies = [
 connectivity_plus = "7.0.0"
 
 [tool.flet.app.pip]
-extra_args = ["--find-links", "../shared/dist"]
+extra_args = ["--find-links", "../src"]
