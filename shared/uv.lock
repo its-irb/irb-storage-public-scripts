@@ -86,7 +86,7 @@ requires-dist = [
     { name = "cffi", specifier = "==2.0.0" },
     { name = "charset-normalizer", specifier = "==3.4.4" },
     { name = "cryptography", specifier = "==46.0.3" },
-    { name = "flet", specifier = "==0.28.2" },
+    { name = "flet", specifier = "==0.84.0" },
     { name = "h11", specifier = "==0.16.0" },
     { name = "httpcore", specifier = "==1.0.9" },
     { name = "httptools", specifier = "==0.7.1" },
