@@ -176,6 +176,14 @@ jobs:
         run: |
           sed -i 's/^version = .*/version = "1.0.${{ github.run_number }}"/' \
             ${{ matrix.app }}/pyproject.toml
+            
+      - name: Build Windows (primera passada - instal·la Flutter)
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          cd ${{ matrix.app }}
+          echo "y" | flet build windows --output dist --no-rich-output || true
 
       - name: Build bifrost-backend wheel
         shell: pwsh
