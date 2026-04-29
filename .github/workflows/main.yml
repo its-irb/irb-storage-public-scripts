@@ -102,6 +102,24 @@ jobs:
           cd ${{ matrix.app }}
           echo "y" | flet build macos --output dist --no-rich-output
 
+      - name: Debug - verificar contingut del bundle
+        if: matrix.app == 'bifrost-mount'
+        run: |
+          APP_BUNDLE=$(find ${{ matrix.app }}/dist -maxdepth 1 -name "*.app" | head -1)
+          echo "=== Mida total ==="
+          du -sh "$APP_BUNDLE"
+          echo "=== site-packages ==="
+          find "$APP_BUNDLE" -name "site-packages" -type d | head -5
+          find "$APP_BUNDLE" -name "site-packages" -type d -exec du -sh {} \; 2>/dev/null | head -5
+          echo "=== bifrost_backend ==="
+          find "$APP_BUNDLE" -name "bifrost_backend*" 2>/dev/null
+          echo "=== boto3 ==="
+          find "$APP_BUNDLE" -name "boto3" -type d 2>/dev/null
+          echo "=== ldap3 ==="
+          find "$APP_BUNDLE" -name "ldap3" -type d 2>/dev/null
+          echo "=== app.zip ==="
+          find "$APP_BUNDLE" -name "app.zip" | head -3
+
       - name: Añadir fuse_t.framework al bundle
         if: matrix.app == 'bifrost-mount'
         run: |
@@ -211,27 +229,49 @@ jobs:
           print("OK:", wheel_uri)
           '@ | python
 
-      - name: Fix screen_brightness_windows
-        shell: pwsh
-        run: |
-          flutter pub cache add screen_brightness_windows --version 2.1.0
-          
-          $header = "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev\screen_brightness_windows-2.1.0\windows\include\screen_brightness_windows\screen_brightness_changed_stream_handler.h"
-          if (Test-Path $header) {
-            Write-Host "✅ Header trobat correctament"
-          } else {
-            Write-Host "❌ Header NO trobat, llistant estructura:"
-            Get-ChildItem "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev\screen_brightness_windows-2.1.0\windows\" -Recurse | Select-Object FullName
-            exit 1
-          }
-
-      - name: Build Windows
+      - name: Build Windows (primera passada - genera projecte Flutter)
         shell: bash
         env:
           PYTHONUTF8: "1"
         run: |
           cd ${{ matrix.app }}
-          echo "y" | flet build windows --output dist --no-rich-output -v
+          echo "y" | flet build windows --output dist --no-rich-output -v 2>&1 || true
+
+      - name: Fix screen_brightness_windows symlink header
+        shell: pwsh
+        run: |
+          $symlink = "${{ matrix.app }}\build\flutter\windows\flutter\ephemeral\.plugin_symlinks\screen_brightness_windows\windows\include\screen_brightness_windows"
+          
+          Write-Host "Symlink path: $symlink"
+          Write-Host "Exists: $(Test-Path $symlink)"
+          
+          if (Test-Path $symlink) {
+            Write-Host "Fitxers existents:"
+            Get-ChildItem $symlink | Select-Object Name
+            
+            # Copiar el header del pub cache al symlink
+            $src = "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev\screen_brightness_windows-2.1.0\windows\include\screen_brightness_windows\screen_brightness_changed_stream_handler.h"
+            Write-Host "Source header exists: $(Test-Path $src)"
+            
+            if (Test-Path $src) {
+              Copy-Item $src "$symlink\screen_brightness_changed_stream_handler.h" -Force
+              Write-Host "✅ Header copiat al symlink"
+            } else {
+              Write-Host "❌ Source header no trobat"
+              exit 1
+            }
+          } else {
+            Write-Host "❌ Symlink no trobat"
+            exit 1
+          }
+
+      - name: Build Windows (segona passada - compila amb header parcheado)
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          cd ${{ matrix.app }}
+          echo "y" | flet build windows --output dist --no-rich-output
 
       - name: Crear directorio installer
         shell: pwsh
