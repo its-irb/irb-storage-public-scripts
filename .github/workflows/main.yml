@@ -205,13 +205,38 @@ jobs:
           print("OK:", wheel_uri)
           '@ | python
 
-      - name: Build Windows
+      - name: Build Windows (primera pasada para generar Flutter project)
         shell: bash
         env:
           PYTHONUTF8: "1"
         run: |
           cd ${{ matrix.app }}
-          echo "y" | flet build windows --output dist --no-rich-output --clear-cache
+          echo "y" | flet build windows --output dist --no-rich-output || true
+
+      - name: Eliminar screen_brightness_windows del pubspec
+        shell: pwsh
+        run: |
+          $pubspec = "${{ matrix.app }}/build/flutter/pubspec.yaml"
+          if (Test-Path $pubspec) {
+            $content = Get-Content $pubspec -Raw
+            # Eliminar la línea con screen_brightness_windows
+            $content = $content -replace '\s*screen_brightness_windows:.*\n', ''
+            $content = $content -replace '\s*screen_brightness:.*\n', ''
+            Set-Content $pubspec $content -NoNewline
+            Write-Host "pubspec.yaml parcheado"
+            Get-Content $pubspec | Select-String "brightness"
+          } else {
+            Write-Host "ERROR: pubspec.yaml no encontrado"
+            exit 1
+          }
+
+      - name: Build Windows (segunda pasada, sin screen_brightness)
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          cd ${{ matrix.app }}
+          echo "y" | flet build windows --output dist --no-rich-output
 
       - name: Crear directorio installer
         shell: pwsh
