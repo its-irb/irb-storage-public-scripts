@@ -205,15 +205,20 @@ jobs:
           print("OK:", wheel_uri)
           '@ | python
 
-      - name: Fix screen_brightness_windows missing header
+      - name: Build Windows (primera pasada — genera proyecto Flutter)
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          cd ${{ matrix.app }}
+          echo "y" | flet build windows --output dist --no-rich-output || true
+
+      - name: Fix screen_brightness_windows header en symlinks
         shell: pwsh
         run: |
-          $versions = @("2.1.0", "2.0.1", "2.0.0", "1.0.1", "1.0.0")
-          foreach ($v in $versions) {
-            $includeDir = "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev\screen_brightness_windows-$v\windows\include\screen_brightness_windows"
-            if (Test-Path "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev\screen_brightness_windows-$v") {
-              New-Item -ItemType Directory -Force -Path $includeDir | Out-Null
-              $header = @"
+          $symlink = "${{ matrix.app }}\build\flutter\windows\flutter\ephemeral\.plugin_symlinks\screen_brightness_windows\windows\include\screen_brightness_windows"
+          if (Test-Path $symlink) {
+            $header = @"
           #pragma once
           #include <flutter/event_channel.h>
           namespace screen_brightness_windows {
@@ -228,19 +233,21 @@ jobs:
           };
           }
           "@
-              Set-Content "$includeDir\screen_brightness_changed_stream_handler.h" $header
-              Write-Host "Header creado para version $v"
-            }
-          }
+                Set-Content "$symlink\screen_brightness_changed_stream_handler.h" $header
+                Write-Host "Header creado en symlinks"
+              } else {
+                Write-Host "ERROR: symlink dir no encontrado en: $symlink"
+                exit 1
+              }
 
-      - name: Build Windows
+      - name: Build Windows (segunda pasada — compila con header parcheado)
         shell: bash
         env:
           PYTHONUTF8: "1"
         run: |
           cd ${{ matrix.app }}
           echo "y" | flet build windows --output dist --no-rich-output
-          
+
       - name: Crear directorio installer
         shell: pwsh
         run: New-Item -ItemType Directory -Force -Path ${{ matrix.app }}/installer
