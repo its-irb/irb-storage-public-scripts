@@ -74,8 +74,26 @@ jobs:
         run: |
           pip install build
           python -m build shared/ --outdir ${{ matrix.app }}/src/
-          WHEEL=$(ls $(pwd)/${{ matrix.app }}/src/bifrost_backend-*.whl)
-          sed -i '' 's|"bifrost-backend",|"bifrost-backend @ file://'"${WHEEL}"'",|' ${{ matrix.app }}/pyproject.toml
+
+          python - <<'PY'
+          from pathlib import Path
+          import glob
+          import tomllib
+
+          app = "${{ matrix.app }}"
+          pyproject = Path(app) / "pyproject.toml"
+          wheel = Path(glob.glob(f"{app}/src/bifrost_backend-*.whl")[0]).resolve().as_uri()
+
+          content = pyproject.read_text()
+          content = content.replace(
+              '"bifrost-backend",',
+              f'"bifrost-backend @ {wheel}",'
+          )
+          pyproject.write_text(content)
+
+          tomllib.loads(pyproject.read_text())
+          print("pyproject.toml OK")
+          PY
 
       - name: Build macOS
         run: |
@@ -162,10 +180,7 @@ jobs:
         run: |
           pip install build
           python -m build shared/ --outdir "${{ matrix.app }}/src/"
-          $wheel = (Get-ChildItem "${{ matrix.app }}/src/bifrost_backend-*.whl").FullName.Replace('\', '/')
-          (Get-Content "${{ matrix.app }}/pyproject.toml" -Raw) `
-            -replace '"bifrost-backend",', "`"bifrost-backend @ file:///$wheel`"," |
-            Set-Content "${{ matrix.app }}/pyproject.toml" -NoNewline 
+          python -c "from pathlib import Path; import glob, tomllib; app='${{ matrix.app }}'; p=Path(app)/'pyproject.toml'; wheel=Path(glob.glob(f'{app}/src/bifrost_backend-*.whl')[0]).resolve().as_uri(); c=p.read_text(); c=c.replace('\"bifrost-backend\",', f'\"bifrost-backend @ {wheel}\",'); p.write_text(c); tomllib.loads(p.read_text()); print('pyproject.toml OK')"
             
       - name: Build Windows
         shell: bash
