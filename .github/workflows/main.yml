@@ -208,16 +208,20 @@ jobs:
       - name: Fix screen_brightness_windows - descargar versión correcta
         shell: pwsh
         run: |
-          # Forçar que flutter descarregui la versió correcta al pub cache
-          flutter pub cache add screen_brightness_windows 2.1.0
+          # Flutter l'instal·la flet, busquem on és
+          $flutterPath = "$env:LOCALAPPDATA\flet\flutter\bin\flutter.bat"
+          if (Test-Path $flutterPath) {
+            & $flutterPath pub cache add screen_brightness_windows 2.1.0
+          } else {
+            Write-Host "Flutter no trobat a $flutterPath, llistant:"
+            Get-ChildItem "$env:LOCALAPPDATA\flet\" -Recurse -Filter "flutter.bat" | Select-Object FullName
+          }
           
-          # Verificar que el header existeix
           $header = "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev\screen_brightness_windows-2.1.0\windows\include\screen_brightness_windows\screen_brightness_changed_stream_handler.h"
           if (Test-Path $header) {
-            Write-Host "Header trobat: $header"
+            Write-Host "Header trobat!"
           } else {
-            Write-Host "Header NO trobat, llistant directori:"
-            Get-ChildItem "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev\screen_brightness_windows-2.1.0\windows\include\" -Recurse
+            Write-Host "Header NO trobat"
           }
 
       - name: Build Windows
