@@ -205,42 +205,22 @@ jobs:
           print("OK:", wheel_uri)
           '@ | python
 
-      - name: Build Windows (primera pasada — genera proyecto Flutter)
-        shell: bash
-        env:
-          PYTHONUTF8: "1"
-        run: |
-          cd ${{ matrix.app }}
-          echo "y" | flet build windows --output dist --no-rich-output || true
-
-      - name: Fix screen_brightness_windows header en symlinks
+      - name: Fix screen_brightness_windows - descargar versión correcta
         shell: pwsh
         run: |
-          $symlink = "${{ matrix.app }}\build\flutter\windows\flutter\ephemeral\.plugin_symlinks\screen_brightness_windows\windows\include\screen_brightness_windows"
-          if (Test-Path $symlink) {
-            $header = @"
-          #pragma once
-          #include <flutter/event_channel.h>
-          namespace screen_brightness_windows {
-          class ScreenBrightnessChangedStreamHandler : public flutter::StreamHandler<flutter::EncodableValue> {
-          public:
-            void OnBrightnessChanged(double brightness);
-          protected:
-            std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>> OnListenInternal(const flutter::EncodableValue*, std::unique_ptr<flutter::EventSink<flutter::EncodableValue>>&&) override;
-            std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>> OnCancelInternal(const flutter::EncodableValue*) override;
-          private:
-            std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> sink_;
-          };
+          # Forçar que flutter descarregui la versió correcta al pub cache
+          flutter pub cache add screen_brightness_windows 2.1.0
+          
+          # Verificar que el header existeix
+          $header = "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev\screen_brightness_windows-2.1.0\windows\include\screen_brightness_windows\screen_brightness_changed_stream_handler.h"
+          if (Test-Path $header) {
+            Write-Host "Header trobat: $header"
+          } else {
+            Write-Host "Header NO trobat, llistant directori:"
+            Get-ChildItem "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev\screen_brightness_windows-2.1.0\windows\include\" -Recurse
           }
-          "@
-                Set-Content "$symlink\screen_brightness_changed_stream_handler.h" $header
-                Write-Host "Header creado en symlinks"
-              } else {
-                Write-Host "ERROR: symlink dir no encontrado en: $symlink"
-                exit 1
-              }
 
-      - name: Build Windows (segunda pasada — compila con header parcheado)
+      - name: Build Windows
         shell: bash
         env:
           PYTHONUTF8: "1"
