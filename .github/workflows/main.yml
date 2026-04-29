@@ -74,10 +74,28 @@ jobs:
         run: |
           pip install build
           python -m build shared/ --outdir ${{ matrix.app }}/src/
-          
-          WHEEL=$(ls ${{ matrix.app }}/src/bifrost_backend-*.whl | xargs basename)
-          echo "$WHEEL" >> ${{ matrix.app }}/src/pip-requirements.txt
-          echo "Wheel añadido: $WHEEL"
+
+          python <<'PY'
+          from pathlib import Path
+          import glob
+
+          app = "${{ matrix.app }}"
+          pyproject = Path(app) / "pyproject.toml"
+
+          wheels = glob.glob(f"{app}/src/bifrost_backend-*.whl")
+          if not wheels:
+              raise SystemExit("No se encontró bifrost_backend-*.whl")
+
+          wheel_uri = Path(wheels[0]).resolve().as_uri()
+
+          content = pyproject.read_text()
+          content = content.replace(
+              '"bifrost-backend",',
+              f'"bifrost-backend @ {wheel_uri}",'
+          )
+          pyproject.write_text(content)
+          print("OK:", wheel_uri)
+          PY
 
       - name: Build macOS
         run: |
@@ -164,10 +182,28 @@ jobs:
         run: |
           pip install build
           python -m build shared/ --outdir "${{ matrix.app }}/src/"
-          
-          $wheelName = (Get-ChildItem "${{ matrix.app }}/src/bifrost_backend-*.whl").Name
-          Add-Content "${{ matrix.app }}/src/pip-requirements.txt" "`n$wheelName"
-          Write-Host "Wheel añadido: $wheelName"
+
+          @'
+          from pathlib import Path
+          import glob
+
+          app = "${{ matrix.app }}"
+          pyproject = Path(app) / "pyproject.toml"
+
+          wheels = glob.glob(f"{app}/src/bifrost_backend-*.whl")
+          if not wheels:
+              raise SystemExit("No se encontró bifrost_backend-*.whl")
+
+          wheel_uri = Path(wheels[0]).resolve().as_uri()
+
+          content = pyproject.read_text()
+          content = content.replace(
+              '"bifrost-backend",',
+              f'"bifrost-backend @ {wheel_uri}",'
+          )
+          pyproject.write_text(content)
+          print("OK:", wheel_uri)
+          '@ | python
 
       - name: Build Windows
         shell: bash
