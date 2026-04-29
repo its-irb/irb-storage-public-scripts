@@ -188,33 +188,6 @@ jobs:
           pip install build
           python -m build shared/ --outdir "${{ matrix.app }}/src/"
 
-          @'
-          from pathlib import Path
-          import glob
-          import tomllib
-
-          app = "${{ matrix.app }}"
-          pyproject = Path(app) / "pyproject.toml"
-
-          wheels = glob.glob(f"{app}/src/bifrost_backend-*.whl")
-          if not wheels:
-              raise SystemExit("No se encontró bifrost_backend-*.whl")
-
-          wheel_uri = Path(wheels[0]).resolve().as_uri()
-
-          content = pyproject.read_text()
-          content = content.replace(
-              '"bifrost-backend",',
-              f'"bifrost-backend @ {wheel_uri}",'
-          )
-
-          pyproject.write_text(content)
-
-          tomllib.loads(pyproject.read_text())
-          print("pyproject.toml OK")
-          print(wheel_uri)
-          '@ | python      
-          
       - name: Build Windows
         shell: bash
         env:
