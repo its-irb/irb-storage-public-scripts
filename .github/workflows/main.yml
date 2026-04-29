@@ -205,40 +205,42 @@ jobs:
           print("OK:", wheel_uri)
           '@ | python
 
-      - name: Build Windows (primera pasada para generar Flutter project)
-        shell: bash
-        env:
-          PYTHONUTF8: "1"
-        run: |
-          cd ${{ matrix.app }}
-          echo "y" | flet build windows --output dist --no-rich-output || true
-
-      - name: Eliminar screen_brightness_windows del pubspec
+      - name: Fix screen_brightness_windows missing header
         shell: pwsh
         run: |
-          $pubspec = "${{ matrix.app }}/build/flutter/pubspec.yaml"
-          if (Test-Path $pubspec) {
-            $lines = Get-Content $pubspec
-            $filtered = $lines | Where-Object {
-              $_ -notmatch 'screen_brightness_windows' -and
-              $_ -notmatch '^\s*screen_brightness\s*:'
-            }
-            $filtered | Set-Content $pubspec
-            Write-Host "pubspec.yaml parcheado"
-            Select-String "brightness" $pubspec
-          } else {
-            Write-Host "ERROR: pubspec.yaml no encontrado"
-            exit 1
+          $versions = @("2.1.0", "2.0.1", "2.0.0", "1.0.1", "1.0.0")
+          foreach ($v in $versions) {
+            $includeDir = "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev\screen_brightness_windows-$v\windows\include\screen_brightness_windows"
+            if (Test-Path "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev\screen_brightness_windows-$v") {
+              New-Item -ItemType Directory -Force -Path $includeDir | Out-Null
+              $header = @"
+          #pragma once
+          #include <flutter/event_channel.h>
+          namespace screen_brightness_windows {
+          class ScreenBrightnessChangedStreamHandler : public flutter::StreamHandler<flutter::EncodableValue> {
+          public:
+            void OnBrightnessChanged(double brightness);
+          protected:
+            std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>> OnListenInternal(const flutter::EncodableValue*, std::unique_ptr<flutter::EventSink<flutter::EncodableValue>>&&) override;
+            std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>> OnCancelInternal(const flutter::EncodableValue*) override;
+          private:
+            std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> sink_;
+          };
           }
-            
-      - name: Build Windows (segunda pasada, sin screen_brightness)
+          "@
+              Set-Content "$includeDir\screen_brightness_changed_stream_handler.h" $header
+              Write-Host "Header creado para version $v"
+            }
+          }
+
+      - name: Build Windows
         shell: bash
         env:
           PYTHONUTF8: "1"
         run: |
           cd ${{ matrix.app }}
           echo "y" | flet build windows --output dist --no-rich-output
-
+          
       - name: Crear directorio installer
         shell: pwsh
         run: New-Item -ItemType Directory -Force -Path ${{ matrix.app }}/installer
