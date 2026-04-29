@@ -242,28 +242,18 @@ jobs:
         run: |
           $symlink = "${{ matrix.app }}\build\flutter\windows\flutter\ephemeral\.plugin_symlinks\screen_brightness_windows\windows\include\screen_brightness_windows"
           
-          Write-Host "Symlink path: $symlink"
-          Write-Host "Exists: $(Test-Path $symlink)"
+          # Veure on apunta realment el symlink
+          Write-Host "=== Symlink real destination ==="
+          $item = Get-Item $symlink -ErrorAction SilentlyContinue
+          Write-Host "Target: $($item.Target)"
+          Write-Host "FullName: $($item.FullName)"
           
-          if (Test-Path $symlink) {
-            Write-Host "Fitxers existents:"
-            Get-ChildItem $symlink | Select-Object Name
-            
-            # Copiar el header del pub cache al symlink
-            $src = "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev\screen_brightness_windows-2.1.0\windows\include\screen_brightness_windows\screen_brightness_changed_stream_handler.h"
-            Write-Host "Source header exists: $(Test-Path $src)"
-            
-            if (Test-Path $src) {
-              Copy-Item $src "$symlink\screen_brightness_changed_stream_handler.h" -Force
-              Write-Host "✅ Header copiat al symlink"
-            } else {
-              Write-Host "❌ Source header no trobat"
-              exit 1
-            }
-          } else {
-            Write-Host "❌ Symlink no trobat"
-            exit 1
-          }
+          # Llistar tots els screen_brightness_windows al pub cache
+          Write-Host "=== Versions al pub cache ==="
+          Get-ChildItem "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev\" | Where-Object { $_.Name -like "screen_brightness_windows*" } | Select-Object Name, FullName
+          
+          Write-Host "=== Contingut del symlink include dir ==="
+          Get-ChildItem $symlink -ErrorAction SilentlyContinue | Select-Object Name, FullName
 
       - name: Build Windows (segona passada - compila amb header parcheado)
         shell: bash
