@@ -2175,6 +2175,7 @@ def _build_copy_content(
             web_session["copy_log_callbacks"].append(log)
 
 
+
     # ── Estado del proceso activo ─────────────────────────────────────────
     # _active_proceso guarda el Popen de rclone en curso (copy o check).
     # En modo web se reutiliza el dict de la sesión para que sobreviva a
