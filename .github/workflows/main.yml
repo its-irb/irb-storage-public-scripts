@@ -211,7 +211,7 @@ jobs:
           PYTHONUTF8: "1"
         run: |
           cd ${{ matrix.app }}
-          echo "y" | flet build windows --output dist --no-rich-output
+          echo "y" | flet build windows --output dist --no-rich-output --clear-cache
 
       - name: Crear directorio installer
         shell: pwsh
