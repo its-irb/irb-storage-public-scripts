@@ -56,3 +56,6 @@ dependencies = [
 
 [tool.flet.flutter.pubspec.dependency_overrides]
 connectivity_plus = "7.0.0"
+
+[tool.flet.android.permission]
+"android.permission.WRITE_SETTINGS" = true

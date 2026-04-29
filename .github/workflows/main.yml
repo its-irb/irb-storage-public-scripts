@@ -167,20 +167,26 @@ jobs:
             -replace '"bifrost-backend",', "`"bifrost-backend @ file:///$wheel`"," |
             Set-Content "${{ matrix.app }}/pyproject.toml" -NoNewline 
 
-      - name: Añadir override screen_brightness_windows para Windows
+      - name: Forzar screen_brightness_windows compatible
         shell: python
         run: |
-          import re, pathlib
-          p = pathlib.Path("${{ matrix.app }}/pyproject.toml")
+          from pathlib import Path
+
+          p = Path("${{ matrix.app }}/pyproject.toml")
           content = p.read_text()
+
           section = "[tool.flet.flutter.pubspec.dependency_overrides]"
-          override_line = 'screen_brightness_windows = "2.1.0"'
-          if override_line not in content:
-              content = content.replace(
-                  section,
-                  section + "\n" + override_line
-              )
-              p.write_text(content)
+          override = 'screen_brightness_windows = "2.0.0"'
+
+          if section not in content:
+              content += f"\n\n{section}\n{override}\n"
+          elif "screen_brightness_windows" not in content:
+              content = content.replace(section, f"{section}\n{override}")
+
+          # Evitar override conflictivo mientras debugueas
+          content = content.replace('connectivity_plus = "7.0.0"\n', '')
+
+          p.write_text(content)
             
       - name: Build Windows
         shell: bash
