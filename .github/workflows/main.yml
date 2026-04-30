@@ -161,6 +161,14 @@ jobs:
     steps:
       - name: Checkout código
         uses: actions/checkout@v6.0.2
+        with:
+          path: app
+
+      - name: Enable long paths
+        shell: powershell
+        run: |
+          git config --global core.longpaths true
+          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1
 
       - name: Instalar Python
         uses: actions/setup-python@v6.2.0
