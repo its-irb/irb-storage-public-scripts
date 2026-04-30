@@ -73,7 +73,8 @@ jobs:
       - name: Añadir ruta al paquete de backend pyproject.toml
         shell: bash
         run: |
-          sed -i "s|__BUILDPATH__|${GITHUB_WORKSPACE//\\//}|g" \
+          WORKSPACE="${GITHUB_WORKSPACE//\\//}"
+          sed -i '' "s|__BUILDPATH__|${WORKSPACE}|g" \
             ${{ matrix.app }}/pyproject.toml
 
       - name: Build bifrost-backend wheel
