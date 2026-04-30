@@ -58,4 +58,4 @@ dependencies = [
 connectivity_plus = "7.0.0"
 
 [tool.flet.flutter.pubspec.dependencies]
-screen_brightness_windows = "^1.0.1"
+screen_brightness_windows = "^2.1.0"
