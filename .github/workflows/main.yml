@@ -167,11 +167,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Instalar Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: "3.41.4"
-          channel: stable
+      # - name: Instalar Flutter
+      #   uses: subosito/flutter-action@v2
+      #   with:
+      #     flutter-version: "3.41.4"
+      #     channel: stable
 
       - name: Instalar dependencias Python
         run: pip install -r shared/requirements.txt
@@ -229,64 +229,13 @@ jobs:
           print("OK:", wheel_uri)
           '@ | python
 
-      - name: Build Windows (primera passada - genera projecte Flutter)
-        shell: bash
-        env:
-          PYTHONUTF8: "1"
-        run: |
-          cd ${{ matrix.app }}
-          echo "y" | flet build windows --output dist --no-rich-output -v 2>&1 || true
-
-      - name: Fix screen_brightness_windows headers
-        shell: pwsh
-        run: |
-          $base = "${{ matrix.app }}\build\flutter\windows\flutter\ephemeral\.plugin_symlinks\screen_brightness_windows\windows"
-          
-          # El plugin.h fa: #include "../include/screen_brightness_windows/screen_brightness_changed_stream_handler.h"
-          # Des de: $base\include\screen_brightness_windows\screen_brightness_windows_plugin.h
-          # Pujant un nivell: $base\include\
-          # Buscant: include\screen_brightness_windows\screen_brightness_changed_stream_handler.h
-          # Path final: $base\include\include\screen_brightness_windows\screen_brightness_changed_stream_handler.h
-          
-          $targetDir = "$base\include\include\screen_brightness_windows"
-          New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
-          
-          $header = "$targetDir\screen_brightness_changed_stream_handler.h"
-          if (-not (Test-Path $header)) {
-            @'
-            #pragma once
-            #include <flutter/event_channel.h>
-            #include <memory>
-            namespace screen_brightness_windows {
-            class ScreenBrightnessChangedStreamHandler
-                : public flutter::StreamHandler<flutter::EncodableValue> {
-            public:
-              void AddScreenBrightnessToEventSink(double brightness);
-            protected:
-              std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>>
-              OnListenInternal(
-                  const flutter::EncodableValue* arguments,
-                  std::unique_ptr<flutter::EventSink<flutter::EncodableValue>>&& events)
-                  override;
-              std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>>
-              OnCancelInternal(const flutter::EncodableValue* arguments) override;
-            private:
-              std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> sink_;
-            };
-            }
-            '@ | Set-Content $header -Encoding UTF8
-                  Write-Host "✅ Header creat a $header"
-                } else {
-                  Write-Host "Header ja existeix"
-                }
-
       - name: Build Windows (segona passada - compila amb header parcheado)
         shell: bash
         env:
           PYTHONUTF8: "1"
         run: |
           cd ${{ matrix.app }}
-          echo "y" | flet build windows --output dist --no-rich-output
+          echo "y" | flet build windows --output dist --no-rich-output -v
 
       - name: Crear directorio installer
         shell: pwsh
