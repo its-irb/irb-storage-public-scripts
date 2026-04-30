@@ -201,6 +201,12 @@ jobs:
           sed -i 's/^version = .*/version = "1.0.${{ github.run_number }}"/' \
             ${{ matrix.app }}/pyproject.toml
 
+      - name: Añadir ruta al paquete de backend pyproject.toml
+        shell: bash
+        run: |
+          sed -i "s|__BUILDPATH__|$GITHUB_WORKSPACE/shared|g" \
+            ${{ matrix.app }}/pyproject.toml
+
       - name: Build bifrost-backend wheel
         shell: pwsh
         run: |
