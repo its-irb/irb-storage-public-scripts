@@ -229,7 +229,7 @@ jobs:
           print("OK:", wheel_uri)
           '@ | python
 
-      - name: Build Windows (segona passada - compila amb header parcheado)
+      - name: Build Windows
         shell: bash
         env:
           PYTHONUTF8: "1"
