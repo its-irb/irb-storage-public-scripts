@@ -29,12 +29,10 @@ En Linux cluster (IS_LINUX_CLUSTER=True):
 import os
 import sys
 import io
-import stat
 import getpass
 import tempfile
 import subprocess
 import threading
-import traceback
 from typing import Callable
 import pathlib
 from datetime import datetime
@@ -46,9 +44,10 @@ import flet as ft
 # if os.path.isdir(_shared):
 #     sys.path.insert(0, os.path.abspath(_shared))
 
-# import backend
 
 from bifrost_backend import backend
+from bifrost_frontend.frontend import *
+from config import APP_INFO
 
 # ============================================================================
 # MODO DE EJECUCIÓN
@@ -65,12 +64,6 @@ STS_RENEWAL_THRESHOLD_DAYS = 3
 # Duración (en días) de las credenciales STS renovadas automáticamente
 STS_AUTO_RENEWAL_DAYS = 7
 
-# ============================================================================
-# HELPER THREAD-SAFE PARA ACTUALIZAR UI
-# ============================================================================
-
-def ui_call(page: ft.Page, fn: Callable) -> None:
-    page.run_thread(fn)
 
 # ============================================================================
 # PARA EVITAR PROBLEMAS DE CODIFICACIÓN EN CONSOLA (ESPECIALMENTE EN WINDOWS)
@@ -84,45 +77,7 @@ except Exception:
     pass
 
 
-# ============================================================================
-# WRAPPER SEGURO PARA HILOS — captura excepciones y las muestra en diálogo
-# ============================================================================
 
-def safe_thread(page: ft.Page, target: Callable, daemon: bool = True) -> threading.Thread:
-    def _wrapper():
-        try:
-            target()
-        except Exception as exc:
-            tb = traceback.format_exc()
-            print(f"[safe_thread] Unhandled exception:\n{tb}")
-            def _show():
-                show_dialog(
-                    page,
-                    "Unexpected error",
-                    f"{type(exc).__name__}: {exc}\n\nCheck console or contact ITS.",
-                    C_ERROR,
-                )
-            ui_call(page, _show)
-
-    t = threading.Thread(target=_wrapper, daemon=daemon)
-    return t
-
-# ============================================================================
-# PALETA DE COLORES Y HELPERS DE ESTILO
-# ============================================================================
-
-C_BG       = "#0D1117"
-C_SURFACE  = "#161B22"
-C_SURFACE2 = "#21262D"
-C_BORDER   = "#30363D"
-C_PRIMARY  = "#58A6FF"
-C_ACCENT   = "#3FB950"
-C_WARNING  = "#D29922"
-C_ERROR    = "#F85149"
-C_TEXT     = "#E6EDF3"
-C_TEXT_DIM = "#8B949E"
-C_OVERLAY  = "#1C2027"
-FONT_MONO  = "Courier New"
 
 # ── Log persistente ───────────────────────────────────────────────────────
 _LOG_DIR  = pathlib.Path.home() / "bifrost-mount-logs"
@@ -137,192 +92,16 @@ def _write_to_log_file(msg: str) -> None:
     except Exception:
         pass
 
-def btn_primary(text: str, on_click=None, width=None, disabled=False) -> ft.Button:
-    return ft.Button(
-        content=ft.Text(text),
-        on_click=on_click,
-        disabled=disabled,
-        width=width,
-        style=ft.ButtonStyle(
-            bgcolor={
-                ft.ControlState.DEFAULT:  C_PRIMARY,
-                ft.ControlState.HOVERED:  "#79B8FF",
-                ft.ControlState.DISABLED: C_BORDER,
-            },
-            color={
-                ft.ControlState.DEFAULT:  "#0D1117",
-                ft.ControlState.DISABLED: C_TEXT_DIM,
-            },
-            shape=ft.RoundedRectangleBorder(radius=6),
-            padding=ft.Padding.symmetric(horizontal=20, vertical=12),
-        ),
-    )
 
 
-def btn_secondary(text: str, on_click=None, width=None) -> ft.OutlinedButton:
-    return ft.OutlinedButton(
-        content=ft.Text(text),
-        on_click=on_click,
-        width=width,
-        style=ft.ButtonStyle(
-            color=C_TEXT,
-            side=ft.BorderSide(1, C_BORDER),
-            shape=ft.RoundedRectangleBorder(radius=6),
-            padding=ft.Padding.symmetric(horizontal=20, vertical=12),
-        ),
-    )
 
 
-def card(content: ft.Control, padding=20) -> ft.Container:
-    return ft.Container(
-        content=content,
-        bgcolor=C_SURFACE,
-        border=ft.Border.all(1, C_BORDER),
-        border_radius=10,
-        padding=padding,
-    )
-
-
-def section_title(text: str) -> ft.Text:
-    return ft.Text(
-        text,
-        size=11,
-        weight=ft.FontWeight.W_600,
-        color=C_TEXT_DIM,
-        font_family=FONT_MONO,
-    )
-
-
-def field_label(text: str) -> ft.Text:
-    return ft.Text(text, size=12, color=C_TEXT_DIM, weight=ft.FontWeight.W_500)
-
-
-def styled_field(
-    label: str,
-    password: bool = False,
-    value: str = "",
-    disabled: bool = False,
-    hint: str = "",
-    on_change=None,
-    multiline: bool = False,
-    min_lines: int = 1,
-    max_lines: int = 1,
-) -> tuple[ft.TextField, ft.Column]:
-    tf = ft.TextField(
-        value=value,
-        password=password,
-        can_reveal_password=password,
-        disabled=disabled,
-        hint_text=hint,
-        on_change=on_change,
-        multiline=multiline,
-        min_lines=min_lines,
-        max_lines=max_lines,
-        bgcolor=C_SURFACE2,
-        border_color=C_BORDER,
-        focused_border_color=C_PRIMARY,
-        color=C_TEXT,
-        hint_style=ft.TextStyle(color=C_TEXT_DIM),
-        border_radius=6,
-        content_padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-        text_size=13,
-    )
-    col = ft.Column([field_label(label), tf], spacing=4, tight=True)
-    return tf, col
-
-
-def status_badge(text: str, color: str) -> ft.Container:
-    return ft.Container(
-        content=ft.Text(text, size=11, color=color, weight=ft.FontWeight.W_600),
-        bgcolor=f"{color}22",
-        border=ft.Border.all(1, f"{color}55"),
-        border_radius=20,
-        padding=ft.Padding.symmetric(horizontal=10, vertical=4),
-    )
-
-
-# ============================================================================
-# HEADER COMÚN
-# ============================================================================
-
-def build_header(subtitle: str = "") -> ft.Container:
-    version_str = f"v{backend.__version__}" if hasattr(backend, "__version__") else ""
-    return ft.Container(
-        content=ft.Row(
-            [
-                ft.Column(
-                    [
-                        ft.Row(
-                            [
-                                ft.Text(
-                                    "BIFROST - MOUNT",
-                                    size=22,
-                                    weight=ft.FontWeight.W_700,
-                                    color=C_PRIMARY,
-                                    font_family=FONT_MONO,
-                                ),
-                                ft.Container(width=8),
-                                status_badge("DESKTOP", C_WARNING),
-                            ],
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                        ft.Text(subtitle or "IRB MinIO Mount Tool", size=12, color=C_TEXT_DIM),
-                    ],
-                    spacing=2,
-                    expand=True,
-                ),
-                ft.Text(version_str, size=11, color=C_TEXT_DIM, font_family=FONT_MONO),
-            ],
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
-        bgcolor=C_SURFACE,
-        border=ft.Border.only(bottom=ft.BorderSide(1, C_BORDER)),
-        padding=ft.Padding.symmetric(horizontal=24, vertical=16),
-        margin=ft.Margin.only(bottom=24),
-    )
 
 
 # ============================================================================
 # DIÁLOGOS GENÉRICOS
 # ============================================================================
 
-def show_dialog(
-    page: ft.Page,
-    title: str,
-    message: str,
-    color: str = C_TEXT,
-    actions: list | None = None,
-):
-    def close(e=None):
-        page.pop_dialog()
-
-    if not actions:
-        actions = [btn_primary("OK", on_click=close)]
-
-    icon = (
-        ft.Icons.CHECK_CIRCLE_OUTLINE   if color == C_ACCENT  else
-        ft.Icons.ERROR_OUTLINE          if color == C_ERROR   else
-        ft.Icons.WARNING_AMBER_OUTLINED if color == C_WARNING else
-        ft.Icons.INFO_OUTLINE
-    )
-
-    dlg = ft.AlertDialog(
-        modal=True,
-        title=ft.Row(
-            [
-                ft.Icon(icon, color=color, size=20),
-                ft.Text(title, color=C_TEXT, size=15, weight=ft.FontWeight.W_600),
-            ],
-            spacing=8,
-        ),
-        content=ft.Text(message, color=C_TEXT_DIM, size=13),
-        actions=actions,
-        bgcolor=C_OVERLAY,
-        shape=ft.RoundedRectangleBorder(radius=10),
-    )
-    page.show_dialog(dlg)
-    page.update()
 
 
 def show_confirm(
@@ -352,112 +131,6 @@ def show_confirm(
     page.show_dialog(dlg)
     page.update()
 
-
-# ============================================================================
-# VISTA: ACTUALIZACIÓN
-# ============================================================================
-
-def _build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
-    status_text = ft.Text("Checking for updates...", color=C_TEXT_DIM, size=13)
-    progress    = ft.ProgressBar(color=C_PRIMARY, bgcolor=C_SURFACE2, width=300)
-    update_btn  = btn_primary("Update now")
-    skip_btn    = btn_secondary("Continue anyway")
-    update_btn.visible = False
-    skip_btn.visible   = False
-
-    def check():
-        try:
-            ultima = backend.check_update_version(force_update="--update" in sys.argv)
-            if ultima:
-                def _show_update():
-                    status_text.value  = f"New version available: {ultima}"
-                    status_text.color  = C_WARNING
-                    progress.visible   = False
-                    update_btn.visible = True
-                    skip_btn.visible   = True
-                ui_call(page, _show_update)
-            else:
-                def _show_ok():
-                    status_text.value = "✓ You are using the latest version."
-                    status_text.color = C_ACCENT
-                    progress.visible  = False
-                ui_call(page, _show_ok)
-                import time; time.sleep(1)
-                ui_call(page, on_continue)
-        except Exception as e:
-            def _show_err():
-                status_text.value = f"Could not check updates: {e}"
-                status_text.color = C_TEXT_DIM
-                progress.visible  = False
-            ui_call(page, _show_err)
-            import time; time.sleep(0.5)
-            ui_call(page, on_continue)
-
-    def do_update(e):
-        update_btn.disabled = True
-        progress.visible    = True
-        status_text.value   = "Downloading update..."
-        status_text.color   = C_TEXT_DIM
-        page.update()
-
-        def _download():
-            try:
-                nueva_ruta  = backend.download_new_binary("bifrost")
-                ruta_actual = os.path.abspath(sys.argv[0])
-                if sys.platform == "win32":
-                    _escribir_y_lanzar_updater_windows(ruta_actual, nueva_ruta)
-                else:
-                    os.replace(nueva_ruta, ruta_actual)
-                    os.chmod(ruta_actual, os.stat(ruta_actual).st_mode | stat.S_IEXEC)
-                    ui_call(page, lambda: show_dialog(
-                        page, "Updated",
-                        "Restart the application to use the new version.",
-                        C_ACCENT,
-                    ))
-            except Exception as ex:
-                ui_call(page, lambda: show_dialog(page, "Update failed", str(ex), C_ERROR))
-
-        safe_thread(page, _download).start()
-
-    skip_btn.on_click   = lambda e: ui_call(page, on_continue)
-    update_btn.on_click = do_update
-
-    content = ft.Column(
-        [
-            build_header("Checking for updates"),
-            ft.Container(expand=True),
-            ft.Column(
-                [
-                    ft.Icon(ft.Icons.SYNC, color=C_PRIMARY, size=48),
-                    ft.Text("BIFROST MOUNT", size=32, weight=ft.FontWeight.W_700,
-                            color=C_TEXT, font_family=FONT_MONO),
-                    ft.Text("IRB MinIO Mount Tool", size=14, color=C_TEXT_DIM),
-                    ft.Container(height=24),
-                    progress,
-                    status_text,
-                    ft.Container(height=16),
-                    ft.Row([update_btn, skip_btn],
-                           alignment=ft.MainAxisAlignment.CENTER, spacing=12),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=8,
-            ),
-            ft.Container(expand=True),
-        ],
-        expand=True,
-        spacing=0,
-    )
-
-    if backend.should_check_for_updates():
-        safe_thread(page, check).start()
-    else:
-        def _skip():
-            import time
-            time.sleep(0.1)
-            ui_call(page, on_continue)
-        safe_thread(page, _skip).start()
-
-    return content
 
 
 # ============================================================================
@@ -506,7 +179,7 @@ def _build_login_content(
             creds = {"usuario": user, "password": pwd}
             ok, motivo = backend.validar_credenciales_ldap(creds)
             if ok:
-                ui_call(page, lambda: on_success(creds))
+                backend.ui_call(page, lambda: on_success(creds))
             else:
                 msg = (
                     "⚠️ Cannot reach the IRB network. Are you connected to the VPN?"
@@ -518,9 +191,9 @@ def _build_login_content(
                     error_text.visible = True
                     login_btn.disabled = False
                     loading.visible    = False
-                ui_call(page, _fail)
+                backend.ui_call(page, _fail)
 
-        safe_thread(page, _auth).start()
+        backend.safe_thread(page, _auth).start()
 
     login_btn.on_click = do_login
     pass_tf.on_submit  = do_login
@@ -724,7 +397,7 @@ def _build_credentials_content(
                 ft.Text(msg.rstrip("\n"), size=11, color=color,
                         font_family=FONT_MONO, selectable=True)
             )
-        ui_call(page, _add)
+        backend.ui_call(page, _add)
 
     def _do_renew():
         import time
@@ -761,7 +434,7 @@ def _build_credentials_content(
                 progress.visible  = False
                 status_text.value = "❌ Renewal failed."
                 status_text.color = C_ERROR
-            ui_call(page, _show_err)
+            backend.ui_call(page, _show_err)
             return
 
         log("\n✅ Credentials obtained successfully.", C_ACCENT)
@@ -790,9 +463,9 @@ def _build_credentials_content(
             status_text.value = "✓ Credentials renewed. Loading..."
             status_text.color = C_ACCENT
 
-        ui_call(page, _finish)
+        backend.ui_call(page, _finish)
         time.sleep(1.2)
-        ui_call(page, on_continue)
+        backend.ui_call(page, on_continue)
 
     content = ft.Column(
         [
@@ -838,7 +511,7 @@ def _build_credentials_content(
         spacing=0,
     )
 
-    safe_thread(page, _do_renew).start()
+    backend.safe_thread(page, _do_renew).start()
     return content
 
 
@@ -912,7 +585,7 @@ def build_rclone_browser(
                     selected_state["bucket"] = None
                     on_select("")          # notificar al caller
                 _render_buckets(selected_state.get("_all_buckets", []))
-            ui_call(page, _refresh)
+            backend.ui_call(page, _refresh)
         threading.Thread(target=_do, daemon=True).start()
 
 
@@ -942,7 +615,7 @@ def build_rclone_browser(
                 selected_state["bucket"] = None
                 on_select("")
                 _render_buckets(selected_state.get("_all_buckets", []))
-            ui_call(page, _refresh)
+            backend.ui_call(page, _refresh)
         threading.Thread(target=_do, daemon=True).start()
 
     unmount_all_btn.on_click = lambda e: _unmount_all()
@@ -1035,7 +708,7 @@ def build_rclone_browser(
             loading_row.visible = True
             error_text.visible  = False
             page.update()
-        ui_call(page, _set_loading)
+        backend.ui_call(page, _set_loading)
 
         try:
             buckets = backend.rclone_lsd(perfil_rclone, "", timeout=15)
@@ -1060,7 +733,7 @@ def build_rclone_browser(
             def _show():
                 loading_row.visible = False
                 _render_buckets(buckets)
-            ui_call(page, _show)
+            backend.ui_call(page, _show)
 
         except Exception as ex:
             def _err():
@@ -1068,7 +741,7 @@ def build_rclone_browser(
                 error_text.value    = f"Error loading buckets: {ex}"
                 error_text.visible  = True
                 page.update()
-            ui_call(page, _err)
+            backend.ui_call(page, _err)
 
     browser_widget = ft.Column(
         [
@@ -1258,7 +931,7 @@ def _build_mount_bucket(
                 cifs_error.visible   = False
                 cifs_shares_col.controls.clear()
                 page.update()
-            ui_call(page, _set_loading)
+            backend.ui_call(page, _set_loading)
 
             try:
                 grupos = backend.get_ldap_groups(usuario_actual)
@@ -1294,7 +967,7 @@ def _build_mount_bucket(
                             cifs_shares_col.controls.append(cb)
                     page.update()
 
-                ui_call(page, _render)
+                backend.ui_call(page, _render)
 
             except Exception as ex:
                 def _err():
@@ -1302,7 +975,7 @@ def _build_mount_bucket(
                     cifs_error.value     = f"Error loading shares: {ex}"
                     cifs_error.visible   = True
                     page.update()
-                ui_call(page, _err)
+                backend.ui_call(page, _err)
 
         def _show_admin_dialog(e):
             admin_user  = f"admin_{usuario_actual}"
@@ -1333,7 +1006,7 @@ def _build_mount_bucket(
                 use_admin_btn.visible = False
                 page.update()
 
-                safe_thread(page, lambda: _load_cifs_shares(admin_creds)).start()
+                backend.safe_thread(page, lambda: _load_cifs_shares(admin_creds)).start()
 
             def cancel(ev):
                 page.pop_dialog()
@@ -1402,9 +1075,9 @@ def _build_mount_bucket(
                         cifs_status.color = C_ACCENT
                     page.update()
 
-                ui_call(page, _after)
+                backend.ui_call(page, _after)
 
-            safe_thread(page, _mount).start()
+            backend.safe_thread(page, _mount).start()
 
         use_admin_btn           = btn_secondary("🔑 Use admin credentials", on_click=_show_admin_dialog)
         mount_cifs_btn.on_click = do_mount_cifs
@@ -1511,11 +1184,11 @@ def _build_mount_bucket(
                             mount_status.value   = ""
                             mount_status.visible = False
                             page.update()
-                        ui_call(page, _hide)
+                        backend.ui_call(page, _hide)
                     threading.Thread(target=_clear_status, daemon=True).start()
                     threading.Timer(0.2, dest_browser_refresh).start()
                     page.update()
-                ui_call(page, _ok)
+                backend.ui_call(page, _ok)
             except EnvironmentError as ex:
                 def _err():
                     mount_btn.disabled   = False
@@ -1523,7 +1196,7 @@ def _build_mount_bucket(
                     mount_status.visible = False
                     page.update()
                     show_dialog(page, "FUSE / WinFSP not detected", str(ex), C_ERROR)
-                ui_call(page, _err)
+                backend.ui_call(page, _err)
             except Exception as ex:
                 def _err():
                     mount_btn.disabled   = False
@@ -1531,9 +1204,9 @@ def _build_mount_bucket(
                     mount_status.visible = False
                     page.update()
                     show_dialog(page, "Mount error", str(ex), C_ERROR)
-                ui_call(page, _err)
+                backend.ui_call(page, _err)
 
-        safe_thread(page, _do).start()
+        backend.safe_thread(page, _do).start()
 
     mount_btn.on_click = do_mount
 
@@ -1821,10 +1494,10 @@ def main(page: ft.Page):
     def do_close():
         if IS_LINUX_CLUSTER and state["mounts_activos"]:
             usuario = (state.get("credenciales_ldap") or {}).get("usuario") or getpass.getuser()
-            safe_thread(page, lambda: backend.desmontar_todos_los_shares(usuario)).start()
+            backend.safe_thread(page, lambda: backend.desmontar_todos_los_shares(usuario)).start()
         page.window.close()
 
-    show_screen(_build_update_content(page, on_continue=go_login))
+    show_screen(build_update_content(page, on_continue=go_login))
 
 # ============================================================================
 # ENTRY POINT

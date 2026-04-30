@@ -25,8 +25,6 @@ import sys
 import json
 import time
 import shlex
-#import atexit
-import getpass
 import platform
 import subprocess
 import configparser
@@ -34,15 +32,16 @@ import threading
 import urllib.parse
 from pathlib import Path
 from datetime import datetime, timezone
-from sys import path, platform as sys_platform
+from sys import platform as sys_platform
+import traceback
 
-import boto3
 import jwt
 import requests
 import urllib3
-from botocore.exceptions import ClientError
 from ldap3 import Server, Connection, SUBTREE, SIMPLE
 from xml.etree import ElementTree as etree
+
+from bifrost_frontend.frontend import show_dialog, C_ERROR
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -229,6 +228,7 @@ def download_new_binary(file_name: str) -> str:
     with tempfile.NamedTemporaryFile(delete=False, mode='wb') as tmp:
         tmp.write(r.content)
         return tmp.name
+
 
 
 # ============================================================================
@@ -1625,3 +1625,49 @@ def construir_recursos_cifs_dict(shares: list, usuario_actual: str) -> dict:
             "remote_host":    remote_host,
         }
     return resultado
+
+# ============================================================================
+# HELPER THREAD-SAFE PARA ACTUALIZAR UI
+# ============================================================================
+
+def ui_call(page: ft.Page, fn: Callable) -> None:
+    # Use run_task (asyncio coroutine) instead of run_thread (ThreadPoolExecutor).
+    # Flet's ObjectPatch.from_diff walks control.controls as a live list with no
+    # lock; run_thread runs fn() in a thread pool *in parallel* to the asyncio
+    # event loop, so concurrent .controls.clear()/.extend() from the thread pool
+    # races with the diff walker → IndexError: list index out of range.
+    # run_task schedules the coroutine on the same asyncio event loop; since
+    # _compare_lists contains no `await`, no run_task coroutine can preempt it
+    # mid-iteration, eliminating the race entirely.
+    async def _wrapper():
+        fn()
+    page.run_task(_wrapper)
+
+
+# ============================================================================
+# WRAPPER SEGURO PARA HILOS — captura excepciones y las muestra en diálogo
+# ============================================================================
+
+def safe_thread(page: ft.Page, target: Callable, daemon: bool = True) -> threading.Thread:
+    """
+    Crea un Thread que captura cualquier excepción no controlada y la muestra
+    en un diálogo de error en lugar de matar el proceso silenciosamente.
+    """
+    def _wrapper():
+        try:
+            target()
+        except Exception as exc:
+            tb = traceback.format_exc()
+            print(f"[safe_thread] Unhandled exception:\n{tb}")
+            _exc = exc  # capture before Python deletes the except-clause variable
+            def _show(e=_exc):
+                show_dialog(
+                    page,
+                    "Unexpected error",
+                    f"{type(e).__name__}: {e}\n\nCheck console or contact ITS.",
+                    C_ERROR,
+                )
+            ui_call(page, _show)
+
+    t = threading.Thread(target=_wrapper, daemon=daemon)
+    return t
