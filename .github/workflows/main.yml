@@ -148,8 +148,6 @@ jobs:
       - name: Crear DMG
         uses: L-Super/create-dmg-actions@v1.0.3
         with:
-          dmg_name: ${{ matrix.app }}-${{ steps.clean_branch.outputs.name }}-macos
-          src_dir: ${{ matrix.app }}/dist/${{ matrix.app }}.app
           dmg_name: ${{ matrix.app }}-macos
           src_dir: ${{ matrix.app }}/dist/${{ matrix.app }}-macos.app
 
