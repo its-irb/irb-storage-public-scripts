@@ -207,7 +207,7 @@ def get_update_file_suffix() -> str:
     elif sistema == "darwin":
         return "-macos.dmg"
     elif sistema == "win32":
-        return "-windows.exe"
+        return "-main-windows.exe"
     return ""
 
 
