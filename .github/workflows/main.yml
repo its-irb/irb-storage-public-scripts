@@ -134,17 +134,6 @@ jobs:
           cp -R ${{ matrix.app }}/src/frameworks/fuse_t.framework \
             "${APP_BUNDLE}/Contents/Frameworks/"
 
-      - name: Renombrar .app
-        env:
-          BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
-          APP: ${{ matrix.app }}
-        run: |
-          cd ${APP}/dist
-          BUNDLE=$(find . -maxdepth 1 -name "*.app" | head -1 | sed 's|./||')
-          echo "App bundle encontrado: $BUNDLE"
-          mv "$BUNDLE" "${APP}.app"
-          ls -lah .
-
       - name: Crear DMG
         uses: L-Super/create-dmg-actions@v1.0.3
         with:
