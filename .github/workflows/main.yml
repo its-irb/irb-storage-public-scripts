@@ -89,9 +89,9 @@ jobs:
           app = "${{ matrix.app }}"
           pyproject = Path(app) / "pyproject.toml"
 
-          wheels = glob.glob(f"{app}/src/bifrost_backend-*.whl")
+          wheels = glob.glob(f"{app}/src/bifrost_shared-*.whl")
           if not wheels:
-              raise SystemExit("No se encontró bifrost_backend-*.whl")
+              raise SystemExit("No se encontró bifrost_shared-*.whl")
 
           wheel_uri = Path(wheels[0]).resolve().as_uri()
 
@@ -118,8 +118,8 @@ jobs:
           echo "=== site-packages ==="
           find "$APP_BUNDLE" -name "site-packages" -type d | head -5
           find "$APP_BUNDLE" -name "site-packages" -type d -exec du -sh {} \; 2>/dev/null | head -5
-          echo "=== bifrost_backend ==="
-          find "$APP_BUNDLE" -name "bifrost_backend*" 2>/dev/null
+          echo "=== bifrost_shared ==="
+          find "$APP_BUNDLE" -name "bifrost_shared*" 2>/dev/null
           echo "=== boto3 ==="
           find "$APP_BUNDLE" -name "boto3" -type d 2>/dev/null
           echo "=== ldap3 ==="
@@ -142,7 +142,7 @@ jobs:
           cd ${APP}/dist
           BUNDLE=$(find . -maxdepth 1 -name "*.app" | head -1 | sed 's|./||')
           echo "App bundle encontrado: $BUNDLE"
-          mv "$BUNDLE" "${APP}-${BRANCH_SUFFIX}-macos.app"
+          mv "$BUNDLE" "${APP}-macos.app"
           ls -lah .
 
       - name: Crear DMG
@@ -233,9 +233,9 @@ jobs:
           app = "${{ matrix.app }}"
           pyproject = Path(app) / "pyproject.toml"
 
-          wheels = glob.glob(f"{app}/src/bifrost_backend-*.whl")
+          wheels = glob.glob(f"{app}/src/bifrost_shared-*.whl")
           if not wheels:
-              raise SystemExit("No se encontró bifrost_backend-*.whl")
+              raise SystemExit("No se encontró bifrost_shared-*.whl")
 
           wheel_uri = Path(wheels[0]).resolve().as_uri()
 
@@ -328,7 +328,7 @@ jobs:
         run: |
           python3.11 -m pip install build
           python3.11 -m build shared/ --outdir ${{ matrix.app }}/src/
-          WHEEL=$(ls $(pwd)/${{ matrix.app }}/src/bifrost_backend-*.whl)
+          WHEEL=$(ls $(pwd)/${{ matrix.app }}/src/bifrost_shared-*.whl)
           sed -i 's|"bifrost-backend",|"bifrost-backend @ file://'"${WHEEL}"'",|' ${{ matrix.app }}/pyproject.toml
 
       - name: Build Rocky Linux (PyInstaller onefile)
@@ -350,7 +350,7 @@ jobs:
             --hidden-import uvicorn.logging \
             --hidden-import uvicorn.loops.auto \
             --distpath ../../dist
-          mv ../../dist/main "../../dist/${APP}-${BRANCH_SUFFIX}-linux"
+          mv ../../dist/main "../../dist/${APP}-linux"
 
       - name: Verificar artefacto generado
         run: ls -lah dist/
@@ -396,7 +396,7 @@ jobs:
       #  run: |
       #    cd dist
       #    for APP in bifrost-transfer bifrost-mount; do
-      #      BUNDLE="${APP}-${BRANCH_SUFFIX}-macos.app"
+      #      BUNDLE="${APP}-macos.app"
       #      if [ -d "$BUNDLE" ]; then
       #        zip -r "${BUNDLE}.zip" "$BUNDLE"
       #        rm -rf "$BUNDLE"
@@ -411,7 +411,7 @@ jobs:
       #   run: |
       #     ls -lah dist/
       #     for APP in bifrost-transfer bifrost-mount; do
-      #       test -f "dist/${APP}-${BRANCH_SUFFIX}-macos.app.zip" \
+      #       test -f "dist/${APP}-macos.app.zip" \
       #         && echo "OK: ${APP}" \
       #         || echo "WARNING: ${APP} no encontrado"
       #     done

@@ -1,4 +1,5 @@
 [tool.flet]
+org = "irbbarcelona"
 app_name = "bifrost-mount"
 
 [tool.flet.app]
@@ -51,7 +52,7 @@ dependencies = [
     "uvloop==0.22.1 ; sys_platform != 'win32'",
     "watchfiles==1.1.1",
     "websockets==15.0.1",
-    "bifrost-backend @ file:///__BUILDPATH__/shared",
+    "bifrost-shared @ file:///__BUILDPATH__/shared",
 ]
 
 [tool.flet.flutter.pubspec.dependency_overrides]
