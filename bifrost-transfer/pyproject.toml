@@ -1,4 +1,5 @@
 [tool.flet]
+org = "irbbarcelona"
 app_name = "bifrost-transfer"
 
 [tool.flet.app]
