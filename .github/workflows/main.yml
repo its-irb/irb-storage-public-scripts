@@ -149,7 +149,7 @@ jobs:
         uses: L-Super/create-dmg-actions@v1.0.3
         with:
           dmg_name: ${{ matrix.app }}-macos
-          src_dir: ${{ matrix.app }}/dist/${{ matrix.app }}-macos.app
+          src_dir: ${{ matrix.app }}/dist/${{ matrix.app }}.app
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
