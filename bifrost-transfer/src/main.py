@@ -2489,6 +2489,9 @@ def _build_copy_content(
         Automatically save the log to ~/bifrost-logs/ at end of copy/check.
         Returns the saved path, or None on failure.
         Only runs in web (OOD) mode.
+        
+        Log rotation: keeps only the most recent 50 log files, deleting older ones
+        to prevent unbounded disk usage.
         """
         if not IS_WEB:
             return None
@@ -2502,6 +2505,26 @@ def _build_copy_content(
             fpath = log_dir / f"bifrost-{ts}.log"
             fpath.write_text(contenido, encoding="utf-8")
             _dispatch_log(f"\n📄 Log auto-saved to: {fpath}\n")
+            
+            # Log rotation: keep only the most recent 50 files
+            try:
+                log_files = sorted(
+                    [f for f in log_dir.glob("bifrost-*.log")],
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True
+                )
+                MAX_LOG_FILES = 50
+                if len(log_files) > MAX_LOG_FILES:
+                    deleted_count = 0
+                    for old_log in log_files[MAX_LOG_FILES:]:
+                        old_log.unlink()
+                        deleted_count += 1
+                    if deleted_count > 0:
+                        _dispatch_log(f"   (cleaned up {deleted_count} old log file(s))\n")
+            except Exception as cleanup_ex:
+                # Don't fail the save if cleanup fails
+                print(f"[log-rotation] Cleanup warning: {cleanup_ex}", flush=True)
+            
             return str(fpath)
         except Exception as ex:
             _dispatch_log(f"\n⚠️  Could not auto-save log: {ex}\n")
