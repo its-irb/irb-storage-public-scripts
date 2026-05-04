@@ -1,6 +1,8 @@
 import sys
+import os
 from typing import Callable
 import flet as ft
+import subprocess
 from bifrost_backend import backend
 from config import APP_INFO
 
@@ -231,6 +233,7 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                     status_text.color  = C_WARNING
                     progress.visible   = False
                     update_btn.visible = True
+                    update_btn.on_click = do_update
                     skip_btn.visible   = True
                 backend.ui_call(page, _show_update)
             else:
@@ -259,12 +262,49 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
 
         def _download():
             try:
-                nueva_ruta  = backend.download_new_binary("bifrost")
-                ruta_actual = os.path.abspath(sys.argv[0])
+                flavour = APP_INFO["flavour"]
+                new_version = backend.download_new_binary("bifrost-{0:s}".format(flavour))
                 if sys.platform == "win32":
-                    _escribir_y_lanzar_updater_windows(ruta_actual, nueva_ruta)
+                    shell_cmd = (
+                        f'timeout /t 2 /nobreak >nul && '
+                        f'"{new_version}" /SILENT /SUPPRESSMSGBOXES /NOCANCEL'
+                    )
+                    subprocess.Popen(
+                        ["cmd", "/c", shell_cmd],
+                        start_new_session=True,
+                    )
+                    backend.ui_call(page, lambda: os._exit(0))
+                elif sys.platform == "darwin":
+                    result = subprocess.run(
+                        ["hdiutil", "attach", new_version, "-nobrowse", "-noautoopen"],
+                        capture_output=True, check=True,
+                    )
+                    mount_point = None
+                    for line in result.stdout.decode().splitlines():
+                        parts = line.split("\t")
+                        if len(parts) >= 3 and parts[2].strip().startswith("/Volumes/"):
+                            mount_point = parts[2].strip()
+                    if not mount_point:
+                        raise RuntimeError("Could not determine DMG mount point")
+                    app_name = "bifrost-{0:s}.app".format(flavour)
+                    app_src  = os.path.join(mount_point, app_name)
+                    app_dst  = os.path.join("/Applications", app_name)
+                    import shlex
+                    shell_cmd = (
+                        f'sleep 2 && '
+                        f'rm -rf {shlex.quote(app_dst)} && '
+                        f'cp -R {shlex.quote(app_src)} {shlex.quote(app_dst)} && '
+                        f'hdiutil detach {shlex.quote(mount_point)} && '
+                        f'open {shlex.quote(app_dst)}'
+                    )
+                    subprocess.Popen(
+                        ["bash", "-c", shell_cmd],
+                        start_new_session=True,
+                    )
+                    backend.ui_call(page, lambda: os._exit(0))
                 else:
-                    os.replace(nueva_ruta, ruta_actual)
+                    ruta_actual = os.path.abspath(sys.argv[0])
+                    os.replace(new_version, ruta_actual)
                     os.chmod(ruta_actual, os.stat(ruta_actual).st_mode | stat.S_IEXEC)
                     backend.ui_call(page, lambda: show_dialog(
                         page, "Updated",
@@ -277,7 +317,6 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
         backend.safe_thread(page, _download).start()
 
     skip_btn.on_click   = lambda e: backend.ui_call(page, on_continue)
-    update_btn.on_click = do_update
 
     content = ft.Column(
         [
