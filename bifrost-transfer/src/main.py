@@ -97,6 +97,12 @@ def ui_call(page: ft.Page, fn: Callable) -> None:
     # run_task schedules the coroutine on the same asyncio event loop; since
     # _compare_lists contains no `await`, no run_task coroutine can preempt it
     # mid-iteration, eliminating the race entirely.
+    
+    # Guard: skip UI updates if WebSocket connection is closed (OOD reconnection scenario)
+    if not page.session or not page.session.connection:
+        print(f"[ui_call] Skipping UI update — session disconnected", flush=True)
+        return
+    
     async def _wrapper():
         fn()
     page.run_task(_wrapper)
