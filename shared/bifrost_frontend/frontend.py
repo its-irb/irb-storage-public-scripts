@@ -268,7 +268,7 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                 flavour = APP_INFO["flavour"]
                 new_version = backend.download_new_binary("bifrost-{0:s}".format(flavour))
                 if sys.platform == "win32":
-                    exe_path = str(Path(tempfile.gettempdir()) / "bifrost-{0:s}.exe".format(APP_INFO[flavour]))  
+                    exe_path = str(Path(tempfile.gettempdir()) / "bifrost-{0:s}.exe".format(APP_INFO["flavour"]))  
                     shutil.move(new_version, exe_path)
                     bat_path = new_version + ".bat"
                     with open(bat_path, "w") as bat:
