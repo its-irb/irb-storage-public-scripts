@@ -43,6 +43,8 @@ from xml.etree import ElementTree as etree
 
 from bifrost_frontend.frontend import show_dialog, C_ERROR
 
+from config import APP_INFO
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 _s3_mount_processes: list[subprocess.Popen] = []
@@ -78,7 +80,7 @@ def get_rclone_executable() -> str:
         if bundled.exists():
             return str(bundled)
     else:
-        asset = Path(__file__).parent / "assets" / "bin" / rclone_name
+        asset = Path(__file__).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'assets' / "bin" / rclone_name
         if asset.exists():
             return str(asset.resolve())
 
@@ -412,13 +414,13 @@ def _check_winfsp_windows() -> bool:
 
 def _check_fuse_macos() -> bool:
     """Detecta específicamente fuse-t en macOS (no macFUSE ni osxfuse)."""
+    print(f"[debug] Looking for fuse-t: {Path(__file__).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / 'Versions' / 'Current' / 'fuse_t'}")
     return any(p.exists() for p in (*(
         Path("/usr/local/lib/libfuse-t.dylib"),
         Path("/Library/Filesystems/fuse-t.fs"),
         Path("/usr/local/include/fuse-t"),
-        Path(__file__).parent / "frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t",
-        ),*( str(Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t",) if os.environ.get("FLET_APP_STORAGE_TEMP") else ())
-    ))
+        Path(__file__).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / "Versions" / "Current" / "fuse_t",
+        ),*( (Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t",) if os.environ.get("FLET_APP_STORAGE_TEMP") else ())    ))
 
 def _check_fuse_linux() -> bool:
     """Detecta FUSE en Linux."""
@@ -661,8 +663,8 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
         if getattr(sys, "frozen", False):
             env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
         else:
-            if (Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t").exists():
-                env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
+            if (Path(sys.executable).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / 'Versions' / 'Current' / 'fuse_t').exists():
+                env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys.executable).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / 'Versions' / 'Current' / 'fuse_t')
     elif sistema == "Windows":
         if not _check_winfsp_windows():
             raise EnvironmentError("WinFSP not detected. Download from: https://winfsp.dev")
