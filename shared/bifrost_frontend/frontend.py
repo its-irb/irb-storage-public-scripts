@@ -232,12 +232,14 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                     progress.visible   = False
                     update_btn.visible = True
                     skip_btn.visible   = True
+                    page.update()
                 backend.ui_call(page, _show_update)
             else:
                 def _show_ok():
                     status_text.value = "✓ You are using the latest version."
                     status_text.color = C_ACCENT
                     progress.visible  = False
+                    page.update()
                 backend.ui_call(page, _show_ok)
                 import time; time.sleep(1)
                 backend.ui_call(page, on_continue)
@@ -246,6 +248,7 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                 status_text.value = f"Could not check updates: {e}"
                 status_text.color = C_TEXT_DIM
                 progress.visible  = False
+                page.update()
             backend.ui_call(page, _show_err)
             import time; time.sleep(0.5)
             backend.ui_call(page, on_continue)
