@@ -74,12 +74,22 @@ def get_rclone_executable() -> str:
     print(f"[debug] __file__: {Path(__file__).parent}")
     print(f"[debug] sys.argv[0]: {sys.argv[0]}")
 
-    # 1. PyInstaller frozen bundle
+    # 1. Flet bundled app: FLET_ASSETS_DIR points to the assets/ dir inside the temp extraction
+    flet_assets = os.environ.get("FLET_ASSETS_DIR")
+    if flet_assets:
+        bundled = Path(flet_assets) / "bin" / rclone_name
+        if bundled.exists():
+            if not os.access(bundled, os.X_OK):
+                bundled.chmod(bundled.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            return str(bundled)
+
+    # 2. PyInstaller frozen bundle
     if getattr(sys, "frozen", False):
         bundled = Path(sys._MEIPASS) / rclone_name
         if bundled.exists():
             return str(bundled)
     else:
+        # Development mode
         asset = Path(__file__).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'assets' / "bin" / rclone_name
         if asset.exists():
             return str(asset.resolve())
@@ -420,7 +430,7 @@ def _check_fuse_macos() -> bool:
         Path("/Library/Filesystems/fuse-t.fs"),
         Path("/usr/local/include/fuse-t"),
         Path(__file__).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / "Versions" / "Current" / "fuse_t",
-        ),*( (Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t",) if os.environ.get("FLET_APP_STORAGE_TEMP") else ())    ))
+        ),*( (Path(os.environ["FLET_ASSETS_DIR"]).parent / "frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t",) if os.environ.get("FLET_ASSETS_DIR") else ())    ))
 
 def _check_fuse_linux() -> bool:
     """Detecta FUSE en Linux."""
@@ -658,13 +668,20 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     sistema = platform.system()
     env = {**os.environ}
     if sistema == "Darwin":
-        if not _check_fuse_macos():
-            raise EnvironmentError("fuse-t not detected. Download it with macos-third-party-assets-downloader.sh")
-        if getattr(sys, "frozen", False):
+        raise EnvironmentError(str(Path(os.environ["FLET_ASSETS_DIR"]).parent / "frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t"))
+        if not _check_fuse_macos():     
+            raise EnvironmentError(str(Path(os.environ["FLET_ASSETS_DIR"]).parent / "frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t"))
+        flet_temp = os.environ.get("FLET_ASSETS_DIR")
+        if flet_temp:
+            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(flet_temp).parent / "frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
+        elif getattr(sys, "frozen", False):
             env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
+        elif os.environ["FLET_ASSETS_DIR"]:
+            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(os.environ["FLET_ASSETS_DIR"]).parent / "frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
         else:
-            if (Path(sys.executable).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / 'Versions' / 'Current' / 'fuse_t').exists():
-                env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys.executable).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / 'Versions' / 'Current' / 'fuse_t')
+            dev_path = Path(sys.executable).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / 'Versions' / 'Current' / 'fuse_t'
+            if dev_path.exists():
+                env["CGOFUSE_LIBFUSE_PATH"] = str(dev_path)
     elif sistema == "Windows":
         if not _check_winfsp_windows():
             raise EnvironmentError("WinFSP not detected. Download from: https://winfsp.dev")
