@@ -33,6 +33,7 @@ import urllib.parse
 from pathlib import Path
 from datetime import datetime, timezone
 from sys import platform as sys_platform
+import ctypes, ctypes.util
 import traceback
 
 import jwt
@@ -422,15 +423,51 @@ def _check_winfsp_windows() -> bool:
     return False
 
 
+def _macos_app_bundle_frameworks() -> Path | None:
+    """
+    Devuelve <App.app>/Contents/Frameworks usando NSBundle.mainBundle() vía ctypes.
+    Funciona porque Flet (serious_python) embebe Python en el mismo proceso Flutter,
+    por lo que mainBundle() apunta correctamente al .app en ejecución.
+    Devuelve None si falla o no estamos dentro de un bundle.
+    """
+    try:
+        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library('objc'))
+        objc.objc_getClass.restype = ctypes.c_void_p
+        objc.objc_getClass.argtypes = [ctypes.c_char_p]
+        objc.sel_registerName.restype = ctypes.c_void_p
+        objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        objc.objc_msgSend.restype = ctypes.c_void_p
+        objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        bundle = objc.objc_msgSend(
+            objc.objc_getClass(b'NSBundle'),
+            objc.sel_registerName(b'mainBundle'),
+        )
+        path_nsstr = objc.objc_msgSend(bundle, objc.sel_registerName(b'bundlePath'))
+        objc.objc_msgSend.restype = ctypes.c_char_p
+        utf8 = objc.objc_msgSend(path_nsstr, objc.sel_registerName(b'UTF8String'))
+        if utf8:
+            p = Path(utf8.decode()) / 'Contents' / 'Frameworks'
+            print(f"[debug] NSBundle.mainBundle path: {p}")
+            if p.is_dir():
+                return p
+    except Exception as e:
+        print(f"[debug] _macos_app_bundle_frameworks failed: {e}")
+    return None
+
+
 def _check_fuse_macos() -> bool:
-    """Detecta específicamente fuse-t en macOS (no macFUSE ni osxfuse)."""
-    print(f"[debug] Looking for fuse-t: {Path(__file__).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / 'Versions' / 'Current' / 'fuse_t'}")
-    return any(p.exists() for p in (*(
+    """Detecta fuse-t en macOS. Comprueba rutas del sistema y el framework bundled en el .app."""
+    candidates = [
         Path("/usr/local/lib/libfuse-t.dylib"),
         Path("/Library/Filesystems/fuse-t.fs"),
         Path("/usr/local/include/fuse-t"),
+        # modo desarrollo
         Path(__file__).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / "Versions" / "Current" / "fuse_t",
-        ),*( (Path(os.environ["FLET_ASSETS_DIR"]).parent / "frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t",) if os.environ.get("FLET_ASSETS_DIR") else ())    ))
+    ]
+    bundle_fw = _macos_app_bundle_frameworks()
+    if bundle_fw:
+        candidates.append(bundle_fw / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
+    return any(p.exists() for p in candidates)
 
 def _check_fuse_linux() -> bool:
     """Detecta FUSE en Linux."""
@@ -668,16 +705,15 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     sistema = platform.system()
     env = {**os.environ}
     if sistema == "Darwin":
-        raise EnvironmentError(str(Path(os.environ["FLET_ASSETS_DIR"]).parent / "frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t"))
         if not _check_fuse_macos():     
-            raise EnvironmentError(str(Path(os.environ["FLET_ASSETS_DIR"]).parent / "frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t"))
-        flet_temp = os.environ.get("FLET_ASSETS_DIR")
-        if flet_temp:
-            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(flet_temp).parent / "frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
+            raise EnvironmentError("fuse-t not detected. Download it with macos-third-party-assets-downloader.sh")
+        bundle_fw = _macos_app_bundle_frameworks()
+        if bundle_fw:
+            env["CGOFUSE_LIBFUSE_PATH"] = str(bundle_fw / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
+        elif (Path(__file__).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / "Versions" / "Current" / "fuse_t").exists():
+            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(__file__).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / "Versions" / "Current" / "fuse_t")
         elif getattr(sys, "frozen", False):
             env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
-        elif os.environ["FLET_ASSETS_DIR"]:
-            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(os.environ["FLET_ASSETS_DIR"]).parent / "frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
         else:
             dev_path = Path(sys.executable).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / 'Versions' / 'Current' / 'fuse_t'
             if dev_path.exists():
