@@ -173,7 +173,7 @@ def _build_login_content(
         login_btn.disabled = True
         loading.visible    = True
         error_text.visible = False
-        page.update()
+        #page.update()
 
         def _auth():
             creds = {"usuario": user, "password": pwd}
@@ -191,6 +191,7 @@ def _build_login_content(
                     error_text.visible = True
                     login_btn.disabled = False
                     loading.visible    = False
+                    page.update()
                 backend.ui_call(page, _fail)
 
         backend.safe_thread(page, _auth).start()

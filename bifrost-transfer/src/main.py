@@ -284,6 +284,7 @@ def _build_login_content(
                     error_text.visible = True
                     login_btn.disabled = False
                     loading.visible    = False
+                    page.update()
                 backend.ui_call(page, _fail)
 
         backend.safe_thread(page, _auth).start()
