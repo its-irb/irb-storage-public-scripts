@@ -268,12 +268,15 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                 if sys.platform == "win32":
                     exe_path = new_version + ".exe"
                     shutil.move(new_version, exe_path)
-                    shell_cmd = (
-                        f'timeout /t 2 /nobreak >nul && '
-                        f'"{exe_path}" /SILENT /SUPPRESSMSGBOXES /NOCANCEL'
-                    )
+                    bat_path = new_version + ".bat"
+                    with open(bat_path, "w") as bat:
+                        bat.write(
+                            f'@echo off\n'
+                            f'timeout /t 2 /nobreak >nul\n'
+                            f'"{exe_path}" /SILENT /SUPPRESSMSGBOXES /NOCANCEL\n'
+                        )
                     subprocess.Popen(
-                        ["cmd", "/c", shell_cmd],
+                        ["cmd", "/c", bat_path],
                         start_new_session=True,
                     )
                     backend.ui_call(page, lambda: os._exit(0))
