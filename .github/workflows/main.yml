@@ -77,7 +77,7 @@ jobs:
           sed -i '' "s|__BUILDPATH__|${WORKSPACE}|g" \
             ${{ matrix.app }}/pyproject.toml
 
-      - name: Build bifrost-backend wheel
+      - name: Build bifrost-shared wheel
         run: |
           pip install build
           python -m build shared/ --outdir ${{ matrix.app }}/src/
@@ -97,8 +97,8 @@ jobs:
 
           content = pyproject.read_text()
           content = content.replace(
-              '"bifrost-backend",',
-              f'"bifrost-backend @ {wheel_uri}",'
+              '"bifrost-shared",',
+              f'"bifrost-shared @ {wheel_uri}",'
           )
           pyproject.write_text(content)
           print("OK:", wheel_uri)
@@ -134,16 +134,27 @@ jobs:
           cp -R ${{ matrix.app }}/src/frameworks/fuse_t.framework \
             "${APP_BUNDLE}/Contents/Frameworks/"
 
+      # - name: Renombrar .app
+      #   env:
+      #     BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
+      #     APP: ${{ matrix.app }}
+      #   run: |
+      #     cd ${APP}/dist
+      #     BUNDLE=$(find . -maxdepth 1 -name "*.app" | head -1 | sed 's|./||')
+      #     echo "App bundle encontrado: $BUNDLE"
+      #     mv "$BUNDLE" "${APP}-macos.app"
+      #     ls -lah .
+
       - name: Crear DMG
         uses: L-Super/create-dmg-actions@v1.0.3
         with:
-          dmg_name: ${{ matrix.app }}-${{ steps.clean_branch.outputs.name }}-macos
+          dmg_name: ${{ matrix.app }}-macos
           src_dir: ${{ matrix.app }}/dist/${{ matrix.app }}.app
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
         with:
-          name: ${{ matrix.app }}-macos-${{ steps.clean_branch.outputs.name }}
+          name: ${{ matrix.app }}-macos
           path: "*.dmg"
 
   # ─────────────────────────────────────────────────────────────────────────────
@@ -203,13 +214,13 @@ jobs:
           sed -i 's/^version = .*/version = "1.0.${{ github.run_number }}"/' \
             ${{ matrix.app }}/pyproject.toml
 
-      - name: Añadir ruta al paquete de backend pyproject.toml
+      - name: Añadir ruta al paquete de bifrost-shared (backend and frontend) pyproject.toml
         shell: bash
         run: |
           sed -i "s|__BUILDPATH__|${GITHUB_WORKSPACE//\\//}|g" \
             ${{ matrix.app }}/pyproject.toml
 
-      - name: Build bifrost-backend wheel
+      - name: Build bifrost-shared wheel
         shell: pwsh
         run: |
           pip install build
@@ -230,8 +241,8 @@ jobs:
 
           content = pyproject.read_text()
           content = content.replace(
-              '"bifrost-backend",',
-              f'"bifrost-backend @ {wheel_uri}",'
+              '"bifrost-shared",',
+              f'"bifrost-shared @ {wheel_uri}",'
           )
           pyproject.write_text(content)
           print("OK:", wheel_uri)
@@ -267,7 +278,7 @@ jobs:
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
         with:
-          name: ${{ matrix.app }}-windows-${{ steps.clean_branch.outputs.name }}
+          name: ${{ matrix.app }}-windows
           path: ${{ matrix.app }}/installer/*.exe
 
   # ─────────────────────────────────────────────────────────────────────────────
@@ -313,16 +324,16 @@ jobs:
       - name: Escribir versión
         run: echo "__version__ = '1.0.${{ github.run_number }}'" > ${{ matrix.app }}/src/version.py
 
-      - name: Build bifrost-backend wheel
+      - name: Build bifrost-shared wheel
         run: |
           python3.11 -m pip install build
           python3.11 -m build shared/ --outdir ${{ matrix.app }}/src/
           WHEEL=$(ls $(pwd)/${{ matrix.app }}/src/bifrost_shared-*.whl)
-          sed -i 's|"bifrost-backend",|"bifrost-backend @ file://'"${WHEEL}"'",|' ${{ matrix.app }}/pyproject.toml
+          sed -i 's|"bifrost-shared",|"bifrost-shared @ file://'"${WHEEL}"'",|' ${{ matrix.app }}/pyproject.toml
 
       - name: Build Rocky Linux (PyInstaller onefile)
         env:
-          BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
+          #BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
           APP: ${{ matrix.app }}
         run: |
           mkdir -p dist
@@ -341,14 +352,14 @@ jobs:
             --distpath ../../dist
           mv ../../dist/main "../../dist/${APP}-linux"
 
-      - name: Verificar artefacto generado
-        run: ls -lah dist/
+      # - name: Verificar artefacto generado
+      #   run: ls -lah dist/
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
         with:
-          name: ${{ matrix.app }}-linux-${{ steps.clean_branch.outputs.name }}
-          path: dist/${{ matrix.app }}-${{ steps.clean_branch.outputs.name }}-linux
+          name: ${{ matrix.app }}-linux
+          path: dist/${{ matrix.app }}-linux
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Release — solo en main y release
@@ -370,8 +381,8 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Verificar dist
-        run: ls -lah dist/
+      # - name: Verificar dist
+      #   run: ls -lah dist/
 
       - name: Limpiar nombre de rama
         id: clean_branch
@@ -406,20 +417,20 @@ jobs:
       #     done
 
       #Por si queremos quitar el nombre de la rama de los archivos finales, aunque no es tan importante porque ya se incluye en el tag de la release.
-      - name: Eliminar sufijo de rama de los nombres de archivo
-        shell: bash
-        env:
-          BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
-        run: |
-          for file in dist/*; do
-            [[ -f "$file" ]] || continue
-            base=$(basename "$file")
-            new_name="${base/-${BRANCH_SUFFIX}/}"
-            if [[ "$base" != "$new_name" ]]; then
-              mv "$file" "dist/$new_name"
-            fi
-          done
-          ls -lah dist/
+      # - name: Eliminar sufijo de rama de los nombres de archivo
+      #   shell: bash
+      #   env:
+      #     BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
+      #   run: |
+      #     for file in dist/*; do
+      #       [[ -f "$file" ]] || continue
+      #       base=$(basename "$file")
+      #       new_name="${base/-${BRANCH_SUFFIX}/}"
+      #       if [[ "$base" != "$new_name" ]]; then
+      #         mv "$file" "dist/$new_name"
+      #       fi
+      #     done
+      #     ls -lah dist/
 
       - name: Crear GitHub Release
         uses: softprops/action-gh-release@v2

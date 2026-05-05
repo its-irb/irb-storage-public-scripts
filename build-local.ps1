@@ -1,12 +1,12 @@
 param([string]$app = "bifrost-transfer")
 
 $root = (Get-Location).Path
-python -m build shared/ --outdir "$app/src/"
+python -m build shared/ --outdir "$app/"
 
-$wheel = (Get-ChildItem "$app/src/bifrost_shared-*.whl").FullName.Replace('\', '/')
+$wheel = (Get-ChildItem "$app/bifrost_shared-*.whl").FullName.Replace('\', '/')
 
 if (-not $wheel) {
-    Write-Error "No se encontró bifrost_shared-*.whl en $app/src/"
+    Write-Error "No se encontró bifrost_shared-*.whl en $app/"
     exit 1
 }
 
