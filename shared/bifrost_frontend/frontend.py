@@ -281,6 +281,11 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                     subprocess.Popen(
                         ["cmd", "/c", bat_path],
                         start_new_session=True,
+                        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
+                        close_fds=True,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
                     )
                     backend.ui_call(page, lambda: os._exit(0))
                 elif sys.platform == "darwin":
