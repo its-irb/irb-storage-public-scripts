@@ -3,6 +3,7 @@ import os
 from typing import Callable
 import flet as ft
 import subprocess
+import shutil
 from bifrost_backend import backend
 from config import APP_INFO
 
@@ -265,9 +266,11 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                 flavour = APP_INFO["flavour"]
                 new_version = backend.download_new_binary("bifrost-{0:s}".format(flavour))
                 if sys.platform == "win32":
+                    exe_path = new_version + ".exe"
+                    shutil.move(new_version, exe_path)
                     shell_cmd = (
                         f'timeout /t 2 /nobreak >nul && '
-                        f'"{new_version}" /SILENT /SUPPRESSMSGBOXES /NOCANCEL'
+                        f'"{exe_path}" /SILENT /SUPPRESSMSGBOXES /NOCANCEL'
                     )
                     subprocess.Popen(
                         ["cmd", "/c", shell_cmd],
@@ -352,5 +355,4 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
             time.sleep(0.1)
             backend.ui_call(page, on_continue)
         backend.safe_thread(page, _skip).start()
-
     return content
