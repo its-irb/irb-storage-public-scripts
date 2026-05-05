@@ -1191,20 +1191,22 @@ def _build_mount_bucket(
                     page.update()
                 backend.ui_call(page, _ok)
             except EnvironmentError as ex:
+                err_str = str(ex)
                 def _err():
                     mount_btn.disabled   = False
                     mount_status.value   = ""
                     mount_status.visible = False
                     page.update()
-                    show_dialog(page, "FUSE / WinFSP not detected", str(ex), C_ERROR)
+                    show_dialog(page, "FUSE / WinFSP not detected", err_str, C_ERROR)
                 backend.ui_call(page, _err)
             except Exception as ex:
+                err_str = str(ex)
                 def _err():
                     mount_btn.disabled   = False
                     mount_status.value   = ""
                     mount_status.visible = False
                     page.update()
-                    show_dialog(page, "Mount error", str(ex), C_ERROR)
+                    show_dialog(page, "Mount error", err_str, C_ERROR)
                 backend.ui_call(page, _err)
 
         backend.safe_thread(page, _do).start()

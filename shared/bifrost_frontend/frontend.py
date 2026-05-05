@@ -275,7 +275,8 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                         C_ACCENT,
                     ))
             except Exception as ex:
-                backend.ui_call(page, lambda: show_dialog(page, "Update failed", str(ex), C_ERROR))
+                err_str = str(ex)
+                backend.ui_call(page, lambda: show_dialog(page, "Update failed", err_str, C_ERROR))
 
         backend.safe_thread(page, _download).start()
 
