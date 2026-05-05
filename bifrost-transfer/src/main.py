@@ -1945,7 +1945,8 @@ def _build_copy_content(
                         f.write(contenido)
                     show_dialog(page, "Log saved", f"Saved to:\n{path}", C_ACCENT)
                 except Exception as ex:
-                    show_dialog(page, "Error", str(ex), C_ERROR)
+                    err_str = str(ex)
+                    show_dialog(page, "Error", err_str, C_ERROR)
 
         pick_file_btn   = btn_secondary("📄 File",
                             on_click=lambda e: page.run_task(_pick_file, e))
@@ -2125,9 +2126,11 @@ def _build_copy_content(
         try:
             backend.mount_rclone_S3_prefix_to_folder(perfil_rclone, ruta)
         except EnvironmentError as ex:
-            show_dialog(page, "FUSE / WinFSP not detected", str(ex), C_ERROR)
+            err_str = str(ex)
+            show_dialog(page, "FUSE / WinFSP not detected", err_str, C_ERROR)
         except Exception as ex:
-            show_dialog(page, "Mount error", str(ex), C_ERROR)
+            err_str = str(ex)
+            show_dialog(page, "Mount error", err_str, C_ERROR)
 
     # ── Guardar log ────────────────────────────────────────────────────────
     def _log_content_from_buffer() -> str:
@@ -2176,7 +2179,8 @@ def _build_copy_content(
                 fpath.write_text(contenido, encoding="utf-8")
                 show_dialog(page, "Log saved", f"Saved to:\n{fpath}", C_ACCENT)
             except Exception as ex:
-                show_dialog(page, "Error", str(ex), C_ERROR)
+                err_str = str(ex)
+                show_dialog(page, "Error", err_str, C_ERROR)
         else:
             page.run_task(_save_log_picker, f"bifrost-{ts}.log")
 
@@ -2690,7 +2694,8 @@ def main(page: ft.Page):
                 state["credenciales_admin"],
             )
         except ValueError as ex:
-            show_dialog(page, "Error", str(ex), C_ERROR)
+            err_str = str(ex)
+            show_dialog(page, "Error", err_str, C_ERROR)
             return
 
         show_loading("Loading accessible shares...")
