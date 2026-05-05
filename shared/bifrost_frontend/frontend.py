@@ -6,6 +6,7 @@ import subprocess
 import shutil
 from bifrost_backend import backend
 from config import APP_INFO
+from pathlib import Path
 
 # ============================================================================
 # PALETA DE COLORES Y HELPERS DE ESTILO
