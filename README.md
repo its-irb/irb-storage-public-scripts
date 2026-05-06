@@ -8,7 +8,7 @@ Este repositorio contiene dos aplicaciones de escritorio (Flet/Python) para inte
 | **bifrost-transfer** | `bifrost-transfer/` | Copia datos desde carpetas de red (SMB/CIFS) o local a buckets de MinIO S3, con verificación de integridad y etiquetado automático de metadatos. |
 | **bifrost-mount** | `bifrost-mount/` | Monta carpetas de MinIO S3 como unidad local en el ordenador. |
 
-Ambas aplicaciones comparten el backend definido en `shared/backend.py` (LDAP, rclone, SMB, S3).
+Ambas aplicaciones comparten el backend definido en `shared/bifrost_backend` (LDAP, rclone, SMB, S3). También comparten parte del frontend en `shared/bifrost_frontend` y ambos se importan como paquetes en los main.py de cada app. 
 
 ---
 
@@ -28,7 +28,6 @@ Las dependencias como el binario de `rclone` o el framework `fuse-t` (este últi
 bifrost-mount/          # App de montado de buckets S3
   src/
     main.py             # Interfaz gráfica (Flet). Punto de entrada.
-    pip-requirements.txt
     version.py
     assets/bin/         # Binarios empaquetados (rclone, etc.)
     frameworks/         # fuse-t framework (macOS)
@@ -53,10 +52,50 @@ shared/
   macos-assets-downloader.sh
   macos-rclone-downloader.sh
   windows-assets-downloader.sh
+  requirements.txt     # Compartimos requirements en ambas apps
 
 old/
   minio-sts-credentials-request.py  # Script legacy para generar credenciales STS
+
+build-local.ps1      # Para desarrollo: hacer flet build en windows en local
 ```
+---
+
+## Autoupdate
+
+Ambas aplicaciones incluyen un sistema de auto-actualización que se ejecuta al iniciar la aplicación.
+
+### Funcionamiento
+
+1. **Verificación automática**: Al iniciar la aplicación, se comprueba si hay una nueva versión disponible en el repositorio de GitHub (según una frecuencia configurable para no verificar en cada inicio).
+
+2. **Notificación al usuario**: Si se detecta una nueva versión, se muestra una pantalla con tres opciones:
+   - **Update now**: Descarga e instala la nueva versión automáticamente
+   - **Continue anyway**: Omite la actualización y continúa con la versión actual
+   - Si no hay actualización disponible, la aplicación continúa automáticamente
+
+3. **Proceso de actualización**:
+   - Se descarga el nuevo binario desde GitHub Releases
+   - **Windows**: Se crea un script temporal que reemplaza el ejecutable y reinicia la aplicación
+   - **Linux/macOS**: Se reemplaza el binario actual y se ajustan los permisos de ejecución
+   - Tras la actualización, es necesario reiniciar la aplicación manualmente
+
+### Forzar actualización
+
+Para forzar la verificación de actualizaciones (ignorando la frecuencia configurada), ejecutar con el flag `--update`:
+
+```bash
+# Desarrollo
+flet run --update
+
+# Ejecutable compilado
+./bifrost-mount --update      # Linux/macOS
+bifrost-mount.exe --update    # Windows
+```
+
+### Deshabilitar verificación
+
+El backend controla cuándo se verifica mediante `backend.should_check_for_updates()`. Para desarrollo, se puede ajustar la lógica de verificación en el backend.
 
 ---
 
@@ -70,7 +109,7 @@ python -m venv .venv
 source venv/bin/activate          # macOS / Linux
 # .\venv\Scripts\Activate.ps1     # Windows PowerShell
 python -m pip install --upgrade pip
-python -m pip install -r ./shared/pip-requirements.txt
+python -m pip install -r ./shared/requirements.txt
 ```
 
 Cada vez que se quiera ejecutar, cargar el virtual environment y lanzar:
@@ -92,18 +131,13 @@ python src/main.py --web
 BIFROST_DEV=1 flet run   # Simular modo web en desarrollo
 ```
 
-Para simular el modo Linux cluster en `bifrost-mount`:
-```bash
-BIFROST_LINUX=1 flet run
-```
-
 ---
 
 ## Empaquetar
 
 `flet build` utiliza los parámetros definidos en `pyproject.toml` de cada app.
 
-Si se actualizan los paquetes del virtual environment, regenerar `pip-requirements.txt` e importarlo al `pyproject.toml`:
+Si se actualizan los paquetes del virtual environment, regenerar `requirements.txt` e importarlo al `pyproject.toml`:
 ```bash
 python -m pip freeze > src/pip-requirements.txt
 uv add -r pip-requirements.txt
