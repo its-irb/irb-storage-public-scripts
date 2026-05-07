@@ -35,6 +35,7 @@ from datetime import datetime, timezone
 from sys import platform as sys_platform
 import ctypes, ctypes.util
 import traceback
+import tempfile
 
 import jwt
 import requests
@@ -142,7 +143,7 @@ MINIO_SERVERS = {
     }
 }
 
-REPO = "its-irb/irb-storage-public-scripts"
+REPO = "its-irb/bif-test"
 
 try:
     from version import __version__
@@ -217,9 +218,9 @@ def get_update_file_suffix() -> str:
     if sistema == "linux":
         return "-linux"
     elif sistema == "darwin":
-        return "-macos"
+        return "-macos.dmg"
     elif sistema == "win32":
-        return "-windows.exe"
+        return "-main-windows.exe"
     return ""
 
 
@@ -233,7 +234,7 @@ def download_new_binary(file_name: str) -> str:
     Raises:
         requests.HTTPError: Si la descarga falla.
     """
-    import tempfile
+
     sufijo = get_update_file_suffix()
     url = f"https://github.com/{REPO}/releases/latest/download/{file_name}{sufijo}"
     r = requests.get(url, timeout=20)
