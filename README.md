@@ -63,39 +63,7 @@ build-local.ps1      # Para desarrollo: hacer flet build en windows en local
 
 ## Autoupdate
 
-Ambas aplicaciones incluyen un sistema de auto-actualización que se ejecuta al iniciar la aplicación.
-
-### Funcionamiento
-
-1. **Verificación automática**: Al iniciar la aplicación, se comprueba si hay una nueva versión disponible en el repositorio de GitHub (según una frecuencia configurable para no verificar en cada inicio).
-
-2. **Notificación al usuario**: Si se detecta una nueva versión, se muestra una pantalla con tres opciones:
-   - **Update now**: Descarga e instala la nueva versión automáticamente
-   - **Continue anyway**: Omite la actualización y continúa con la versión actual
-   - Si no hay actualización disponible, la aplicación continúa automáticamente
-
-3. **Proceso de actualización**:
-   - Se descarga el nuevo binario desde GitHub Releases
-   - **Windows**: Se crea un script temporal que reemplaza el ejecutable y reinicia la aplicación
-   - **Linux/macOS**: Se reemplaza el binario actual y se ajustan los permisos de ejecución
-   - Tras la actualización, es necesario reiniciar la aplicación manualmente
-
-### Forzar actualización
-
-Para forzar la verificación de actualizaciones (ignorando la frecuencia configurada), ejecutar con el flag `--update`:
-
-```bash
-# Desarrollo
-flet run --update
-
-# Ejecutable compilado
-./bifrost-mount --update      # Linux/macOS
-bifrost-mount.exe --update    # Windows
-```
-
-### Deshabilitar verificación
-
-El backend controla cuándo se verifica mediante `backend.should_check_for_updates()`. Para desarrollo, se puede ajustar la lógica de verificación en el backend.
+Cuando hay una release nueva disponible de Bifrost-mount o bifrost-transfer, pregunta al usuario si este quiere hacer el upgrade a la última versión. Si es así, se descarga la nueva release del repo de git. 
 
 ---
 
