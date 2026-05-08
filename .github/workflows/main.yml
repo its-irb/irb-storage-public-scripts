@@ -29,9 +29,6 @@ jobs:
     strategy:
       matrix:
         app: [bifrost-transfer, bifrost-mount]
-    strategy:
-      matrix:
-        app: [bifrost-transfer, bifrost-mount]
     steps:
       - name: Checkout código
         uses: actions/checkout@v6.0.2

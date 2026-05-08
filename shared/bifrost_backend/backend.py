@@ -143,7 +143,7 @@ MINIO_SERVERS = {
     }
 }
 
-REPO = "its-irb/bif-test"
+REPO = "its-irb/irb-storage-public-scripts"
 
 try:
     from version import __version__
