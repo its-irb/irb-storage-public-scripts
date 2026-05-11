@@ -1274,33 +1274,6 @@ def _build_mount_bucket(
 
 
 # ============================================================================
-# VERIFICACIÓN DE RCLONE EN DESKTOP
-# ============================================================================
-
-def check_rclone_installation_flet(page: ft.Page) -> None:
-    if not backend.detect_rclone_installed():
-        sistema = sys.platform
-        if sistema == "darwin":
-            show_dialog(
-                page,
-                "Rclone not found",
-                "Download it with macos-third-party-assets-downloader.sh.\n",
-                C_ERROR,
-            )
-            sys.exit(1)
-        elif sistema == "win32":
-            show_dialog(
-                page,
-                "Rclone.exe not found",
-                "Download rclone.exe and place it in the same folder as this executable.\n"
-                "https://rclone.org/downloads/\n\n"
-                "Also install WinFsp from https://winfsp.dev/rel/",
-                C_ERROR,
-            )
-            sys.exit(1)
-
-
-# ============================================================================
 # UPDATER WINDOWS
 # ============================================================================
 
@@ -1432,7 +1405,6 @@ def main(page: ft.Page):
         state["servidor_minio"] = eleccion["servidor"]
         state["perfil_rclone"]  = eleccion["perfil"]
         state["endpoint"]       = eleccion["endpoint"]
-        check_rclone_installation_flet(page)
         _go_credentials_or_mount()
 
     def _go_credentials_or_mount():

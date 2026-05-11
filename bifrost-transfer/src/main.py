@@ -1575,7 +1575,7 @@ def _build_copy_content(
     usuario_actual = credenciales_ldap["usuario"]
 
     num_cores = backend.obtener_num_cpus()
-    _, rclone_config_path, _ = backend.get_rclone_paths(perfil_rclone)
+    rclone_config_path = str(backend.obtener_ruta_rclone_conf())
 
     # ── Badge de expiración de credenciales ───────────────────────────────
     token_actual = backend.get_rclone_session_token(perfil_rclone)
@@ -2367,33 +2367,6 @@ def _build_copy_content(
 
 
 # ============================================================================
-# VERIFICACIÓN DE RCLONE EN DESKTOP
-# ============================================================================
-
-def check_rclone_installation_flet(page: ft.Page) -> None:
-    if not backend.detect_rclone_installed():
-        sistema = sys.platform
-        if sistema == "darwin":
-            show_dialog(
-                page,
-                "Rclone not found",
-                "Download it with macos-third-party-assets-downloader.sh.\n",
-                C_ERROR,
-            )
-            sys.exit(1)
-        elif sistema == "win32":
-            show_dialog(
-                page,
-                "Rclone.exe not found",
-                "Download rclone.exe and place it in the same folder as this executable.\n"
-                "https://rclone.org/downloads/\n\n"
-                "Also install WinFsp from https://winfsp.dev/rel/",
-                C_ERROR,
-            )
-            sys.exit(1)
-
-
-# ============================================================================
 # UPDATER WINDOWS
 # ============================================================================
 
@@ -2740,9 +2713,6 @@ def main(page: ft.Page):
         state["servidor_minio"] = eleccion["servidor"]
         state["perfil_rclone"]  = eleccion["perfil"]
         state["endpoint"]       = eleccion["endpoint"]
-
-        if not IS_WEB:
-            check_rclone_installation_flet(page)
 
         if IS_WEB and state.get("credenciales_ldap"):
             _ws_save(state["credenciales_ldap"]["usuario"], state)

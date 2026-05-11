@@ -25,6 +25,7 @@ import sys
 import json
 import time
 import shlex
+import shutil
 import platform
 import subprocess
 import configparser
@@ -56,61 +57,44 @@ _s3_mount_processes: list[subprocess.Popen] = []
 # RCLONE EXECUTABLE RESOLUTION
 # ============================================================================
 
+def _ensure_executable(path: Path) -> None:
+    if not os.access(path, os.X_OK):
+        path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
 def get_rclone_executable() -> str:
     """
     Devuelve la ruta al ejecutable rclone.
 
     Prioridad:
-      1. Bundleado en sys._MEIPASS (PyInstaller --add-data)
-      2. Directorio del propio ejecutable (útil en desarrollo)
-      3. rclone en el PATH del sistema (fallback)
-
-    Raises:
-        EnvironmentError: si no se encuentra rclone en ninguno de los lugares.
+      1. Bundle Flet (FLET_ASSETS_DIR/bin/rclone) — apps empaquetadas.
+      2. assets/bin del repo (dev: `python src/main.py` sin `flet run`).
+      3. rclone en el PATH del sistema (modo web/cluster).
     """
     rclone_name = "rclone.exe" if sys_platform == "win32" else "rclone"
 
-    print(f"[debug] Looking for rclone: {rclone_name}")
-    print(f"[debug] FLET_APP_STORAGE_TEMP: {os.environ.get('FLET_APP_STORAGE_TEMP')}")
-    print(f"[debug] frozen: {getattr(sys, 'frozen', False)}")
-    print(f"[debug] __file__: {Path(__file__).parent}")
-    print(f"[debug] sys.argv[0]: {sys.argv[0]}")
-
-    # 1. Flet bundled app: FLET_ASSETS_DIR points to the assets/ dir inside the temp extraction
     flet_assets = os.environ.get("FLET_ASSETS_DIR")
     if flet_assets:
         bundled = Path(flet_assets) / "bin" / rclone_name
         if bundled.exists():
-            if not os.access(bundled, os.X_OK):
-                bundled.chmod(bundled.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            _ensure_executable(bundled)
             return str(bundled)
 
-    # 2. PyInstaller frozen bundle
-    if getattr(sys, "frozen", False):
-        bundled = Path(sys._MEIPASS) / rclone_name
-        if bundled.exists():
-            return str(bundled)
-    else:
-        # Development mode
-        asset = Path(__file__).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'assets' / "bin" / rclone_name
-        if asset.exists():
-            return str(asset.resolve())
+    dev_asset = (
+        Path(__file__).parent.parent.parent
+        / f"bifrost-{APP_INFO['flavour']}" / "src" / "assets" / "bin" / rclone_name
+    )
+    if dev_asset.exists():
+        _ensure_executable(dev_asset)
+        return str(dev_asset.resolve())
 
-    # 2. Junto al script / ejecutable (dev o distribución manual)
-    exe_dir = Path(sys.argv[0]).resolve().parent
-    alongside = exe_dir / rclone_name
-    if alongside.exists():
-        return str(alongside)
-
-    # 3. PATH del sistema
-    import shutil
     in_path = shutil.which("rclone")
     if in_path:
         return in_path
 
     raise EnvironmentError(
-        "rclone not found. It should be bundled with this application. "
-        "If running from source, install rclone from https://rclone.org/downloads/"
+        "rclone not found. The application bundle appears to be incomplete — "
+        "please reinstall BIFROST."
     )
 
 
@@ -260,29 +244,6 @@ def obtener_num_cpus() -> int:
     return os.cpu_count() or 1
 
 
-def get_rclone_paths(servidor_s3_rcloneconfig: str) -> tuple[str, str, str]:
-    """Devuelve (config_dir, config_file, mount_point_base) según el SO."""
-    user_home_dir_path = str(Path.home())
-    if sys_platform in ("linux", "linux2"):
-        rclone_config_directory_path = user_home_dir_path + "/.config/rclone"
-        rclone_config_file_path = rclone_config_directory_path + "/rclone.conf"
-        mount_point_path = user_home_dir_path + "/" + servidor_s3_rcloneconfig + "-"
-    elif sys_platform == "darwin":
-        rclone_config_directory_path = user_home_dir_path + "/.config/rclone"
-        rclone_config_file_path = rclone_config_directory_path + "/rclone.conf"
-        mount_point_path = user_home_dir_path + "/" + servidor_s3_rcloneconfig + "-"
-    elif sys_platform == "win32":
-        rclone_config_directory_path = user_home_dir_path + "\\AppData\\Roaming\\rclone"
-        rclone_config_file_path = rclone_config_directory_path + "\\rclone.conf"
-        mount_point_path = user_home_dir_path + "\\Documents\\" + servidor_s3_rcloneconfig + "-"
-    else:
-        rclone_config_directory_path = user_home_dir_path + "/.config/rclone"
-        rclone_config_file_path = rclone_config_directory_path + "/rclone.conf"
-        mount_point_path = user_home_dir_path + "/" + servidor_s3_rcloneconfig + "-"
-    print(rclone_config_file_path)
-    return rclone_config_directory_path, rclone_config_file_path, mount_point_path
-
-
 def obtener_ruta_rclone_conf() -> Path:
     """Ejecuta `rclone config file` y devuelve la ruta absoluta al rclone.conf activo."""
     rclone = get_rclone_executable()
@@ -335,27 +296,6 @@ def traducir_ruta_a_remote(ruta_local: str, mounts_activos: list) -> str:
     return ruta_local
 
 
-def detect_rclone_installed() -> bool:
-    """
-    Devuelve True si rclone está disponible (bundleado o en el PATH).
-    Usa get_rclone_executable() internamente para respetar la prioridad de búsqueda.
-    """
-    try:
-        rclone = get_rclone_executable()
-        if not os.access(rclone, os.X_OK):
-            st = os.stat(rclone)
-            os.chmod(rclone, st.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-        subprocess.check_call(
-            [rclone, "--version"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            **_subprocess_kwargs(),
-        )
-        return True
-    except Exception:
-        return False
-
-
 def open_file(path: str) -> None:
     """Abre un directorio en el explorador de archivos del SO."""
     if sys_platform == "win32":
@@ -365,30 +305,6 @@ def open_file(path: str) -> None:
         subprocess.run([FILEBROWSER_PATH, path])
     elif sys_platform == "darwin":
         subprocess.Popen(["open", path])
-
-
-def launch_rclonebrowser() -> None:
-    """Lanza RcloneBrowser si está instalado. Lanza excepción con mensaje si no."""
-    if sys_platform == "darwin":
-        app_path = "/Applications/Rclone Browser.app"
-        if os.path.exists(app_path):
-            subprocess.Popen(["open", "-a", app_path])
-        else:
-            raise FileNotFoundError(
-                "RcloneBrowser not installed in /Applications. "
-                "Please install it from https://github.com/kapitainsky/RcloneBrowser/releases"
-            )
-    elif sys_platform == "win32":
-        exe_path = r"C:\Program Files\Rclone Browser\RcloneBrowser.exe"
-        if os.path.exists(exe_path):
-            subprocess.Popen([exe_path], shell=True)
-        else:
-            raise FileNotFoundError(
-                "RcloneBrowser not installed in 'C:\\Program Files\\Rclone Browser\\'. "
-                "Please install it from https://github.com/kapitainsky/RcloneBrowser/releases"
-            )
-    else:
-        raise NotImplementedError("Automatic RcloneBrowser launch not supported on this OS.")
 
 
 # ============================================================================
@@ -570,53 +486,37 @@ def configure_rclone(
     extra_config: dict | None = None,
 ) -> None:
     """Crea o actualiza un perfil S3/MinIO en rclone.conf con las credenciales STS."""
-    rclone_config_directory_path, rclone_config_file_path, _ = get_rclone_paths(profilename)
+    config_path = obtener_ruta_rclone_conf()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if os.path.isfile(rclone_config_file_path):
-        print("Rclone config file exist")
-        with open(rclone_config_file_path, "r") as file:
-            full_config_file_string = file.read()
+    config = configparser.ConfigParser()
+    if config_path.exists():
+        config.read(config_path)
+
+    if profilename in config:
+        section = config[profilename]
+        section["endpoint"]          = endpoint
+        section["access_key_id"]     = aws_access_key_id
+        section["secret_access_key"] = aws_secret_access_key
+        section["session_token"]     = aws_session_token
     else:
-        print("Rclone config file does not exist")
-        isExist = os.path.exists(rclone_config_directory_path)
-        if not isExist:
-            os.makedirs(rclone_config_directory_path)
-            print("The new directory is created!")
-        full_config_file_string = ""
-        open(rclone_config_file_path, "a").close()
+        config[profilename] = {
+            "type":              "s3",
+            "provider":          "Minio",
+            "endpoint":          endpoint,
+            "acl":               "bucket-owner-full-control",
+            "env_auth":          "false",
+            "access_key_id":     aws_access_key_id,
+            "secret_access_key": aws_secret_access_key,
+            "session_token":     aws_session_token,
+        }
 
-    if re.search(re.escape("[" + profilename + "]"), full_config_file_string):
-        print("Updating rclone config file.")
-        res = full_config_file_string.split("[" + profilename + "]", 1)
-        resto = res[1]
-        resto = re.sub(r'endpoint = (.+)',       "endpoint = " + endpoint,             resto, 1)
-        resto = re.sub(r'access_key_id = (.+)',  "access_key_id = " + aws_access_key_id,  resto, 1)
-        resto = re.sub(r'secret_access_key = (.+)', "secret_access_key = " + aws_secret_access_key, resto, 1)
-        resto = re.sub(r'session_token = (.+)',  "session_token = " + aws_session_token, resto, 1)
-        if extra_config:
-            for key, value in extra_config.items():
-                pattern = rf'{re.escape(key)} = (.+)'
-                if re.search(pattern, resto):
-                    resto = re.sub(pattern, f"{key} = {value}", resto, 1)
-                else:
-                    resto = re.sub(r'(\n\[)', f"\n{key} = {value}\n\\1", resto, 1) \
-                            if re.search(r'\n\[', resto) else resto + f"{key} = {value}\n"
-        full_config_file_string_editado = res[0] + "[" + profilename + "]" + resto
-    else:
-        print("Creating profile in rclone config file.")
-        extra_lines = "".join(f"{k} = {v}\n" for k, v in (extra_config or {}).items())
-        resto = (
-            f"\n[{profilename}]\ntype = s3\nprovider = Minio\n"
-            f"endpoint = {endpoint}\nacl = bucket-owner-full-control\nenv_auth = false\n"
-            f"access_key_id = {aws_access_key_id}\n"
-            f"secret_access_key = {aws_secret_access_key}\n"
-            f"session_token = {aws_session_token}\n"
-            f"{extra_lines}" 
-        )
-        full_config_file_string_editado = full_config_file_string + resto
+    if extra_config:
+        for key, value in extra_config.items():
+            config[profilename][key] = str(value)
 
-    with open(rclone_config_file_path, "w") as f:
-        f.write(full_config_file_string_editado)
+    with open(config_path, "w") as f:
+        config.write(f)
 
 
 def get_rclone_session_token(profile_name: str, config_path: str | None = None) -> str:
@@ -667,25 +567,6 @@ def get_expiration_from_session_token(session_token: str):
         print(f"Error decodificando token: {e}")
         return None
 
-
-#def mount_rclone_S3_bucket_to_folder(mount_point_folder: str, servidor_s3_rcloneconfig: str, bucket: str) -> None:
-#    """Monta un bucket S3/MinIO completo en una carpeta local."""
-#    rclone = get_rclone_executable()
-#    print(f"Mounting {servidor_s3_rcloneconfig}:{bucket} to {mount_point_folder}")
-#    env = {**os.environ}
-#    if sys_platform == "darwin":
-#        if getattr(sys, "frozen", False):   
-#            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys._MEIPASS) / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
-#        else:
-#            if (Path(__file__).parent / "assets" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t").exists():
-#                env["CGOFUSE_LIBFUSE_PATH"] = str(Path(__file__).parent / "assets" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
-#    subprocess.Popen([
-#        rclone, "mount",
-#        servidor_s3_rcloneconfig + ":" + bucket,
-#        mount_point_folder,
-#        "--allow-non-empty",
-#        "--read-only",
-#    ], env=env)
 
 def _get_s3_mount_base() -> Path:
     """Devuelve la carpeta raíz donde se crean los mount points S3."""
@@ -1480,23 +1361,6 @@ def ejecutar_rclone_check(
             on_finish()
 
 
-def verificar_ruta_rclone_accesible(perfil: str, ruta: str, timeout: int = 5) -> bool:
-    """Comprueba si una ruta en un perfil rclone es accesible."""
-    if not ruta:
-        return False
-    try:
-        rclone = get_rclone_executable()
-        result = subprocess.run(
-            [rclone, "ls", f"{perfil}:{ruta}"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout,
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, Exception):
-        return False
-
-
 def rclone_lsd(perfil: str, path: str = "", timeout: int = 15) -> list[str]:
     """
     Lista las subcarpetas/buckets de un path en un perfil rclone.
@@ -1512,11 +1376,10 @@ def rclone_lsd(perfil: str, path: str = "", timeout: int = 15) -> list[str]:
         RuntimeError: si rclone lsd falla.
     """
     rclone = get_rclone_executable()
-    _, rclone_cfg, _ = get_rclone_paths(perfil)
     target = f"{perfil}:{path}" if path else f"{perfil}:"
 
     result = subprocess.run(
-        [rclone, "lsd", target, "--config", rclone_cfg],
+        [rclone, "lsd", target],
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -1532,85 +1395,6 @@ def rclone_lsd(perfil: str, path: str = "", timeout: int = 15) -> list[str]:
         if len(parts) == 5:
             folders.append(parts[4])
     return sorted(folders)
-
-
-def rclone_lsf(perfil: str, path: str = "", timeout: int = 15) -> list[tuple[str, str]]:
-    """
-    Lista ficheros Y carpetas de un path en un perfil rclone.
-    - Solo profundidad 1 (no recursivo)
-    - Máximo 50 ficheros (muestra aviso si hay más con "…more")
-    - Encoding UTF-8 con reemplazo para evitar UnicodeDecodeError en Windows
-    """
-    rclone = get_rclone_executable()
-    _, rclone_cfg, _ = get_rclone_paths(perfil)
-    target = f"{perfil}:{path}" if path else f"{perfil}:"
-
-    MAX_FILES = 30
-
-    # ── Directorios ───────────────────────────────────────────────────────
-    res_dirs = subprocess.run(
-        [rclone, "lsd", target, "--config", rclone_cfg],
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=timeout,
-        **_subprocess_kwargs(),
-    )
-    dirs = []
-    if res_dirs.returncode == 0:
-        for line in (res_dirs.stdout or "").splitlines():
-            parts = line.strip().split(None, 4)
-            if len(parts) == 5:
-                dirs.append(("d", parts[4]))
-
-    # ── Ficheros (solo nivel inmediato, sin recursión) ────────────────────
-    res_files = subprocess.run(
-        [
-            rclone, "lsf", target,
-            "--files-only",
-            "--max-depth", "1",
-            #"--max-count", str(MAX_FILES + 1),  # pedimos uno más para detectar si hay más. Lo quitamos porque no está en la versión de rclone que usamos
-            "--config", rclone_cfg,
-        ],
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=timeout,
-        **_subprocess_kwargs(),
-    )
-    print(f"[lsf] returncode={res_files.returncode}")
-    print(f"[lsf] stdout={res_files.stdout!r}")
-    print(f"[lsf] stderr={res_files.stderr!r}")
-    files = []
-    truncated = False
-    if res_files.returncode == 0:
-        raw_files = []
-        for line in (res_files.stdout or "").splitlines():
-            name = line.strip().rstrip("/")
-            if name:
-                raw_files.append(name)
-
-        if len(raw_files) > MAX_FILES:
-            truncated = True
-            raw_files = raw_files[:MAX_FILES]
-
-        files = [("f", name) for name in raw_files]
-
-    # Si ambos fallan con error real (no solo vacío), lanzar excepción
-    dirs_failed  = res_dirs.returncode != 0 and (res_dirs.stderr or "").strip()
-    files_failed = res_files.returncode != 0 and (res_files.stderr or "").strip()
-    if dirs_failed and files_failed:
-        raise RuntimeError(
-            (res_dirs.stderr or res_files.stderr or "rclone lsf failed").strip()
-        )
-
-    result = sorted(dirs) + sorted(files)
-
-    # Marcador especial para que el browser muestre "X ficheros más..."
-    if truncated:
-        result.append(("more", f"… more than {MAX_FILES} files (not shown)"))
-
-    return result
 
 
 # ============================================================================

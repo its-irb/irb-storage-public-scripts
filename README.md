@@ -78,6 +78,8 @@ source venv/bin/activate          # macOS / Linux
 # .\venv\Scripts\Activate.ps1     # Windows PowerShell
 python -m pip install --upgrade pip
 python -m pip install -r ./shared/requirements.txt
+.\.venv\Scripts\python.exe -m pip install build
+.\build-local.ps1 -app bifrost-mount # para windows
 ```
 
 Cada vez que se quiera ejecutar, cargar el virtual environment y lanzar:

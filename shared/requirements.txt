@@ -11,6 +11,7 @@ cryptography==46.0.3
 fastapi==0.135.2
 flet==0.84.0
 flet-web==0.84.0
+flet-desktop==0.84.0
 h11==0.16.0
 h2==4.3.0
 hpack==4.1.0
