@@ -18,4 +18,4 @@ echo "__version__ = '2.0.0.dev'" > version.py
 cd ..
 
 flet build macos -o ./dist --project bifrost-mount
-cp -r ./src/frameworks/fuse_t.framework ./dist/bifrost-mount.app/Contents/Frameworks/
+cp -r ./frameworks/fuse_t.framework ./dist/bifrost-mount.app/Contents/Frameworks/

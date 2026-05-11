@@ -131,7 +131,7 @@ jobs:
         if: matrix.app == 'bifrost-mount'
         run: |
           APP_BUNDLE=$(find ${{ matrix.app }}/dist -maxdepth 1 -name "*.app" | head -1)
-          cp -R ${{ matrix.app }}/src/frameworks/fuse_t.framework \
+          cp -R ${{ matrix.app }}/frameworks/fuse_t.framework \
             "${APP_BUNDLE}/Contents/Frameworks/"
 
       # - name: Renombrar .app
