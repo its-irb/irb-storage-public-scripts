@@ -1,4 +1,5 @@
 [tool.flet]
+org = "irbbarcelona"
 app_name = "bifrost-transfer"
 
 [tool.flet.app]
@@ -25,7 +26,7 @@ dependencies = [
     "cffi==2.0.0",
     "charset-normalizer==3.4.4",
     "cryptography==46.0.3",
-    "flet==0.82.2",
+    "flet==0.84.0",
     "h11==0.16.0",
     "httpcore==1.0.9",
     "httptools==0.7.1",
@@ -51,7 +52,9 @@ dependencies = [
     "uvloop==0.22.1 ; sys_platform != 'win32'",
     "watchfiles==1.1.1",
     "websockets==15.0.1",
+    "bifrost-shared @ file:///__BUILDPATH__/shared",
 ]
 
 [tool.flet.flutter.pubspec.dependency_overrides]
 connectivity_plus = "7.0.0"
+screen_brightness_windows = "2.1.0"

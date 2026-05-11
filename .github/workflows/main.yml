@@ -3,8 +3,8 @@ name: Build & Release — bifrost-transfer + bifrost-mount
 on:
   push:
     paths:
-      - "bifrost-transfer/src/**"
-      - "bifrost-mount/src/**"
+      - "bifrost-transfer/**"
+      - "bifrost-mount/**"
       - "shared/**"
       - ".github/workflows/main.yml"
     branches:
@@ -38,10 +38,7 @@ jobs:
       - name: Instalar dependencias Python
         run: |
           pip install --upgrade pip
-          pip install -r ${{ matrix.app }}/src/pip-requirements.txt
-
-      - name: Copiar shared/backend.py dentro de src/
-        run: cp shared/backend.py ${{ matrix.app }}/src/backend.py
+          pip install -r shared/requirements.txt
 
       - name: Copiar macos-assets-downloader.sh dentro de src/
         run: |
@@ -73,34 +70,92 @@ jobs:
           sed -i '' 's/^version = .*/version = "1.0.${{ github.run_number }}"/' \
             ${{ matrix.app }}/pyproject.toml
 
+      - name: Añadir ruta al paquete de backend pyproject.toml
+        shell: bash
+        run: |
+          WORKSPACE="${GITHUB_WORKSPACE//\\//}"
+          sed -i '' "s|__BUILDPATH__|${WORKSPACE}|g" \
+            ${{ matrix.app }}/pyproject.toml
+
+      - name: Build bifrost-shared wheel
+        run: |
+          pip install build
+          python -m build shared/ --outdir ${{ matrix.app }}/src/
+
+          python <<'PY'
+          from pathlib import Path
+          import glob
+
+          app = "${{ matrix.app }}"
+          pyproject = Path(app) / "pyproject.toml"
+
+          wheels = glob.glob(f"{app}/src/bifrost_shared-*.whl")
+          if not wheels:
+              raise SystemExit("No se encontró bifrost_shared-*.whl")
+
+          wheel_uri = Path(wheels[0]).resolve().as_uri()
+
+          content = pyproject.read_text()
+          content = content.replace(
+              '"bifrost-shared",',
+              f'"bifrost-shared @ {wheel_uri}",'
+          )
+          pyproject.write_text(content)
+          print("OK:", wheel_uri)
+          PY
+
       - name: Build macOS
         run: |
           cd ${{ matrix.app }}
           echo "y" | flet build macos --output dist --no-rich-output
 
+      - name: Debug - verificar contingut del bundle
+        if: matrix.app == 'bifrost-mount'
+        run: |
+          APP_BUNDLE=$(find ${{ matrix.app }}/dist -maxdepth 1 -name "*.app" | head -1)
+          echo "=== Mida total ==="
+          du -sh "$APP_BUNDLE"
+          echo "=== site-packages ==="
+          find "$APP_BUNDLE" -name "site-packages" -type d | head -5
+          find "$APP_BUNDLE" -name "site-packages" -type d -exec du -sh {} \; 2>/dev/null | head -5
+          echo "=== bifrost_shared ==="
+          find "$APP_BUNDLE" -name "bifrost_shared*" 2>/dev/null
+          echo "=== boto3 ==="
+          find "$APP_BUNDLE" -name "boto3" -type d 2>/dev/null
+          echo "=== ldap3 ==="
+          find "$APP_BUNDLE" -name "ldap3" -type d 2>/dev/null
+          echo "=== app.zip ==="
+          find "$APP_BUNDLE" -name "app.zip" | head -3
+
       - name: Añadir fuse_t.framework al bundle
         if: matrix.app == 'bifrost-mount'
         run: |
           APP_BUNDLE=$(find ${{ matrix.app }}/dist -maxdepth 1 -name "*.app" | head -1)
-          cp -R ${{ matrix.app }}/src/frameworks/fuse_t.framework \
+          cp -R ${{ matrix.app }}/frameworks/fuse_t.framework \
             "${APP_BUNDLE}/Contents/Frameworks/"
 
-      - name: Renombrar .app
-        env:
-          BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
-          APP: ${{ matrix.app }}
-        run: |
-          cd ${APP}/dist
-          BUNDLE=$(find . -maxdepth 1 -name "*.app" | head -1 | sed 's|./||')
-          echo "App bundle encontrado: $BUNDLE"
-          mv "$BUNDLE" "${APP}-${BRANCH_SUFFIX}-macos.app"
-          ls -lah .
+      # - name: Renombrar .app
+      #   env:
+      #     BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
+      #     APP: ${{ matrix.app }}
+      #   run: |
+      #     cd ${APP}/dist
+      #     BUNDLE=$(find . -maxdepth 1 -name "*.app" | head -1 | sed 's|./||')
+      #     echo "App bundle encontrado: $BUNDLE"
+      #     mv "$BUNDLE" "${APP}-macos.app"
+      #     ls -lah .
+
+      - name: Crear DMG
+        uses: L-Super/create-dmg-actions@v1.0.3
+        with:
+          dmg_name: ${{ matrix.app }}-macos
+          src_dir: ${{ matrix.app }}/dist/${{ matrix.app }}.app
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
         with:
-          name: ${{ matrix.app }}-macos-${{ steps.clean_branch.outputs.name }}
-          path: ${{ matrix.app }}/dist/*.app
+          name: ${{ matrix.app }}-macos
+          path: "*.dmg"
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Windows — flet build windows + Inno Setup
@@ -114,17 +169,25 @@ jobs:
       - name: Checkout código
         uses: actions/checkout@v6.0.2
 
+      - name: Enable long paths
+        shell: powershell
+        run: |
+          git config --global core.longpaths true
+          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1
+
       - name: Instalar Python
         uses: actions/setup-python@v6.2.0
         with:
           python-version: "3.12"
 
-      - name: Instalar dependencias Python
-        run: pip install -r ${{ matrix.app }}/src/pip-requirements.txt
+      # - name: Instalar Flutter
+      #   uses: subosito/flutter-action@v2
+      #   with:
+      #     flutter-version: "3.41.4"
+      #     channel: stable
 
-      - name: Copiar shared/backend.py dentro de src/
-        shell: pwsh
-        run: Copy-Item shared/backend.py ${{ matrix.app }}/src/backend.py
+      - name: Instalar dependencias Python
+        run: pip install -r shared/requirements.txt
 
       - name: Copiar windows-assets-downloader.sh dentro de src/
         shell: bash
@@ -151,13 +214,47 @@ jobs:
           sed -i 's/^version = .*/version = "1.0.${{ github.run_number }}"/' \
             ${{ matrix.app }}/pyproject.toml
 
+      - name: Añadir ruta al paquete de bifrost-shared (backend and frontend) pyproject.toml
+        shell: bash
+        run: |
+          sed -i "s|__BUILDPATH__|${GITHUB_WORKSPACE//\\//}|g" \
+            ${{ matrix.app }}/pyproject.toml
+
+      - name: Build bifrost-shared wheel
+        shell: pwsh
+        run: |
+          pip install build
+          python -m build shared/ --outdir "${{ matrix.app }}/src/"
+
+          @'
+          from pathlib import Path
+          import glob
+
+          app = "${{ matrix.app }}"
+          pyproject = Path(app) / "pyproject.toml"
+
+          wheels = glob.glob(f"{app}/src/bifrost_shared-*.whl")
+          if not wheels:
+              raise SystemExit("No se encontró bifrost_shared-*.whl")
+
+          wheel_uri = Path(wheels[0]).resolve().as_uri()
+
+          content = pyproject.read_text()
+          content = content.replace(
+              '"bifrost-shared",',
+              f'"bifrost-shared @ {wheel_uri}",'
+          )
+          pyproject.write_text(content)
+          print("OK:", wheel_uri)
+          '@ | python
+
       - name: Build Windows
         shell: bash
         env:
           PYTHONUTF8: "1"
         run: |
           cd ${{ matrix.app }}
-          echo "y" | flet build windows --output dist --no-rich-output
+          echo "y" | flet build windows --output dist --no-rich-output -v
 
       - name: Crear directorio installer
         shell: pwsh
@@ -181,12 +278,14 @@ jobs:
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
         with:
-          name: ${{ matrix.app }}-windows-${{ steps.clean_branch.outputs.name }}
+          name: ${{ matrix.app }}-windows
           path: ${{ matrix.app }}/installer/*.exe
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Rocky Linux — PyInstaller onefile para las dos apps
   # flet build linux no soporta onefile
+  # flet solo soporta devian y ubuntu, y como tenemos Rocky Linux 9, flet no es compatible.
+  # https://flet.dev/docs/getting-started/installation/ : Flet supports Debian 10, 11 and 12 and Ubuntu 20.04, 22.04 and 24.04 LTS.
   # ─────────────────────────────────────────────────────────────────────────────
   build-rocky:
     runs-on: ubuntu-latest
@@ -207,11 +306,8 @@ jobs:
 
       - name: Instalar dependencias Python
         run: |
-          python3.11 -m pip install -r ${{ matrix.app }}/src/pip-requirements.txt
+          python3.11 -m pip install -r shared/requirements.txt
           python3.11 -m pip install pyinstaller
-
-      - name: Copiar shared/backend.py dentro de src/
-        run: cp shared/backend.py ${{ matrix.app }}/src/backend.py
 
       - name: Copiar linux-assets-downloader.sh dentro de src/
         run: cp shared/linux-assets-downloader.sh ${{ matrix.app }}/src/linux-assets-downloader.sh
@@ -228,9 +324,16 @@ jobs:
       - name: Escribir versión
         run: echo "__version__ = '1.0.${{ github.run_number }}'" > ${{ matrix.app }}/src/version.py
 
+      - name: Build bifrost-shared wheel
+        run: |
+          python3.11 -m pip install build
+          python3.11 -m build shared/ --outdir ${{ matrix.app }}/src/
+          WHEEL=$(ls $(pwd)/${{ matrix.app }}/src/bifrost_shared-*.whl)
+          sed -i 's|"bifrost-shared",|"bifrost-shared @ file://'"${WHEEL}"'",|' ${{ matrix.app }}/pyproject.toml
+
       - name: Build Rocky Linux (PyInstaller onefile)
         env:
-          BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
+          #BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
           APP: ${{ matrix.app }}
         run: |
           mkdir -p dist
@@ -247,16 +350,16 @@ jobs:
             --hidden-import uvicorn.logging \
             --hidden-import uvicorn.loops.auto \
             --distpath ../../dist
-          mv ../../dist/main "../../dist/${APP}-${BRANCH_SUFFIX}-linux"
+          mv ../../dist/main "../../dist/${APP}-linux"
 
-      - name: Verificar artefacto generado
-        run: ls -lah dist/
+      # - name: Verificar artefacto generado
+      #   run: ls -lah dist/
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
         with:
-          name: ${{ matrix.app }}-linux-${{ steps.clean_branch.outputs.name }}
-          path: dist/${{ matrix.app }}-${{ steps.clean_branch.outputs.name }}-linux
+          name: ${{ matrix.app }}-linux
+          path: dist/${{ matrix.app }}-linux
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Release — solo en main y release
@@ -278,8 +381,8 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Verificar dist
-        run: ls -lah dist/
+      # - name: Verificar dist
+      #   run: ls -lah dist/
 
       - name: Limpiar nombre de rama
         id: clean_branch
@@ -293,7 +396,7 @@ jobs:
       #  run: |
       #    cd dist
       #    for APP in bifrost-transfer bifrost-mount; do
-      #      BUNDLE="${APP}-${BRANCH_SUFFIX}-macos.app"
+      #      BUNDLE="${APP}-macos.app"
       #      if [ -d "$BUNDLE" ]; then
       #        zip -r "${BUNDLE}.zip" "$BUNDLE"
       #        rm -rf "$BUNDLE"
@@ -302,16 +405,32 @@ jobs:
       #    done
        #   ls -lah .
 
-      - name: Verificar artefactos macOS
-        env:
-          BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
-        run: |
-          ls -lah dist/
-          for APP in bifrost-transfer bifrost-mount; do
-            test -f "dist/${APP}-${BRANCH_SUFFIX}-macos.app.zip" \
-              && echo "OK: ${APP}" \
-              || echo "WARNING: ${APP} no encontrado"
-          done
+      # - name: Verificar artefactos macOS
+      #   env:
+      #     BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
+      #   run: |
+      #     ls -lah dist/
+      #     for APP in bifrost-transfer bifrost-mount; do
+      #       test -f "dist/${APP}-macos.app.zip" \
+      #         && echo "OK: ${APP}" \
+      #         || echo "WARNING: ${APP} no encontrado"
+      #     done
+
+      #Por si queremos quitar el nombre de la rama de los archivos finales, aunque no es tan importante porque ya se incluye en el tag de la release.
+      # - name: Eliminar sufijo de rama de los nombres de archivo
+      #   shell: bash
+      #   env:
+      #     BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
+      #   run: |
+      #     for file in dist/*; do
+      #       [[ -f "$file" ]] || continue
+      #       base=$(basename "$file")
+      #       new_name="${base/-${BRANCH_SUFFIX}/}"
+      #       if [[ "$base" != "$new_name" ]]; then
+      #         mv "$file" "dist/$new_name"
+      #       fi
+      #     done
+      #     ls -lah dist/
 
       - name: Crear GitHub Release
         uses: softprops/action-gh-release@v2

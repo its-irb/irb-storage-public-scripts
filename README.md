@@ -8,7 +8,7 @@ Este repositorio contiene dos aplicaciones de escritorio (Flet/Python) para inte
 | **bifrost-transfer** | `bifrost-transfer/` | Copia datos desde carpetas de red (SMB/CIFS) o local a buckets de MinIO S3, con verificación de integridad y etiquetado automático de metadatos. |
 | **bifrost-mount** | `bifrost-mount/` | Monta carpetas de MinIO S3 como unidad local en el ordenador. |
 
-Ambas aplicaciones comparten el backend definido en `shared/backend.py` (LDAP, rclone, SMB, S3).
+Ambas aplicaciones comparten el backend definido en `shared/bifrost_backend` (LDAP, rclone, SMB, S3). También comparten parte del frontend en `shared/bifrost_frontend` y ambos se importan como paquetes en los main.py de cada app. 
 
 ---
 
@@ -28,7 +28,6 @@ Las dependencias como el binario de `rclone` o el framework `fuse-t` (este últi
 bifrost-mount/          # App de montado de buckets S3
   src/
     main.py             # Interfaz gráfica (Flet). Punto de entrada.
-    pip-requirements.txt
     version.py
     assets/bin/         # Binarios empaquetados (rclone, etc.)
     frameworks/         # fuse-t framework (macOS)
@@ -53,10 +52,18 @@ shared/
   macos-assets-downloader.sh
   macos-rclone-downloader.sh
   windows-assets-downloader.sh
+  requirements.txt     # Compartimos requirements en ambas apps
 
 old/
   minio-sts-credentials-request.py  # Script legacy para generar credenciales STS
+
+build-local.ps1      # Para desarrollo: hacer flet build en windows en local
 ```
+---
+
+## Autoupdate
+
+Cuando hay una release nueva disponible de Bifrost-mount o bifrost-transfer, pregunta al usuario si este quiere hacer el upgrade a la última versión. Si es así, se descarga la nueva release del repo de git. 
 
 ---
 
@@ -66,11 +73,11 @@ Los pasos son los mismos para ambas apps. Ejecutar desde la carpeta de la app (`
 
 La primera vez, crear el virtual environment:
 ```bash
-python -m venv venv
+python -m venv .venv
 source venv/bin/activate          # macOS / Linux
 # .\venv\Scripts\Activate.ps1     # Windows PowerShell
 python -m pip install --upgrade pip
-python -m pip install -r ./src/pip-requirements.txt
+python -m pip install -r ./shared/requirements.txt
 ```
 
 Cada vez que se quiera ejecutar, cargar el virtual environment y lanzar:
@@ -85,16 +92,18 @@ flet run --customuser   # Iniciar sesión con un usuario distinto al del sistema
 flet run --update       # Forzar la auto-actualización
 ```
 
-`bifrost-transfer` también soporta modo web (Open OnDemand / cluster Linux):
+Opciones adicionales (disponibles en ambas apps):
 ```bash
 python src/main.py --web
 # o bien:
 BIFROST_DEV=1 flet run   # Simular modo web en desarrollo
 ```
 
-Para simular el modo Linux cluster en `bifrost-mount`:
+`bifrost-transfer` también soporta modo web (Open OnDemand / cluster Linux):
 ```bash
-BIFROST_LINUX=1 flet run
+python src/main.py --web
+# o bien:
+BIFROST_DEV=1 flet run   # Simular modo web en desarrollo
 ```
 
 ---
@@ -103,7 +112,7 @@ BIFROST_LINUX=1 flet run
 
 `flet build` utiliza los parámetros definidos en `pyproject.toml` de cada app.
 
-Si se actualizan los paquetes del virtual environment, regenerar `pip-requirements.txt` e importarlo al `pyproject.toml`:
+Si se actualizan los paquetes del virtual environment, regenerar `requirements.txt` e importarlo al `pyproject.toml`:
 ```bash
 python -m pip freeze > src/pip-requirements.txt
 uv add -r pip-requirements.txt

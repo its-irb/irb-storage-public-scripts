@@ -18,7 +18,6 @@ Módulos cubiertos:
 - Ejecución de comandos rclone (copy, check)
 """
 
-
 import os
 import stat
 import re
@@ -26,8 +25,6 @@ import sys
 import json
 import time
 import shlex
-#import atexit
-import getpass
 import platform
 import subprocess
 import configparser
@@ -35,15 +32,20 @@ import threading
 import urllib.parse
 from pathlib import Path
 from datetime import datetime, timezone
-from sys import path, platform as sys_platform
+from sys import platform as sys_platform
+import ctypes, ctypes.util
+import traceback
+import tempfile
 
-import boto3
 import jwt
 import requests
 import urllib3
-from botocore.exceptions import ClientError
 from ldap3 import Server, Connection, SUBTREE, SIMPLE
 from xml.etree import ElementTree as etree
+
+from bifrost_frontend.frontend import show_dialog, C_ERROR
+
+from config import APP_INFO
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -74,13 +76,23 @@ def get_rclone_executable() -> str:
     print(f"[debug] __file__: {Path(__file__).parent}")
     print(f"[debug] sys.argv[0]: {sys.argv[0]}")
 
-    # 1. PyInstaller frozen bundle
+    # 1. Flet bundled app: FLET_ASSETS_DIR points to the assets/ dir inside the temp extraction
+    flet_assets = os.environ.get("FLET_ASSETS_DIR")
+    if flet_assets:
+        bundled = Path(flet_assets) / "bin" / rclone_name
+        if bundled.exists():
+            if not os.access(bundled, os.X_OK):
+                bundled.chmod(bundled.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            return str(bundled)
+
+    # 2. PyInstaller frozen bundle
     if getattr(sys, "frozen", False):
         bundled = Path(sys._MEIPASS) / rclone_name
         if bundled.exists():
             return str(bundled)
     else:
-        asset = Path(__file__).parent / "assets" / "bin" / rclone_name
+        # Development mode
+        asset = Path(__file__).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'assets' / "bin" / rclone_name
         if asset.exists():
             return str(asset.resolve())
 
@@ -206,9 +218,9 @@ def get_update_file_suffix() -> str:
     if sistema == "linux":
         return "-linux"
     elif sistema == "darwin":
-        return "-macos"
+        return "-macos.dmg"
     elif sistema == "win32":
-        return "-windows.exe"
+        return "-main-windows.exe"
     return ""
 
 
@@ -222,7 +234,7 @@ def download_new_binary(file_name: str) -> str:
     Raises:
         requests.HTTPError: Si la descarga falla.
     """
-    import tempfile
+
     sufijo = get_update_file_suffix()
     url = f"https://github.com/{REPO}/releases/latest/download/{file_name}{sufijo}"
     r = requests.get(url, timeout=20)
@@ -230,6 +242,7 @@ def download_new_binary(file_name: str) -> str:
     with tempfile.NamedTemporaryFile(delete=False, mode='wb') as tmp:
         tmp.write(r.content)
         return tmp.name
+
 
 
 # ============================================================================
@@ -411,15 +424,51 @@ def _check_winfsp_windows() -> bool:
     return False
 
 
+def _macos_app_bundle_frameworks() -> Path | None:
+    """
+    Devuelve <App.app>/Contents/Frameworks usando NSBundle.mainBundle() vía ctypes.
+    Funciona porque Flet (serious_python) embebe Python en el mismo proceso Flutter,
+    por lo que mainBundle() apunta correctamente al .app en ejecución.
+    Devuelve None si falla o no estamos dentro de un bundle.
+    """
+    try:
+        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library('objc'))
+        objc.objc_getClass.restype = ctypes.c_void_p
+        objc.objc_getClass.argtypes = [ctypes.c_char_p]
+        objc.sel_registerName.restype = ctypes.c_void_p
+        objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        objc.objc_msgSend.restype = ctypes.c_void_p
+        objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        bundle = objc.objc_msgSend(
+            objc.objc_getClass(b'NSBundle'),
+            objc.sel_registerName(b'mainBundle'),
+        )
+        path_nsstr = objc.objc_msgSend(bundle, objc.sel_registerName(b'bundlePath'))
+        objc.objc_msgSend.restype = ctypes.c_char_p
+        utf8 = objc.objc_msgSend(path_nsstr, objc.sel_registerName(b'UTF8String'))
+        if utf8:
+            p = Path(utf8.decode()) / 'Contents' / 'Frameworks'
+            print(f"[debug] NSBundle.mainBundle path: {p}")
+            if p.is_dir():
+                return p
+    except Exception as e:
+        print(f"[debug] _macos_app_bundle_frameworks failed: {e}")
+    return None
+
+
 def _check_fuse_macos() -> bool:
-    """Detecta específicamente fuse-t en macOS (no macFUSE ni osxfuse)."""
-    return any(p.exists() for p in (*(
+    """Detecta fuse-t en macOS. Comprueba rutas del sistema y el framework bundled en el .app."""
+    candidates = [
         Path("/usr/local/lib/libfuse-t.dylib"),
         Path("/Library/Filesystems/fuse-t.fs"),
         Path("/usr/local/include/fuse-t"),
-        Path(__file__).parent / "frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t",
-        ),*( str(Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t",) if os.environ.get("FLET_APP_STORAGE_TEMP") else ())
-    ))
+        # modo desarrollo
+        Path(__file__).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / "Versions" / "Current" / "fuse_t",
+    ]
+    bundle_fw = _macos_app_bundle_frameworks()
+    if bundle_fw:
+        candidates.append(bundle_fw / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
+    return any(p.exists() for p in candidates)
 
 def _check_fuse_linux() -> bool:
     """Detecta FUSE en Linux."""
@@ -657,13 +706,19 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     sistema = platform.system()
     env = {**os.environ}
     if sistema == "Darwin":
-        if not _check_fuse_macos():
+        if not _check_fuse_macos():     
             raise EnvironmentError("fuse-t not detected. Download it with macos-third-party-assets-downloader.sh")
-        if getattr(sys, "frozen", False):
+        bundle_fw = _macos_app_bundle_frameworks()
+        if bundle_fw:
+            env["CGOFUSE_LIBFUSE_PATH"] = str(bundle_fw / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
+        elif (Path(__file__).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / "Versions" / "Current" / "fuse_t").exists():
+            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(__file__).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / "Versions" / "Current" / "fuse_t")
+        elif getattr(sys, "frozen", False):
             env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
         else:
-            if (Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t").exists():
-                env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
+            dev_path = Path(sys.executable).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / 'Versions' / 'Current' / 'fuse_t'
+            if dev_path.exists():
+                env["CGOFUSE_LIBFUSE_PATH"] = str(dev_path)
     elif sistema == "Windows":
         if not _check_winfsp_windows():
             raise EnvironmentError("WinFSP not detected. Download from: https://winfsp.dev")
@@ -1626,3 +1681,49 @@ def construir_recursos_cifs_dict(shares: list, usuario_actual: str) -> dict:
             "remote_host":    remote_host,
         }
     return resultado
+
+# ============================================================================
+# HELPER THREAD-SAFE PARA ACTUALIZAR UI
+# ============================================================================
+
+def ui_call(page: ft.Page, fn: Callable) -> None:
+    # Use run_task (asyncio coroutine) instead of run_thread (ThreadPoolExecutor).
+    # Flet's ObjectPatch.from_diff walks control.controls as a live list with no
+    # lock; run_thread runs fn() in a thread pool *in parallel* to the asyncio
+    # event loop, so concurrent .controls.clear()/.extend() from the thread pool
+    # races with the diff walker → IndexError: list index out of range.
+    # run_task schedules the coroutine on the same asyncio event loop; since
+    # _compare_lists contains no `await`, no run_task coroutine can preempt it
+    # mid-iteration, eliminating the race entirely.
+    async def _wrapper():
+        fn()
+    page.run_task(_wrapper)
+
+
+# ============================================================================
+# WRAPPER SEGURO PARA HILOS — captura excepciones y las muestra en diálogo
+# ============================================================================
+
+def safe_thread(page: ft.Page, target: Callable, daemon: bool = True) -> threading.Thread:
+    """
+    Crea un Thread que captura cualquier excepción no controlada y la muestra
+    en un diálogo de error en lugar de matar el proceso silenciosamente.
+    """
+    def _wrapper():
+        try:
+            target()
+        except Exception as exc:
+            tb = traceback.format_exc()
+            print(f"[safe_thread] Unhandled exception:\n{tb}")
+            _exc = exc  # capture before Python deletes the except-clause variable
+            def _show(e=_exc):
+                show_dialog(
+                    page,
+                    "Unexpected error",
+                    f"{type(e).__name__}: {e}\n\nCheck console or contact ITS.",
+                    C_ERROR,
+                )
+            ui_call(page, _show)
+
+    t = threading.Thread(target=_wrapper, daemon=daemon)
+    return t
