@@ -164,3 +164,11 @@ Cuando hay una release nueva en GitHub, la app pregunta al usuario si quiere act
 5. **`config.py` debe ser importable como módulo top-level** en cada app — el backend hace `from config import APP_INFO`. Por eso cada app tiene su propio `config.py` aunque solo contenga `APP_INFO`.
 6. **Credenciales STS**: si quedan >3 días se reutilizan; <3 días se renuevan automáticamente por 7 días. Constantes `STS_RENEWAL_THRESHOLD_DAYS` / `STS_AUTO_RENEWAL_DAYS` en `main.py`.
 7. **No commitear `.venv/`, `dist/`, `build/`, `src/version.py` generado**. Ver `.gitignore`.
+
+---
+
+## Wiki del proyecto
+
+Hay una base de conocimiento incremental en `docs/wiki/` que acumula **decisiones técnicas, estado de infra (MinIO/Nexica/IRB) y gotchas de usuarios** entre sesiones. Antes de responder preguntas sobre el "por qué" de patrones del repo o sobre infra externa, consulta `docs/wiki/index.md`.
+
+El protocolo completo (ingest, query, lint, formato de páginas, reglas de seguridad, **convención de cierre de tarea**) está en `docs/wiki/CLAUDE_WIKI.md` — léelo antes de crear/modificar páginas. Las fuentes brutas viven en `docs/wiki/raw/` y están gitignored; el resto de la wiki sí se commitea.

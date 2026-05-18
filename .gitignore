@@ -192,3 +192,8 @@ src/storage/data/
 
 
 .claude/
+
+# Wiki LLM — fuentes brutas locales (las páginas sintetizadas en docs/wiki/ sí se commitean)
+docs/wiki/raw/**
+!docs/wiki/raw/**/
+!docs/wiki/raw/**/.gitkeep
