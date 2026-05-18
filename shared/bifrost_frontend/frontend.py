@@ -307,8 +307,11 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                     app_src  = os.path.join(mount_point, app_name)
                     app_dst  = os.path.join("/Applications", app_name)
                     import shlex
+                    proc_name = f'bifrost-{flavour}'
                     shell_cmd = (
-                        f'sleep 2 && '
+                        f'pkill -x {shlex.quote(proc_name)} ; '
+                        f'while pgrep -xq {shlex.quote(proc_name)}; do sleep 2; done && '
+                        f'chmod -R u+w {shlex.quote(app_dst)} ; '
                         f'rm -rf {shlex.quote(app_dst)} && '
                         f'ditto {shlex.quote(app_src)} {shlex.quote(app_dst)} && '
                         f'hdiutil detach {shlex.quote(mount_point)} && '
