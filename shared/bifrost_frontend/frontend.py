@@ -310,12 +310,23 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                     shell_cmd = (
                         f'sleep 2 && '
                         f'rm -rf {shlex.quote(app_dst)} && '
-                        f'cp -R {shlex.quote(app_src)} {shlex.quote(app_dst)} && '
+                        f'ditto {shlex.quote(app_src)} {shlex.quote(app_dst)} && '
                         f'hdiutil detach {shlex.quote(mount_point)} && '
                         f'open {shlex.quote(app_dst)}'
                     )
+                    with tempfile.NamedTemporaryFile(
+                        mode='w', suffix='.sh', delete=False
+                    ) as sf:
+                        sf.write('#!/bin/bash\n' + shell_cmd + '\n')
+                        script_path = sf.name
+                    os.chmod(script_path, 0o755)
+                    escaped_path = script_path.replace('\\', '\\\\').replace('"', '\\"')
+                    osascript_cmd = (
+                        f'do shell script "{escaped_path}" '
+                        f'with administrator privileges'
+                    )
                     subprocess.Popen(
-                        ["bash", "-c", shell_cmd],
+                        ["osascript", "-e", osascript_cmd],
                         start_new_session=True,
                     )
                     backend.ui_call(page, lambda: os._exit(0))
