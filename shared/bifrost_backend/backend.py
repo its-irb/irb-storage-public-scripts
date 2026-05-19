@@ -707,7 +707,7 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
                 env["CGOFUSE_LIBFUSE_PATH"] = str(dev_path)
     elif sistema == "Windows":
         if not _check_winfsp_windows():
-            raise EnvironmentError("WinFSP not detected. Download from: https://winfsp.dev")
+            raise WinFspMissingError("WinFsp not detected on this system.")
     elif sistema == "Linux":
         if not _check_fuse_linux():
             raise EnvironmentError(
