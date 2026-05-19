@@ -185,8 +185,10 @@ def _build_login_content(
 
         def _auth():
             creds = {"usuario": user, "password": pwd}
+            _log_event(f"LOGIN attempt — user: {user}")
             ok, motivo = backend.validar_credenciales_ldap(creds)
             if ok:
+                _log_event(f"LOGIN success — user: {user}")
                 backend.ui_call(page, lambda: on_success(creds))
             else:
                 msg = (
@@ -194,6 +196,7 @@ def _build_login_content(
                     if motivo == "vpn"
                     else "Invalid credentials. Please try again."
                 )
+                _log_event(f"LOGIN failed — user: {user} — {msg}")
                 def _fail():
                     error_text.value   = msg
                     error_text.visible = True
@@ -1420,6 +1423,7 @@ exit /b 1
 # ============================================================================
 
 def main(page: ft.Page):
+    _log_event(f"APP start — bifrost-mount v{__version__}")
     page.title             = "BIFROST MOUNT — IRB MinIO"
     page.bgcolor           = C_BG
     page.window.width      = 1100
@@ -1509,6 +1513,7 @@ def main(page: ft.Page):
         state["servidor_minio"] = eleccion["servidor"]
         state["perfil_rclone"]  = eleccion["perfil"]
         state["endpoint"]       = eleccion["endpoint"]
+        _log_event(f"PROFILE selected — {eleccion['perfil']} ({eleccion['endpoint']})")
         _go_credentials_or_mount()
 
     def _go_credentials_or_mount():
