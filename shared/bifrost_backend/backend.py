@@ -347,6 +347,29 @@ def _check_winfsp_windows() -> bool:
     return False
 
 
+def _winfsp_latest_msi_url() -> tuple[str, str]:
+    """Devuelve (url_descarga_msi, tag_version) de la última release de WinFsp en GitHub.
+
+    Levanta RuntimeError si la API no responde o no hay asset .msi.
+    """
+    api_url = "https://api.github.com/repos/winfsp/winfsp/releases/latest"
+    try:
+        resp = requests.get(api_url, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as ex:
+        raise RuntimeError(f"No se pudo consultar la API de GitHub de WinFsp: {ex}")
+
+    tag = data.get("tag_name", "")
+    for asset in data.get("assets", []):
+        name = asset.get("name", "")
+        url = asset.get("browser_download_url", "")
+        if name.lower().endswith(".msi") and url:
+            return url, tag
+
+    raise RuntimeError("No se encontró ningún asset .msi en la última release de WinFsp.")
+
+
 def _macos_app_bundle_frameworks() -> Path | None:
     """
     Devuelve <App.app>/Contents/Frameworks usando NSBundle.mainBundle() vía ctypes.
