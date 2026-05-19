@@ -570,6 +570,7 @@ def build_rclone_browser(
 
     def _select_bucket(bucket_name: str):
         selected_state["bucket"] = bucket_name
+        _log_event(f"BUCKET selected — {bucket_name}")
         on_select(bucket_name)
         _render_buckets(selected_state.get("_all_buckets", []))
 
@@ -586,9 +587,11 @@ def build_rclone_browser(
         if not mp:
             return
         def _do():
+            _log_event(f"UNMOUNT — bucket: {bucket_name}, path: {mp}")
             try:
                 backend.desmontar_punto_montaje(mp)
             except Exception as ex:
+                _log_event(f"UNMOUNT error — bucket: {bucket_name} — {ex}")
                 print(f"[unmount] Error: {ex}")
             finally:
                 mounted_state.pop(bucket_name, None)
@@ -603,6 +606,7 @@ def build_rclone_browser(
 
     def _unmount_all():
         def _do():
+            _log_event(f"UNMOUNT ALL — {len(mounted_state)} mounts")
             for bname, mp in list(mounted_state.items()):
                 try:
                     backend.desmontar_punto_montaje(mp)
@@ -1246,6 +1250,7 @@ def _build_mount_bucket(
         page.update()
 
         def _do():
+            _log_event(f"MOUNT start — bucket: {ruta}, profile: {perfil_rclone}")
             try:
                 backend.mount_rclone_S3_prefix_to_folder(perfil_rclone, ruta)
                 mp = backend.resolver_mount_point_destino(perfil_rclone, ruta)
@@ -1262,6 +1267,7 @@ def _build_mount_bucket(
                         pass
 
                 mounted_state[ruta] = mp
+                _log_event(f"MOUNT success — bucket: {ruta}, path: {mp}")
 
                 # Abrir explorador
                 try:
@@ -1290,6 +1296,7 @@ def _build_mount_bucket(
                     page.update()
                 backend.ui_call(page, _ok)
             except backend.WinFspMissingError:
+                _log_event(f"MOUNT error (WinFsp missing) — bucket: {ruta}")
                 def _ask():
                     mount_btn.disabled   = False
                     mount_status.value   = ""
@@ -1299,6 +1306,7 @@ def _build_mount_bucket(
                 backend.ui_call(page, _ask)
             except EnvironmentError as ex:
                 err_str = str(ex)
+                _log_event(f"MOUNT error (FUSE/WinFSP) — bucket: {ruta} — {err_str}")
                 def _err():
                     mount_btn.disabled   = False
                     mount_status.value   = ""
@@ -1308,6 +1316,7 @@ def _build_mount_bucket(
                 backend.ui_call(page, _err)
             except Exception as ex:
                 err_str = str(ex)
+                _log_event(f"MOUNT error — bucket: {ruta} — {err_str}")
                 def _err():
                     mount_btn.disabled   = False
                     mount_status.value   = ""
