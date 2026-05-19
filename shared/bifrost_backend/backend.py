@@ -370,6 +370,29 @@ def _winfsp_latest_msi_url() -> tuple[str, str]:
     raise RuntimeError("No se encontró ningún asset .msi en la última release de WinFsp.")
 
 
+def _download_winfsp_msi(url: str, tag: str) -> Path:
+    """Descarga el MSI de WinFsp a %TEMP%\\winfsp-<tag>.msi y devuelve el path.
+
+    Levanta RuntimeError si la descarga falla o el fichero resultante está vacío.
+    """
+    safe_tag = re.sub(r"[^A-Za-z0-9._-]", "_", tag) or "latest"
+    dest = Path(tempfile.gettempdir()) / f"winfsp-{safe_tag}.msi"
+    try:
+        with requests.get(url, stream=True, timeout=60) as resp:
+            resp.raise_for_status()
+            with open(dest, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=64 * 1024):
+                    if chunk:
+                        f.write(chunk)
+    except Exception as ex:
+        raise RuntimeError(f"No se pudo descargar WinFsp MSI: {ex}")
+
+    if not dest.exists() or dest.stat().st_size == 0:
+        raise RuntimeError(f"El MSI descargado está vacío: {dest}")
+
+    return dest
+
+
 def _macos_app_bundle_frameworks() -> Path | None:
     """
     Devuelve <App.app>/Contents/Frameworks usando NSBundle.mainBundle() vía ctypes.
