@@ -69,13 +69,13 @@ Thin wrapper para llamadas de eventos de usuario. Sin color ni UI — solo archi
 
 ```
 [2026-05-19 14:23:01] APP start — bifrost-mount v1.0.42
-[2026-05-19 14:23:05] LOGIN attempt — user: ona.perez
-[2026-05-19 14:23:06] LOGIN success — user: ona.perez
-[2026-05-19 14:23:08] PROFILE selected — irb-s3 (https://minio.irbbarcelona.org)
+[2026-05-19 14:23:05] LOGIN attempt — user: name.surname
+[2026-05-19 14:23:06] LOGIN success — user: name.surname
+[2026-05-19 14:23:08] PROFILE selected — irb-minio (https://irb-minio.irbbarcelona.org)
 [2026-05-19 14:23:10] BUCKET selected — research-data
 [2026-05-19 14:23:11] MOUNT start — bucket: research-data, profile: irb-s3
-[2026-05-19 14:23:12] MOUNT success — bucket: research-data, path: C:\Users\operez\bifrost-mount\research-data
-[2026-05-19 14:31:04] UNMOUNT — bucket: research-data, path: C:\Users\operez\bifrost-mount\research-data
+[2026-05-19 14:23:12] MOUNT success — bucket: research-data, path: C:\Users\username\bifrost-mount\research-data
+[2026-05-19 14:31:04] UNMOUNT — bucket: research-data, path: C:\Users\username\bifrost-mount\research-data
 ```
 
 ---
