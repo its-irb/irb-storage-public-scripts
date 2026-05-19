@@ -164,6 +164,7 @@ Cuando hay una release nueva en GitHub, la app pregunta al usuario si quiere act
 5. **`config.py` debe ser importable como módulo top-level** en cada app — el backend hace `from config import APP_INFO`. Por eso cada app tiene su propio `config.py` aunque solo contenga `APP_INFO`.
 6. **Credenciales STS**: si quedan >3 días se reutilizan; <3 días se renuevan automáticamente por 7 días. Constantes `STS_RENEWAL_THRESHOLD_DAYS` / `STS_AUTO_RENEWAL_DAYS` en `main.py`.
 7. **No commitear `.venv/`, `dist/`, `build/`, `src/version.py` generado**. Ver `.gitignore`.
+8. **Auto-instalación de WinFsp (solo `bifrost-mount`, Windows)**: si falta WinFsp al montar, el backend levanta `WinFspMissingError` (subclase de `EnvironmentError`) y la UI ofrece descargar e instalar la última release oficial desde `github.com/winfsp/winfsp` vía `backend.install_winfsp_windows()`. Requiere UAC; el MSI se cachea en `%TEMP%`. Los mensajes de este flujo están en **inglés** (excepción al punto 3) para alinearse con el resto de la UI de `bifrost-mount`. `bifrost-transfer` no tiene este flujo.
 
 ---
 

@@ -20,6 +20,8 @@ Ambas aplicaciones comparten el backend definido en `shared/bifrost_backend` (LD
 
 Las dependencias como el binario de `rclone` o el framework `fuse-t` (este último solo en macOS, usado por `bifrost-mount`) se empaquetan dentro del ejecutable y no es necesario tenerlas instaladas en el equipo.
 
+En Windows, `bifrost-mount` necesita además **WinFsp** instalado en el sistema (no se puede empaquetar porque incluye un driver de kernel). Si falta, la propia app detecta su ausencia al montar y ofrece descargar e instalar automáticamente la última versión oficial desde [github.com/winfsp/winfsp](https://github.com/winfsp/winfsp/releases) (requiere permisos de administrador). La instalación manual desde [winfsp.dev](https://winfsp.dev) sigue siendo válida.
+
 ---
 
 ## Estructura del repositorio

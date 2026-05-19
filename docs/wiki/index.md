@@ -13,7 +13,7 @@ Protocolo de mantenimiento en [CLAUDE_WIKI.md](CLAUDE_WIKI.md).
 - _(vacío)_
 
 ## Gotchas
-- _(vacío)_
+- [Auto-instalación de WinFsp en Windows](gotchas/winfsp-auto-install-windows.md) — por qué WinFsp no es un binario portable y cómo `bifrost-mount` lo instala automáticamente desde GitHub Releases.
 
 ## Conceptos
 - _(vacío)_
