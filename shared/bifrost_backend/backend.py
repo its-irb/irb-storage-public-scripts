@@ -311,6 +311,13 @@ def open_file(path: str) -> None:
 # DETECCIÓN DE FUSE / WINFSP
 # ============================================================================
 
+class WinFspMissingError(EnvironmentError):
+    """Falta WinFsp en Windows. Se distingue de EnvironmentError genérico
+    para que la UI pueda ofrecer auto-instalación en lugar de solo mostrar
+    un link a winfsp.dev."""
+    pass
+
+
 def _check_winfsp_windows() -> bool:
     """Detecta WinFSP en Windows por múltiples métodos."""
     import shutil
