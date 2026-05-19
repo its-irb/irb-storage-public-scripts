@@ -2,7 +2,9 @@
 
 **Fecha:** 2026-05-19
 **Estado:** Diseño aprobado, pendiente de plan de implementación
-**Apps afectadas:** `bifrost-mount`, `bifrost-transfer`
+**Apps afectadas:** `bifrost-mount`
+
+> Nota: `bifrost-transfer` también llama hoy a `mount_rclone_S3_prefix_to_folder`, pero ese botón está pendiente de eliminarse en una tarea aparte, así que no se toca aquí.
 
 ---
 
@@ -17,7 +19,7 @@ WinFsp **no puede empaquetarse como binario portable** (como rclone) porque incl
 - **Fuente de la última versión:** GitHub Releases API (`api.github.com/repos/winfsp/winfsp/releases/latest`). Es la fuente oficial real (winfsp.dev/rel/ sirve los mismos MSIs); JSON estable, fácil de parsear.
 - **Descarga bajo demanda:** no bundle del MSI dentro de la app. Requiere internet la primera vez; instalador de la app más liviano.
 - **UX:** preguntar antes de instalar (diálogo Sí / Cancelar). Más transparente que lanzar msiexec directamente; el UAC del sistema seguirá saliendo además del prompt de la app.
-- **Aplicar a ambas apps**, ya que `bifrost-transfer` también permite montar prefijos S3.
+- **Solo `bifrost-mount`**. El mount de `bifrost-transfer` se va a eliminar en otra tarea, así que no merece la pena tocar ese flujo aquí.
 
 ## Cambios en `shared/bifrost_backend/backend.py`
 
@@ -69,7 +71,7 @@ elif sistema == "Windows":
 
 ## Cambios en las apps
 
-### `bifrost-mount/src/main.py` (línea ~1200) y `bifrost-transfer/src/main.py` (línea ~2133)
+### `bifrost-mount/src/main.py` (línea ~1200)
 
 Sustituir el bloque actual:
 
@@ -99,7 +101,7 @@ Donde `_prompt_install_winfsp(page, on_success)`:
    - Si devuelve `False` (usuario canceló UAC) → diálogo informativo, no reintenta.
    - Si excepción → diálogo error con link manual a `winfsp.dev`.
 
-El helper `_prompt_install_winfsp` se duplica en cada app (siguiendo el patrón actual donde la UI específica vive en `main.py`), o se factoriza a `bifrost_frontend.frontend` si crece. Decisión durante implementación.
+El helper `_prompt_install_winfsp` vive en `bifrost-mount/src/main.py`, siguiendo el patrón actual donde la UI específica vive en `main.py`.
 
 ## Flujo end-to-end
 
@@ -152,12 +154,10 @@ No hay suite automatizada en el repo. Validación manual:
 1. Máquina Windows sin WinFsp: lanzar `flet run` en `bifrost-mount`, intentar montar → verificar prompt, instalación, reintento del mount.
 2. Cancelar el UAC → verificar que la app muestra mensaje y no se cuelga.
 3. Cancelar el diálogo previo → verificar comportamiento informativo actual.
-4. Mismas pruebas en `bifrost-transfer` con el flujo de montar prefijo S3.
-5. Sin red: verificar mensaje de error razonable con link manual.
+4. Sin red: verificar mensaje de error razonable con link manual.
 
 ## Archivos a modificar
 
 - `shared/bifrost_backend/backend.py` — nueva excepción, 3 funciones nuevas, modificar `mount_rclone_S3_prefix_to_folder`.
 - `bifrost-mount/src/main.py` — sustituir bloque `except EnvironmentError` (~línea 1200), añadir `_prompt_install_winfsp`.
-- `bifrost-transfer/src/main.py` — idem en ~línea 2133.
 - `docs/wiki/log.md` — entrada al cerrar la tarea (convención del repo).
