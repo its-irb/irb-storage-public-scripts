@@ -1134,6 +1134,94 @@ def _build_mount_bucket(
     mount_btn    = btn_secondary("⊞  Mount bucket")
     mount_status = ft.Text("", size=12, color=C_TEXT_DIM, visible=False)
 
+    def _prompt_install_winfsp(on_success):
+        """Pregunta al usuario si quiere descargar e instalar WinFsp.
+        Si acepta y la instalación termina OK, ejecuta on_success() para reintentar el mount.
+        """
+        def _close(dlg):
+            dlg.open = False
+            page.update()
+
+        def _do_install(_e):
+            _close(confirm_dlg)
+
+            progress_text = ft.Text("Starting...")
+            progress_dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Installing WinFsp"),
+                content=ft.Column(
+                    [ft.ProgressRing(), progress_text],
+                    tight=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            )
+            page.overlay.append(progress_dlg)
+            progress_dlg.open = True
+            page.update()
+
+            def _on_progress(msg):
+                def _upd():
+                    progress_text.value = msg
+                    page.update()
+                backend.ui_call(page, _upd)
+
+            def _worker():
+                try:
+                    ok = backend.install_winfsp_windows(page=page, on_progress=_on_progress)
+                except Exception as ex:
+                    err = str(ex)
+                    def _err():
+                        _close(progress_dlg)
+                        show_dialog(
+                            page,
+                            "Error installing WinFsp",
+                            f"{err}\n\nYou can install it manually from https://winfsp.dev",
+                            C_ERROR,
+                        )
+                    backend.ui_call(page, _err)
+                    return
+
+                def _done():
+                    _close(progress_dlg)
+                    if ok:
+                        on_success()
+                    else:
+                        show_dialog(
+                            page,
+                            "Installation cancelled",
+                            "The WinFsp installation was cancelled. You can retry the mount whenever you want.",
+                            C_ERROR,
+                        )
+                backend.ui_call(page, _done)
+
+            backend.safe_thread(page, _worker).start()
+
+        def _do_cancel(_e):
+            _close(confirm_dlg)
+            show_dialog(
+                page,
+                "WinFsp not detected",
+                "WinFsp is required to mount S3 folders on Windows. Download it from https://winfsp.dev",
+                C_ERROR,
+            )
+
+        confirm_dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("WinFsp is not installed"),
+            content=ft.Text(
+                "WinFsp is required to mount S3 folders on Windows.\n\n"
+                "Do you want to download and install the latest version now? "
+                "Administrator permissions will be required."
+            ),
+            actions=[
+                ft.TextButton("Install", on_click=_do_install),
+                ft.TextButton("Cancel", on_click=_do_cancel),
+            ],
+        )
+        page.overlay.append(confirm_dlg)
+        confirm_dlg.open = True
+        page.update()
+
     def do_mount(e, ruta: str | None = None):
         ruta = ruta or _dest_path["value"].strip()
         if not ruta:
@@ -1190,6 +1278,14 @@ def _build_mount_bucket(
                     threading.Timer(0.2, dest_browser_refresh).start()
                     page.update()
                 backend.ui_call(page, _ok)
+            except backend.WinFspMissingError:
+                def _ask():
+                    mount_btn.disabled   = False
+                    mount_status.value   = ""
+                    mount_status.visible = False
+                    page.update()
+                    _prompt_install_winfsp(on_success=lambda: do_mount(e, ruta))
+                backend.ui_call(page, _ask)
             except EnvironmentError as ex:
                 err_str = str(ex)
                 def _err():
