@@ -1185,6 +1185,7 @@ def _build_mount_bucket(
                     ok = backend.install_winfsp_windows(page=page, on_progress=_on_progress)
                 except Exception as ex:
                     err = str(ex)
+                    _log_event(f"WINFSP install error — {err}")
                     def _err():
                         _close(progress_dlg)
                         show_dialog(
@@ -1199,8 +1200,10 @@ def _build_mount_bucket(
                 def _done():
                     _close(progress_dlg)
                     if ok:
+                        _log_event("WINFSP install success")
                         on_success()
                     else:
+                        _log_event("WINFSP install cancelled")
                         show_dialog(
                             page,
                             "Installation cancelled",
