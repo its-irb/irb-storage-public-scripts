@@ -393,6 +393,58 @@ def _download_winfsp_msi(url: str, tag: str) -> Path:
     return dest
 
 
+def install_winfsp_windows(page=None, on_progress=None) -> bool:
+    """Descarga e instala WinFsp en Windows.
+
+    Args:
+        page: objeto Flet page (opcional, solo para tipado uniforme).
+        on_progress: callable(str) opcional que recibe mensajes de estado en inglés
+                     ("Checking...", "Downloading...", "Installing...") para mostrarlos en UI.
+
+    Returns:
+        True si WinFsp queda instalado correctamente.
+        False si el usuario canceló el UAC (no es un error real).
+
+    Raises:
+        RuntimeError si falla la consulta a GitHub, la descarga o la instalación.
+    """
+    if platform.system() != "Windows":
+        raise RuntimeError("install_winfsp_windows solo es válido en Windows")
+
+    def _emit(msg: str) -> None:
+        if on_progress is not None:
+            try:
+                on_progress(msg)
+            except Exception:
+                pass
+
+    _emit("Checking latest WinFsp version...")
+    url, tag = _winfsp_latest_msi_url()
+
+    _emit(f"Downloading WinFsp {tag}...")
+    msi_path = _download_winfsp_msi(url, tag)
+
+    _emit(f"Installing WinFsp {tag}...")
+    try:
+        result = subprocess.run(
+            ["msiexec", "/i", str(msi_path), "/qb", "/norestart"],
+            check=False,
+        )
+    except FileNotFoundError as ex:
+        raise RuntimeError(f"No se encontró msiexec: {ex}")
+
+    rc = result.returncode
+    if rc in (0, 3010):
+        if _check_winfsp_windows():
+            return True
+        raise RuntimeError(
+            f"msiexec terminó con código {rc} pero WinFsp sigue sin detectarse."
+        )
+    if rc == 1602:
+        return False
+    raise RuntimeError(f"msiexec falló con código de salida {rc}.")
+
+
 def _macos_app_bundle_frameworks() -> Path | None:
     """
     Devuelve <App.app>/Contents/Frameworks usando NSBundle.mainBundle() vía ctypes.
