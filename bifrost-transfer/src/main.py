@@ -604,7 +604,28 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
 
     server_cards: dict[str, ft.Container] = {}
 
-    def make_server_card(srv_name: str) -> ft.Container:
+    def _update_card_styles():
+        for srv, card_c in server_cards.items():
+            is_sel = srv == selected["current"]
+            card_c.bgcolor = C_SURFACE2 if is_sel else C_SURFACE
+            card_c.border  = ft.border.all(2 if is_sel else 1,
+                                             C_PRIMARY if is_sel else C_BORDER)
+            card_c.content.controls[2].color = C_PRIMARY if is_sel else C_BORDER
+        page.update()
+
+    def on_radio_change_and_select(srv_name: str):
+        rg.value = srv_name
+        selected["current"] = srv_name
+        _update_card_styles()
+
+    def do_continue_direct(srv_name: str):
+        on_continue({
+            "servidor": srv_name,
+            "perfil":   backend.MINIO_SERVERS[srv_name]["IRB"]["profile"],
+            "endpoint": backend.MINIO_SERVERS[srv_name]["IRB"]["endpoint"],
+        })
+
+    def make_server_card(srv_name: str) -> ft.GestureDetector:
         info   = backend.MINIO_SERVERS[srv_name]["IRB"]
         is_sel = srv_name == selected["current"]
         c = ft.Container(
@@ -635,7 +656,11 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
             padding=ft.padding.symmetric(horizontal=16, vertical=12),
         )
         server_cards[srv_name] = c
-        return c
+        return ft.GestureDetector(
+            content=c,
+            on_tap=lambda e, s=srv_name: on_radio_change_and_select(s),
+            on_double_tap=lambda e, s=srv_name: do_continue_direct(s),
+        )
 
     rg = ft.RadioGroup(
         content=ft.Column([make_server_card(s) for s in servers], spacing=8),
@@ -644,13 +669,7 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
 
     def on_radio_change(e):
         selected["current"] = rg.value
-        for srv, card_c in server_cards.items():
-            is_sel = srv == selected["current"]
-            card_c.bgcolor = C_SURFACE2 if is_sel else C_SURFACE
-            card_c.border  = ft.border.all(2 if is_sel else 1,
-                                             C_PRIMARY if is_sel else C_BORDER)
-            card_c.content.controls[2].color = C_PRIMARY if is_sel else C_BORDER
-        page.update()
+        _update_card_styles()
 
     rg.on_change = on_radio_change
 
@@ -1571,6 +1590,7 @@ def _build_copy_content(
     on_renew_complete: Callable,
     show_screen: Callable,
     web_session: dict | None = None,
+    on_back: Callable | None = None,
 ) -> ft.Control:
     usuario_actual = credenciales_ldap["usuario"]
 
@@ -1684,6 +1704,7 @@ def _build_copy_content(
         page.update()
 
     renew_btn = btn_secondary("🔑 Renew credentials", on_click=show_renew_dialog)
+    back_btn  = btn_secondary("← Back", on_click=lambda e: on_back()) if on_back else None
 
     # ── Origen ────────────────────────────────────────────────────────────
     origen_tf, origen_col = styled_field(
@@ -2218,7 +2239,7 @@ def _build_copy_content(
             build_header(subtitle=f"Copy & Verify — {perfil_rclone}", IS_WEB=IS_WEB),
             ft.Container(
                 content=ft.Row(
-                    [expiry_badge, ft.Container(expand=True), renew_btn],
+                    [c for c in [back_btn, expiry_badge, ft.Container(expand=True), renew_btn] if c is not None],
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 padding=ft.padding.symmetric(horizontal=24, vertical=8),
@@ -2778,6 +2799,7 @@ def main(page: ft.Page):
             on_renew_complete=go_copy,
             show_screen=show_screen,
             web_session=session,
+            on_back=go_minio,
         ))
 
     def do_close():
