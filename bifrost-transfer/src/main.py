@@ -3311,6 +3311,14 @@ def main(page: ft.Page):
         else:
             go_copy()
 
+    def go_tags():
+        show_screen(_build_tag_manager_content(
+            page,
+            perfil_rclone=state["perfil_rclone"],
+            endpoint=state["endpoint"],
+            on_back=go_copy,
+        ))
+
     def go_copy():
         servidor     = state["servidor_minio"]
         extra_config = backend.MINIO_SERVERS.get(servidor, {}).get("IRB", {}).get("extra_rclone_config")
@@ -3330,6 +3338,7 @@ def main(page: ft.Page):
             show_screen=show_screen,
             web_session=session,
             on_back=go_minio,
+            on_tags=go_tags,
         ))
 
     def do_close():
