@@ -2436,6 +2436,526 @@ exit /b 1
 
 
 # ============================================================================
+# VISTA: TAG MANAGER
+# ============================================================================
+
+def _build_tag_manager_content(
+    page: ft.Page,
+    perfil_rclone: str,
+    endpoint: str,
+    on_back: Callable,
+) -> ft.Control:
+    # ── Estado ────────────────────────────────────────────────────────────
+    s3  = {"client": None}
+    nav = {"bucket": None, "prefix": ""}
+    sel = {"type": "none", "key": None, "count": 0, "display": ""}
+    active_profile  = {"name": list(TAG_PROFILES.keys())[0]}
+    tag_fields: dict[str, ft.TextField] = {}
+    _log_buffer: list[str] = []
+    _current_items = {"folders": [], "files": []}
+
+    # ── Log ───────────────────────────────────────────────────────────────
+    log_list = ft.ListView(
+        expand=True, auto_scroll=True, spacing=0,
+        padding=ft.padding.all(12),
+    )
+    log_section = ft.Container(
+        content=ft.Column([
+            ft.Text("LOG", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600,
+                    letter_spacing=1.5),
+            ft.Container(height=6),
+            ft.Container(
+                content=log_list,
+                bgcolor=C_BG,
+                border=ft.border.all(1, C_BORDER),
+                border_radius=6,
+                height=180,
+            ),
+        ], spacing=0),
+        padding=ft.padding.symmetric(horizontal=24, vertical=8),
+        visible=False,
+    )
+
+    def _log(msg: str, color: str = C_TEXT) -> None:
+        _log_buffer.append(msg)
+        def _add():
+            log_list.controls.append(
+                ft.Text(msg.rstrip("\n"), size=11, color=color,
+                        font_family=FONT_MONO, selectable=True)
+            )
+        backend.ui_call(page, _add)
+
+    def _autosave_tag_log() -> None:
+        content = "".join(_log_buffer)
+        if not content.strip():
+            return
+        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        log_dir = pathlib.Path.home() / "bifrost-logs"
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+            fpath = log_dir / f"bifrost-tags-{ts}.log"
+            fpath.write_text(content, encoding="utf-8")
+            _log(f"\n📄 Log guardado en: {fpath}", C_TEXT_DIM)
+        except Exception as ex:
+            _log(f"\n⚠️  No se pudo guardar el log: {ex}", C_WARNING)
+
+    def _get_client():
+        if s3["client"] is None:
+            s3["client"] = backend.get_s3_client_from_profile(perfil_rclone, endpoint)
+        return s3["client"]
+
+    # ── Browser ───────────────────────────────────────────────────────────
+    breadcrumb_row = ft.Row(spacing=2, wrap=True)
+    browser_col    = ft.Column(spacing=4, tight=True)
+    browser_loading = ft.Row(
+        [
+            ft.ProgressRing(width=14, height=14, stroke_width=2, color=C_PRIMARY),
+            ft.Text("Cargando...", size=11, color=C_TEXT_DIM),
+        ],
+        spacing=8, visible=False,
+    )
+    browser_error = ft.Text("", color=C_ERROR, size=11, visible=False)
+
+    def _rebuild_breadcrumb() -> None:
+        breadcrumb_row.controls.clear()
+
+        def _crumb(label: str, on_click_fn):
+            return ft.TextButton(
+                label,
+                on_click=on_click_fn,
+                style=ft.ButtonStyle(
+                    color=C_PRIMARY,
+                    padding=ft.padding.symmetric(horizontal=4, vertical=0),
+                ),
+            )
+
+        breadcrumb_row.controls.append(
+            _crumb("buckets", lambda e: _navigate(None, ""))
+        )
+        if nav["bucket"]:
+            breadcrumb_row.controls.append(ft.Text("/", color=C_TEXT_DIM, size=12))
+            bname = nav["bucket"]
+            breadcrumb_row.controls.append(
+                _crumb(bname, lambda e, b=bname: _navigate(b, ""))
+            )
+            accumulated = ""
+            for part in nav["prefix"].split("/"):
+                if not part:
+                    continue
+                accumulated += part + "/"
+                acc_copy = accumulated
+                breadcrumb_row.controls.append(ft.Text("/", color=C_TEXT_DIM, size=12))
+                breadcrumb_row.controls.append(
+                    _crumb(part, lambda e, p=acc_copy: _navigate(nav["bucket"], p))
+                )
+        page.update()
+
+    def _render_browser_contents() -> None:
+        browser_col.controls.clear()
+        if nav["bucket"] is None:
+            for bname in _current_items["folders"]:
+                c = ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.STORAGE_OUTLINED, color=C_PRIMARY, size=16),
+                        ft.Text(bname, size=13, color=C_TEXT, expand=True),
+                        ft.Icon(ft.Icons.CHEVRON_RIGHT, color=C_TEXT_DIM, size=16),
+                    ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    bgcolor=C_SURFACE2, border=ft.border.all(1, C_BORDER),
+                    border_radius=6,
+                    padding=ft.padding.symmetric(horizontal=12, vertical=8), ink=True,
+                )
+                browser_col.controls.append(
+                    ft.GestureDetector(
+                        content=c,
+                        on_tap=lambda e, b=bname: _navigate(b, ""),
+                    )
+                )
+        else:
+            for prefix in _current_items["folders"]:
+                name = prefix.rstrip("/").split("/")[-1] + "/"
+                c = ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.FOLDER_OUTLINED, color=C_WARNING, size=16),
+                        ft.Text(name, size=13, color=C_TEXT, expand=True),
+                        ft.Icon(ft.Icons.CHEVRON_RIGHT, color=C_TEXT_DIM, size=16),
+                    ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    bgcolor=C_SURFACE, border=ft.border.all(1, C_BORDER),
+                    border_radius=6,
+                    padding=ft.padding.symmetric(horizontal=12, vertical=8), ink=True,
+                )
+                browser_col.controls.append(
+                    ft.GestureDetector(
+                        content=c,
+                        on_tap=lambda e, p=prefix: _navigate(nav["bucket"], p),
+                    )
+                )
+            for key in _current_items["files"]:
+                name    = key.split("/")[-1]
+                is_sel  = sel["type"] == "file" and sel["key"] == key
+                c = ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.INSERT_DRIVE_FILE_OUTLINED,
+                                color=C_ACCENT if is_sel else C_TEXT_DIM, size=16),
+                        ft.Text(name, size=12, color=C_TEXT, expand=True),
+                    ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    bgcolor=f"{C_ACCENT}18" if is_sel else C_SURFACE,
+                    border=ft.border.all(2 if is_sel else 1, C_ACCENT if is_sel else C_BORDER),
+                    border_radius=6,
+                    padding=ft.padding.symmetric(horizontal=12, vertical=6), ink=True,
+                )
+                browser_col.controls.append(
+                    ft.GestureDetector(
+                        content=c,
+                        on_tap=lambda e, k=key: _select_file(k),
+                    )
+                )
+
+        if not _current_items["folders"] and not _current_items["files"]:
+            browser_col.controls.append(
+                ft.Text("(sin contenido)", size=11, color=C_TEXT_DIM, italic=True)
+            )
+        page.update()
+
+    def _navigate(bucket: str | None, prefix: str) -> None:
+        nav["bucket"] = bucket
+        nav["prefix"] = prefix
+        sel["type"]   = "none"
+        sel["key"]    = None
+        sel["count"]  = 0
+        sel["display"] = ""
+        _current_items["folders"] = []
+        _current_items["files"]   = []
+
+        def _reset_editor():
+            apply_btn.disabled = True
+            target_label.value = "Selecciona una carpeta o fichero"
+            obj_count_label.value = ""
+            apply_status.value = ""
+            apply_status.visible = False
+            _rebuild_breadcrumb()
+        backend.ui_call(page, _reset_editor)
+        backend.safe_thread(page, _load_browser).start()
+
+    def _load_browser() -> None:
+        def _set_loading():
+            browser_loading.visible = True
+            browser_error.visible   = False
+            browser_col.controls.clear()
+            page.update()
+        backend.ui_call(page, _set_loading)
+
+        try:
+            client = _get_client()
+            if nav["bucket"] is None:
+                resp    = client.list_buckets()
+                buckets = [b["Name"] for b in resp.get("Buckets", [])]
+                _current_items["folders"] = buckets
+                _current_items["files"]   = []
+            else:
+                folders, files = backend.list_prefix_contents(
+                    client, nav["bucket"], nav["prefix"]
+                )
+                _current_items["folders"] = folders
+                _current_items["files"]   = files
+                # Auto-select current prefix for bulk edit
+                _update_prefix_selection()
+
+            def _show():
+                browser_loading.visible = False
+                _render_browser_contents()
+            backend.ui_call(page, _show)
+
+        except Exception as ex:
+            def _err():
+                browser_loading.visible = False
+                browser_error.value     = f"Error: {ex}"
+                browser_error.visible   = True
+                page.update()
+            backend.ui_call(page, _err)
+
+    def _update_prefix_selection() -> None:
+        """Cuenta objetos bajo el prefijo actual y samplea tags del primero."""
+        bucket = nav["bucket"]
+        prefix = nav["prefix"]
+        if not bucket:
+            return
+        client    = _get_client()
+        paginator = client.get_paginator("list_objects_v2")
+        count     = 0
+        first_key = None
+        for pg in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in pg.get("Contents") or []:
+                if first_key is None:
+                    first_key = obj["Key"]
+                count += 1
+
+        tags = {}
+        if first_key:
+            try:
+                tags = backend.get_object_tags(client, bucket, first_key)
+            except Exception:
+                pass
+
+        label   = f"📁 {prefix or (bucket + '/')} — {count} objeto{'s' if count != 1 else ''}"
+        note    = "(tags del primer objeto)" if first_key else "(sin objetos)"
+        tags_cp = dict(tags)
+        cnt_cp  = count
+
+        def _upd():
+            sel["type"]    = "prefix"
+            sel["key"]     = None
+            sel["count"]   = cnt_cp
+            sel["display"] = label
+            target_label.value    = label
+            obj_count_label.value = note
+            apply_btn.disabled    = (cnt_cp == 0)
+            _prefill_fields(tags_cp)
+        backend.ui_call(page, _upd)
+
+    def _select_file(key: str) -> None:
+        def _do():
+            client = _get_client()
+            try:
+                tags = backend.get_object_tags(client, nav["bucket"], key)
+            except Exception as ex:
+                tags = {}
+                def _err():
+                    browser_error.value   = f"Error al leer tags: {ex}"
+                    browser_error.visible = True
+                    page.update()
+                backend.ui_call(page, _err)
+
+            display = f"📄 {key}"
+            tags_cp = dict(tags)
+
+            def _upd():
+                sel["type"]    = "file"
+                sel["key"]     = key
+                sel["count"]   = 1
+                sel["display"] = display
+                target_label.value    = display
+                obj_count_label.value = ""
+                apply_btn.disabled    = False
+                _prefill_fields(tags_cp)
+                _render_browser_contents()
+            backend.ui_call(page, _upd)
+        backend.safe_thread(page, _do).start()
+
+    # ── Editor ────────────────────────────────────────────────────────────
+    profile_names = list(TAG_PROFILES.keys())
+    profile_dd = ft.Dropdown(
+        options=[ft.dropdown.Option(p) for p in profile_names],
+        value=profile_names[0],
+        bgcolor=C_SURFACE2,
+        border_color=C_BORDER,
+        focused_border_color=C_PRIMARY,
+        color=C_TEXT,
+        text_size=13,
+        border_radius=6,
+        content_padding=ft.padding.symmetric(horizontal=12, vertical=8),
+        width=220,
+    )
+    tag_fields_col  = ft.Column(spacing=10)
+    target_label    = ft.Text("Selecciona una carpeta o fichero",
+                               size=12, color=C_TEXT_DIM, italic=True)
+    obj_count_label = ft.Text("", size=11, color=C_TEXT_DIM)
+    apply_btn       = btn_primary("Apply tags →")
+    apply_btn.disabled = True
+    apply_status    = ft.Text("", size=12, color=C_TEXT_DIM, visible=False)
+
+    def _rebuild_tag_fields(profile_name: str) -> None:
+        active_profile["name"] = profile_name
+        tag_fields.clear()
+        tag_fields_col.controls.clear()
+        for label, key in TAG_PROFILES[profile_name]:
+            tf, col = styled_field(label)
+            tag_fields[key] = tf
+            tag_fields_col.controls.append(col)
+        page.update()
+
+    def _prefill_fields(tags: dict[str, str]) -> None:
+        for key, tf in tag_fields.items():
+            tf.value = tags.get(key, "")
+        page.update()
+
+    profile_dd.on_change = lambda e: backend.ui_call(
+        page, lambda: _rebuild_tag_fields(e.control.value)
+    )
+    _rebuild_tag_fields(profile_names[0])
+
+    def do_apply(e) -> None:
+        tagset = {k: (tf.value or "").strip() for k, tf in tag_fields.items()}
+        apply_btn.disabled  = True
+        apply_status.value  = "Aplicando tags..."
+        apply_status.color  = C_TEXT_DIM
+        apply_status.visible = True
+        log_section.visible  = True
+        page.update()
+
+        def _do():
+            client = _get_client()
+            bucket = nav["bucket"]
+            ts     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            _log(f"### Tags aplicados — {ts} ###\n")
+            _log(f"Perfil : {active_profile['name']}\n", C_TEXT_DIM)
+            for k, v in tagset.items():
+                if v:
+                    _log(f"  {k}: {v}\n", C_TEXT_DIM)
+            _log("\n")
+
+            try:
+                if sel["type"] == "file":
+                    _log(f"📄 Fichero: {sel['key']}\n")
+                    backend.apply_tags_to_object(client, bucket, sel["key"], tagset)
+                    _log(f"  ✓ {sel['key']}\n", C_ACCENT)
+                    n_ok = 1
+                else:
+                    prefix = nav["prefix"]
+                    _log(f"📁 Prefijo: {bucket}/{prefix} — {sel['count']} objeto(s)\n")
+                    n_ok = backend.apply_tags_to_prefix(
+                        client, bucket, prefix, tagset,
+                        log_fn=lambda msg: _log(msg),
+                    )
+
+                _log(f"\n✅ {n_ok} objeto(s) tagueado(s) correctamente.\n", C_ACCENT)
+
+                def _ok():
+                    apply_btn.disabled   = False
+                    apply_status.value   = f"✅ {n_ok} objeto(s) actualizados"
+                    apply_status.color   = C_ACCENT
+                    page.update()
+                backend.ui_call(page, _ok)
+
+            except Exception as ex:
+                err_str = str(ex)
+                _log(f"\n❌ Error: {err_str}\n", C_ERROR)
+                def _err():
+                    apply_btn.disabled   = False
+                    apply_status.value   = "❌ Error al aplicar tags"
+                    apply_status.color   = C_ERROR
+                    page.update()
+                backend.ui_call(page, _err)
+
+            _autosave_tag_log()
+
+        backend.safe_thread(page, _do).start()
+
+    apply_btn.on_click = do_apply
+
+    # ── Layout ────────────────────────────────────────────────────────────
+    back_btn = btn_secondary("← Back", on_click=lambda e: on_back())
+
+    content = ft.Column(
+        [
+            build_header(subtitle="Tag Manager", IS_WEB=IS_WEB),
+            ft.Container(
+                content=ft.Row(
+                    [back_btn, ft.Container(expand=True)],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                padding=ft.padding.symmetric(horizontal=24, vertical=8),
+            ),
+            ft.Container(
+                content=ft.Row(
+                    [
+                        # Panel izquierdo: browser
+                        ft.Container(
+                            content=ft.Column(
+                                [
+                                    ft.Text("NAVEGAR", size=10, color=C_TEXT_DIM,
+                                            weight=ft.FontWeight.W_600, letter_spacing=1.5),
+                                    ft.Container(height=8),
+                                    breadcrumb_row,
+                                    ft.Container(height=6),
+                                    browser_loading,
+                                    browser_error,
+                                    ft.Container(
+                                        content=ft.Column(
+                                            [browser_col],
+                                            scroll=ft.ScrollMode.AUTO,
+                                            spacing=0,
+                                        ),
+                                        bgcolor=C_SURFACE,
+                                        border=ft.border.all(1, C_BORDER),
+                                        border_radius=6,
+                                        height=400,
+                                        padding=ft.padding.all(8),
+                                    ),
+                                ],
+                                spacing=0,
+                                width=380,
+                            ),
+                        ),
+                        ft.VerticalDivider(width=1, color=C_BORDER),
+                        # Panel derecho: editor
+                        ft.Container(
+                            content=ft.Column(
+                                [
+                                    ft.Text("EDITAR TAGS", size=10, color=C_TEXT_DIM,
+                                            weight=ft.FontWeight.W_600, letter_spacing=1.5),
+                                    ft.Container(height=8),
+                                    card(
+                                        ft.Column(
+                                            [
+                                                ft.Row(
+                                                    [
+                                                        ft.Text("Perfil:", size=13, color=C_TEXT),
+                                                        profile_dd,
+                                                    ],
+                                                    spacing=12,
+                                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                                ),
+                                                ft.Container(height=12),
+                                                tag_fields_col,
+                                            ],
+                                            spacing=0,
+                                        ),
+                                        padding=16,
+                                    ),
+                                    ft.Container(height=12),
+                                    ft.Container(
+                                        content=ft.Column(
+                                            [target_label, obj_count_label],
+                                            spacing=2,
+                                        ),
+                                        bgcolor=C_SURFACE2,
+                                        border=ft.border.all(1, C_BORDER),
+                                        border_radius=6,
+                                        padding=ft.padding.symmetric(horizontal=12, vertical=8),
+                                    ),
+                                    ft.Container(height=12),
+                                    ft.Row(
+                                        [apply_btn, apply_status],
+                                        spacing=12,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    ),
+                                ],
+                                spacing=0,
+                                expand=True,
+                            ),
+                            padding=ft.padding.only(left=16),
+                            expand=True,
+                        ),
+                    ],
+                    spacing=0,
+                    expand=True,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
+                ),
+                padding=ft.padding.symmetric(horizontal=24, vertical=8),
+                expand=True,
+            ),
+            log_section,
+        ],
+        expand=True,
+        spacing=0,
+        scroll=ft.ScrollMode.AUTO,
+    )
+
+    backend.safe_thread(page, _load_browser).start()
+    return content
+
+
+# ============================================================================
 # FUNCIÓN PRINCIPAL
 # ============================================================================
 
