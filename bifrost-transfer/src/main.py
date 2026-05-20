@@ -2461,8 +2461,7 @@ def _build_tag_manager_content(
     )
     log_section = ft.Container(
         content=ft.Column([
-            ft.Text("LOG", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600,
-                    letter_spacing=1.5),
+            ft.Text("LOG", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600),
             ft.Container(height=6),
             ft.Container(
                 content=log_list,
@@ -2863,7 +2862,7 @@ def _build_tag_manager_content(
                             content=ft.Column(
                                 [
                                     ft.Text("NAVEGAR", size=10, color=C_TEXT_DIM,
-                                            weight=ft.FontWeight.W_600, letter_spacing=1.5),
+                                            weight=ft.FontWeight.W_600),
                                     ft.Container(height=8),
                                     breadcrumb_row,
                                     ft.Container(height=6),
@@ -2892,7 +2891,7 @@ def _build_tag_manager_content(
                             content=ft.Column(
                                 [
                                     ft.Text("EDITAR TAGS", size=10, color=C_TEXT_DIM,
-                                            weight=ft.FontWeight.W_600, letter_spacing=1.5),
+                                            weight=ft.FontWeight.W_600),
                                     ft.Container(height=8),
                                     card(
                                         ft.Column(
