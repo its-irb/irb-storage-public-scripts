@@ -5,7 +5,7 @@ Este repositorio contiene dos aplicaciones de escritorio (Flet/Python) para inte
 
 | App | Carpeta | Función |
 |---|---|---|
-| **bifrost-transfer** | `bifrost-transfer/` | Copia datos desde carpetas de red (SMB/CIFS) o local a buckets de MinIO S3, con verificación de integridad y etiquetado automático de metadatos. |
+| **bifrost-transfer** | `bifrost-transfer/` | Copia datos desde carpetas de red (SMB/CIFS) o local a buckets de MinIO S3, con verificación de integridad y etiquetado automático de metadatos. Incluye **Tag Manager** para navegar y editar los tags de objetos S3 existentes sin re-subida. |
 | **bifrost-mount** | `bifrost-mount/` | Monta carpetas de MinIO S3 como unidad local en el ordenador. |
 
 Ambas aplicaciones comparten el backend definido en `shared/bifrost_backend` (LDAP, rclone, SMB, S3). También comparten parte del frontend en `shared/bifrost_frontend` y ambos se importan como paquetes en los main.py de cada app. 
