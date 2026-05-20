@@ -39,6 +39,7 @@ una carpeta, ver los tags actuales y aplicar un tagset nuevo — sin re-subir da
   un modal, incómodo para navegar.
 - **Log en pantalla + fichero.** El log de operaciones aparece en la pantalla al
   aplicar tags y se guarda automáticamente en `~/bifrost-logs/` al terminar.
+- Esta funcionalidad estará disponible tanto con la verisón desktop como la verisón web.
 
 ---
 
@@ -247,8 +248,6 @@ Usuario está en la vista de copia
   cubren el caso de uso actual.
 - Crear/eliminar buckets desde la UI.
 - Mostrar el tamaño o fecha de modificación de los objetos en el browser.
-- Modo web (`IS_WEB`): la feature es desktop-only por ahora (mismo patrón que
-  `bifrost-mount`).
 - Paginación explícita del browser: `list_objects_v2` ya pagina internamente;
   mostramos todos los resultados del nivel actual.
 - Navegar fuera del bucket seleccionado durante la misma sesión (se puede volver

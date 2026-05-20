@@ -919,6 +919,112 @@ def obtener_perfiles_rclone_config(config_path=None) -> list[str]:
     return config.sections()
 
 
+# ============================================================================
+# S3 TAGGING — boto3 directo (sin rclone, sin re-subida de datos)
+# ============================================================================
+
+def get_s3_client_from_profile(profile_name: str, endpoint: str):
+    """Crea un cliente boto3 S3 con las credenciales STS del perfil rclone dado."""
+    import boto3
+    config_path = obtener_ruta_rclone_conf()
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    section = config[profile_name]
+    return boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=section["access_key_id"],
+        aws_secret_access_key=section["secret_access_key"],
+        aws_session_token=section.get("session_token") or None,
+    )
+
+
+def list_prefix_contents(s3_client, bucket: str, prefix: str) -> tuple[list[str], list[str]]:
+    """Lista carpetas (prefijos) y ficheros en un nivel del bucket.
+
+    Returns:
+        (folders, files): folders son prefijos terminados en '/',
+                          files son claves completas de objetos.
+    """
+    paginator = s3_client.get_paginator("list_objects_v2")
+    folders: list[str] = []
+    files: list[str] = []
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter="/"):
+        for cp in page.get("CommonPrefixes") or []:
+            folders.append(cp["Prefix"])
+        for obj in page.get("Contents") or []:
+            if obj["Key"] != prefix:
+                files.append(obj["Key"])
+    return folders, files
+
+
+def get_object_tags(s3_client, bucket: str, key: str) -> dict[str, str]:
+    """Devuelve los tags de un objeto S3 como dict key→value."""
+    resp = s3_client.get_object_tagging(Bucket=bucket, Key=key)
+    return {t["Key"]: t["Value"] for t in resp.get("TagSet", [])}
+
+
+def apply_tags_to_prefix(
+    s3_client,
+    bucket: str,
+    prefix: str,
+    tagset: dict[str, str],
+    log_fn=None,
+    on_progress=None,
+) -> int:
+    """Aplica tagset (replace completo) a todos los objetos bajo prefix.
+
+    Returns:
+        Número de objetos tagueados con éxito.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    paginator = s3_client.get_paginator("list_objects_v2")
+    keys: list[str] = []
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents") or []:
+            keys.append(obj["Key"])
+
+    tag_list = [{"Key": k, "Value": v} for k, v in tagset.items() if v]
+    total = len(keys)
+    done = {"ok": 0, "err": 0}
+
+    def _tag_one(key: str) -> None:
+        try:
+            s3_client.put_object_tagging(
+                Bucket=bucket, Key=key,
+                Tagging={"TagSet": tag_list},
+            )
+            done["ok"] += 1
+            if log_fn:
+                log_fn(f"  ✓ {key}\n")
+        except Exception as ex:
+            done["err"] += 1
+            if log_fn:
+                log_fn(f"  ✗ {key}: {ex}\n")
+        if on_progress:
+            on_progress(done["ok"] + done["err"], total)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(_tag_one, keys))
+
+    return done["ok"]
+
+
+def apply_tags_to_object(
+    s3_client,
+    bucket: str,
+    key: str,
+    tagset: dict[str, str],
+) -> None:
+    """Aplica tagset (replace completo) a un único objeto S3."""
+    tag_list = [{"Key": k, "Value": v} for k, v in tagset.items() if v]
+    s3_client.put_object_tagging(
+        Bucket=bucket, Key=key,
+        Tagging={"TagSet": tag_list},
+    )
+
+
 def crear_perfil_rclone_smb(
     nombre_perfil: str,
     host: str,

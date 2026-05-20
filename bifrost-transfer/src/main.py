@@ -90,6 +90,22 @@ STS_RENEWAL_THRESHOLD_DAYS = 3
 # Duración (en días) de las credenciales STS renovadas automáticamente
 STS_AUTO_RENEWAL_DAYS = 7
 
+# ============================================================================
+# PERFILES DE TAGS DE METADATOS
+# ============================================================================
+
+TAG_PROFILES: dict[str, list[tuple[str, str]]] = {
+    "IRB Standard": [
+        ("Project",          "project_name"),
+        ("Host machine",     "compute_node"),
+        ("Sample type",      "sample_type"),
+        ("Input data type",  "input_data_type"),
+        ("Output data type", "output_data_type"),
+        ("Requested by",     "requested_by"),
+        ("Research group",   "research_group"),
+    ],
+}
+
 
 # ============================================================================
 # PARA EVITAR PROBLEMAS DE CODIFICACIÓN EN CONSOLA (ESPECIALMENTE EN WINDOWS)
@@ -1717,15 +1733,7 @@ def _build_copy_content(
     )
 
     # ── Metadatos ──────────────────────────────────────────────────────────
-    meta_labels = [
-        ("Project",          "project_name"),
-        ("Host machine",     "compute_node"),
-        ("Sample type",      "sample_type"),
-        ("Input data type",  "input_data_type"),
-        ("Output data type", "output_data_type"),
-        ("Requested by",     "requested_by"),
-        ("Research group",   "research_group"),
-    ]
+    meta_labels = TAG_PROFILES["IRB Standard"]
     meta_fields: dict[str, ft.TextField] = {}
     meta_controls = []
     for label, key in meta_labels:
