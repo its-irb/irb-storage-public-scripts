@@ -1,4 +1,4 @@
-param([string]$app = "bifrost-mount")
+param([string]$app = "bifrost-transfer")
 
 $root = (Get-Location).Path
 python -m build shared/ --outdir "$app/"
