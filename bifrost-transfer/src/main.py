@@ -336,9 +336,9 @@ def _build_login_content(
                                                 spacing=6,
                                             ),
                                             bgcolor=f"{C_WARNING}18",
-                                            border=ft.border.all(1, f"{C_WARNING}44"),
+                                            border=ft.Border.all(1, f"{C_WARNING}44"),
                                             border_radius=6,
-                                            padding=ft.padding.symmetric(horizontal=10, vertical=6),
+                                            padding=ft.Padding.symmetric(horizontal=10, vertical=6),
                                         )
                                     ]
                                     if prefill_user else
@@ -364,7 +364,7 @@ def _build_login_content(
                             width=360,
                         ),
                         bgcolor=C_SURFACE,
-                        border=ft.border.all(1, C_BORDER),
+                        border=ft.Border.all(1, C_BORDER),
                         border_radius=12,
                         padding=36,
                     )
@@ -430,7 +430,7 @@ def _build_shares_content(
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                     expand=True,
-                    padding=ft.padding.symmetric(horizontal=24, vertical=16),
+                    padding=ft.Padding.symmetric(horizontal=24, vertical=16),
                 ),
             ],
             expand=True,
@@ -509,7 +509,7 @@ def _build_shares_content(
                                 tight=True,
                             ),
                             bgcolor=C_SURFACE,
-                            border=ft.border.all(1, C_BORDER),
+                            border=ft.Border.all(1, C_BORDER),
                             border_radius=10,
                             padding=16,
                         ),
@@ -538,7 +538,7 @@ def _build_shares_content(
                     spacing=0,
                     tight=True,
                 ),
-                padding=ft.padding.symmetric(horizontal=24, vertical=8),
+                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
             ),
         ],
         spacing=0,
@@ -624,7 +624,7 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
         for srv, card_c in server_cards.items():
             is_sel = srv == selected["current"]
             card_c.bgcolor = C_SURFACE2 if is_sel else C_SURFACE
-            card_c.border  = ft.border.all(2 if is_sel else 1,
+            card_c.border  = ft.Border.all(2 if is_sel else 1,
                                              C_PRIMARY if is_sel else C_BORDER)
             card_c.content.controls[2].color = C_PRIMARY if is_sel else C_BORDER
         page.update()
@@ -666,10 +666,10 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                 spacing=12,
             ),
             bgcolor=C_SURFACE2 if is_sel else C_SURFACE,
-            border=ft.border.all(2 if is_sel else 1,
+            border=ft.Border.all(2 if is_sel else 1,
                                   C_PRIMARY if is_sel else C_BORDER),
             border_radius=8,
-            padding=ft.padding.symmetric(horizontal=16, vertical=12),
+            padding=ft.Padding.symmetric(horizontal=16, vertical=12),
         )
         server_cards[srv_name] = c
         return ft.GestureDetector(
@@ -715,7 +715,7 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                     spacing=0,
                 ),
                 expand=True,
-                padding=ft.padding.symmetric(horizontal=24, vertical=8),
+                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
             ),
         ],
         expand=True,
@@ -742,12 +742,12 @@ def _build_credentials_content(
         expand=True,
         auto_scroll=True,
         spacing=0,
-        padding=ft.padding.all(12),
+        padding=ft.Padding.all(12),
     )
     log_container = ft.Container(
         content=log_list,
         bgcolor=C_BG,
-        border=ft.border.all(1, C_BORDER),
+        border=ft.Border.all(1, C_BORDER),
         border_radius=6,
         height=220,
     )
@@ -870,7 +870,7 @@ def _build_credentials_content(
                     spacing=0,
                 ),
                 expand=True,
-                padding=ft.padding.symmetric(horizontal=24, vertical=8),
+                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
             ),
         ],
         expand=True,
@@ -930,7 +930,7 @@ def build_rclone_browser(
         color=C_TEXT,
         hint_style=ft.TextStyle(color=C_TEXT_DIM),
         border_radius=6,
-        content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
+        content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
         text_size=12,
         expand=True,
     )
@@ -949,7 +949,7 @@ def build_rclone_browser(
                 content=ft.Text(f"{perfil_rclone}:"),
                 style=ft.ButtonStyle(
                     color=C_PRIMARY,
-                    padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                    padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                 ),
                 on_click=lambda e: _navigate(""),
             )
@@ -971,7 +971,7 @@ def build_rclone_browser(
                         content=ft.Text(part),
                         style=ft.ButtonStyle(
                             color=C_PRIMARY,
-                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                            padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                         ),
                         on_click=lambda e, p=path_snap: _navigate(p),
                     )
@@ -1016,9 +1016,9 @@ def build_rclone_browser(
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                 ),
                                 bgcolor=C_SURFACE2,
-                                border=ft.border.all(1, C_BORDER),
+                                border=ft.Border.all(1, C_BORDER),
                                 border_radius=6,
-                                padding=ft.padding.symmetric(horizontal=12, vertical=8),
+                                padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                                 on_click=lambda e, p=fp_snap: _navigate(p),
                                 ink=True,
                             )
@@ -1041,7 +1041,7 @@ def build_rclone_browser(
                         focused_border_color=C_PRIMARY,
                         color=C_TEXT,
                         border_radius=6,
-                        content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
+                        content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
                         text_size=12,
                         expand=True,
                         visible=False,
@@ -1115,7 +1115,7 @@ def build_rclone_browser(
                                 tight=True,
                             ),
                             bgcolor=f"{C_WARNING}11",
-                            border=ft.border.all(1, f"{C_WARNING}44"),
+                            border=ft.Border.all(1, f"{C_WARNING}44"),
                             border_radius=8,
                             padding=12,
                         )
@@ -1188,9 +1188,9 @@ def build_rclone_browser(
             ft.Container(
                 content=breadcrumb_row,
                 bgcolor=C_SURFACE2,
-                border=ft.border.all(1, C_BORDER),
+                border=ft.Border.all(1, C_BORDER),
                 border_radius=6,
-                padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
             ),
             loading_row,
             error_text,
@@ -1201,10 +1201,10 @@ def build_rclone_browser(
                     spacing=0,
                 ),
                 bgcolor=C_SURFACE,
-                border=ft.border.all(1, C_BORDER),
+                border=ft.Border.all(1, C_BORDER),
                 border_radius=6,
                 height=200,
-                padding=ft.padding.all(8),
+                padding=ft.Padding.all(8),
             ),
             # ── Fila "Create folder" ──────────────────────────────────────
             ft.Container(
@@ -1231,9 +1231,9 @@ def build_rclone_browser(
                     tight=True,
                 ),
                 bgcolor=C_SURFACE2,
-                border=ft.border.all(1, C_BORDER),
+                border=ft.Border.all(1, C_BORDER),
                 border_radius=6,
-                padding=ft.padding.symmetric(horizontal=12, vertical=10),
+                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
             ),
         ],
         spacing=6,
@@ -1289,7 +1289,7 @@ def build_local_fs_browser(
                 content=ft.Text("/"),
                 style=ft.ButtonStyle(
                     color=C_PRIMARY,
-                    padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                    padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                 ),
                 on_click=lambda e, p=accumulated: _navigate(p),
             )
@@ -1309,7 +1309,7 @@ def build_local_fs_browser(
                         content=ft.Text(part),
                         style=ft.ButtonStyle(
                             color=C_PRIMARY,
-                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                            padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                         ),
                         on_click=lambda e, p=acc_snap: _navigate(p),
                     )
@@ -1360,9 +1360,9 @@ def build_local_fs_browser(
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
                             bgcolor=C_BG,
-                            border=ft.border.all(1, C_BORDER),
+                            border=ft.Border.all(1, C_BORDER),
                             border_radius=6,
-                            padding=ft.padding.symmetric(horizontal=12, vertical=6),
+                            padding=ft.Padding.symmetric(horizontal=12, vertical=6),
                             on_click=lambda e, p=parent_snap: _navigate(p),
                             ink=True,
                         )
@@ -1429,9 +1429,9 @@ def build_local_fs_browser(
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
                         bgcolor=C_SURFACE2 if is_dir else C_BG,
-                        border=ft.border.all(1, C_BORDER),
+                        border=ft.Border.all(1, C_BORDER),
                         border_radius=6,
-                        padding=ft.padding.symmetric(horizontal=12, vertical=8),
+                        padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                         on_click=_make_click() if navigable else (
                             (lambda e, ep=ep_snap: on_select(str(ep))) if selectable else None
                         ),
@@ -1450,9 +1450,9 @@ def build_local_fs_browser(
             ft.Container(
                 content=breadcrumb_row,
                 bgcolor=C_SURFACE2,
-                border=ft.border.all(1, C_BORDER),
+                border=ft.Border.all(1, C_BORDER),
                 border_radius=6,
-                padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
             ),
             loading_row,
             error_text,
@@ -1463,10 +1463,10 @@ def build_local_fs_browser(
                     spacing=0,
                 ),
                 bgcolor=C_SURFACE,
-                border=ft.border.all(1, C_BORDER),
+                border=ft.Border.all(1, C_BORDER),
                 border_radius=6,
                 height=260,
-                padding=ft.padding.all(8),
+                padding=ft.Padding.all(8),
             ),
         ],
         spacing=6,
@@ -1539,7 +1539,7 @@ def show_local_fs_modal(
                 tight=True,
             ),
             style=ft.ButtonStyle(
-                padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                 bgcolor={ft.ControlState.HOVERED: f"{C_PRIMARY}22"},
                 shape=ft.RoundedRectangleBorder(radius=6),
             ),
@@ -1629,9 +1629,9 @@ def _build_copy_content(
     expiry_badge = ft.Container(
         content=ft.Text(expiry_text, size=11, color=color_badge, weight=ft.FontWeight.W_600),
         bgcolor=f"{color_badge}22",
-        border=ft.border.all(1, f"{color_badge}55"),
+        border=ft.Border.all(1, f"{color_badge}55"),
         border_radius=20,
-        padding=ft.padding.symmetric(horizontal=10, vertical=4),
+        padding=ft.Padding.symmetric(horizontal=10, vertical=4),
     )
 
     def show_renew_dialog(e):
@@ -1642,7 +1642,7 @@ def _build_copy_content(
             focused_border_color=C_PRIMARY,
             color=C_TEXT,
             border_radius=6,
-            content_padding=ft.padding.symmetric(horizontal=12, vertical=10),
+            content_padding=ft.Padding.symmetric(horizontal=12, vertical=10),
             text_size=13,
             width=80,
             keyboard_type=ft.KeyboardType.NUMBER,
@@ -1752,7 +1752,7 @@ def _build_copy_content(
         expand=True,
         auto_scroll=True,
         spacing=0,
-        padding=ft.padding.all(12),
+        padding=ft.Padding.all(12),
     )
 
     _log_lock = threading.Lock()
@@ -1760,7 +1760,7 @@ def _build_copy_content(
     log_container = ft.Container(
         content=log_list,
         bgcolor=C_BG,
-        border=ft.border.all(1, C_BORDER),
+        border=ft.Border.all(1, C_BORDER),
         border_radius=6,
         height=280,
     )
@@ -1877,7 +1877,7 @@ def _build_copy_content(
     # ── Botones ────────────────────────────────────────────────────────────
     copy_btn   = btn_primary("▶  Copy data")
     check_btn  = btn_primary("✓  Check data", disabled=False)
-    cancel_btn = ft.ElevatedButton(
+    cancel_btn = ft.Button(
         content=ft.Row(
             [ft.Icon(ft.Icons.STOP_CIRCLE_OUTLINED, size=16), ft.Text("Cancel")],
             spacing=6, tight=True,
@@ -1890,7 +1890,7 @@ def _build_copy_content(
             },
             color={ft.ControlState.DEFAULT: "#0D1117"},
             shape=ft.RoundedRectangleBorder(radius=6),
-            padding=ft.padding.symmetric(horizontal=16, vertical=12),
+            padding=ft.Padding.symmetric(horizontal=16, vertical=12),
         ),
     )
     mount_btn = btn_secondary("⊞  Mount destination")
@@ -2252,8 +2252,8 @@ def _build_copy_content(
                     [c for c in [back_btn, tags_btn, expiry_badge, ft.Container(expand=True), renew_btn] if c is not None],
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                padding=ft.padding.symmetric(horizontal=24, vertical=8),
-                margin=ft.margin.only(bottom=4),
+                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
+                margin=ft.Margin.only(bottom=4),
             ),
             ft.Container(
                 content=ft.Column(
@@ -2295,7 +2295,7 @@ def _build_copy_content(
                     ],
                     spacing=0,
                 ),
-                padding=ft.padding.symmetric(horizontal=24, vertical=8),
+                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
             ),
         ],
         spacing=0,
@@ -2447,17 +2447,20 @@ def _build_tag_manager_content(
 ) -> ft.Control:
     # ── Estado ────────────────────────────────────────────────────────────
     s3  = {"client": None}
-    nav = {"bucket": None, "prefix": ""}
+    nav = {"bucket": None, "prefix": "", "show_files": False}
     sel = {"type": "none", "key": None, "count": 0, "display": ""}
     active_profile  = {"name": list(TAG_PROFILES.keys())[0]}
     tag_fields: dict[str, ft.TextField] = {}
     _log_buffer: list[str] = []
     _current_items = {"folders": [], "files": []}
+    _file_tag_rows: list[dict] = []          # filas del editor freeform
+    _file_editor_section  = None             # asignado tras construir widgets
+    _profile_editor_section = None           # asignado tras construir widgets
 
     # ── Log ───────────────────────────────────────────────────────────────
     log_list = ft.ListView(
         expand=True, auto_scroll=True, spacing=0,
-        padding=ft.padding.all(12),
+        padding=ft.Padding.all(12),
     )
     log_section = ft.Container(
         content=ft.Column([
@@ -2466,12 +2469,12 @@ def _build_tag_manager_content(
             ft.Container(
                 content=log_list,
                 bgcolor=C_BG,
-                border=ft.border.all(1, C_BORDER),
+                border=ft.Border.all(1, C_BORDER),
                 border_radius=6,
                 height=180,
             ),
         ], spacing=0),
-        padding=ft.padding.symmetric(horizontal=24, vertical=8),
+        padding=ft.Padding.symmetric(horizontal=24, vertical=8),
         visible=False,
     )
 
@@ -2524,7 +2527,7 @@ def _build_tag_manager_content(
                 on_click=on_click_fn,
                 style=ft.ButtonStyle(
                     color=C_PRIMARY,
-                    padding=ft.padding.symmetric(horizontal=4, vertical=0),
+                    padding=ft.Padding.symmetric(horizontal=4, vertical=0),
                 ),
             )
 
@@ -2559,9 +2562,9 @@ def _build_tag_manager_content(
                         ft.Text(bname, size=13, color=C_TEXT, expand=True),
                         ft.Icon(ft.Icons.CHEVRON_RIGHT, color=C_TEXT_DIM, size=16),
                     ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    bgcolor=C_SURFACE2, border=ft.border.all(1, C_BORDER),
+                    bgcolor=C_SURFACE2, border=ft.Border.all(1, C_BORDER),
                     border_radius=6,
-                    padding=ft.padding.symmetric(horizontal=12, vertical=8), ink=True,
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=8), ink=True,
                 )
                 browser_col.controls.append(
                     ft.GestureDetector(
@@ -2578,9 +2581,9 @@ def _build_tag_manager_content(
                         ft.Text(name, size=13, color=C_TEXT, expand=True),
                         ft.Icon(ft.Icons.CHEVRON_RIGHT, color=C_TEXT_DIM, size=16),
                     ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    bgcolor=C_SURFACE, border=ft.border.all(1, C_BORDER),
+                    bgcolor=C_SURFACE, border=ft.Border.all(1, C_BORDER),
                     border_radius=6,
-                    padding=ft.padding.symmetric(horizontal=12, vertical=8), ink=True,
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=8), ink=True,
                 )
                 browser_col.controls.append(
                     ft.GestureDetector(
@@ -2588,26 +2591,44 @@ def _build_tag_manager_content(
                         on_tap=lambda e, p=prefix: _navigate(nav["bucket"], p),
                     )
                 )
-            for key in _current_items["files"]:
-                name    = key.split("/")[-1]
-                is_sel  = sel["type"] == "file" and sel["key"] == key
-                c = ft.Container(
-                    content=ft.Row([
-                        ft.Icon(ft.Icons.INSERT_DRIVE_FILE_OUTLINED,
-                                color=C_ACCENT if is_sel else C_TEXT_DIM, size=16),
-                        ft.Text(name, size=12, color=C_TEXT, expand=True),
-                    ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    bgcolor=f"{C_ACCENT}18" if is_sel else C_SURFACE,
-                    border=ft.border.all(2 if is_sel else 1, C_ACCENT if is_sel else C_BORDER),
-                    border_radius=6,
-                    padding=ft.padding.symmetric(horizontal=12, vertical=6), ink=True,
-                )
+
+            files = _current_items["files"]
+            if files and not nav["show_files"]:
+                def _on_view_files(e):
+                    nav["show_files"] = True
+                    backend.ui_call(page, _render_browser_contents)
                 browser_col.controls.append(
-                    ft.GestureDetector(
-                        content=c,
-                        on_tap=lambda e, k=key: _select_file(k),
+                    ft.Container(
+                        content=ft.TextButton(
+                            f"View files ({len(files)})",
+                            icon=ft.Icons.INSERT_DRIVE_FILE_OUTLINED,
+                            on_click=_on_view_files,
+                            style=ft.ButtonStyle(color=C_TEXT_DIM),
+                        ),
+                        padding=ft.Padding.symmetric(horizontal=4, vertical=2),
                     )
                 )
+            elif nav["show_files"]:
+                for key in files:
+                    name    = key.split("/")[-1]
+                    is_sel  = sel["type"] == "file" and sel["key"] == key
+                    c = ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.INSERT_DRIVE_FILE_OUTLINED,
+                                    color=C_ACCENT if is_sel else C_TEXT_DIM, size=16),
+                            ft.Text(name, size=12, color=C_TEXT, expand=True),
+                        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        bgcolor=f"{C_ACCENT}18" if is_sel else C_SURFACE,
+                        border=ft.Border.all(2 if is_sel else 1, C_ACCENT if is_sel else C_BORDER),
+                        border_radius=6,
+                        padding=ft.Padding.symmetric(horizontal=12, vertical=6), ink=True,
+                    )
+                    browser_col.controls.append(
+                        ft.GestureDetector(
+                            content=c,
+                            on_tap=lambda e, k=key: _select_file(k),
+                        )
+                    )
 
         if not _current_items["folders"] and not _current_items["files"]:
             browser_col.controls.append(
@@ -2616,8 +2637,9 @@ def _build_tag_manager_content(
         page.update()
 
     def _navigate(bucket: str | None, prefix: str) -> None:
-        nav["bucket"] = bucket
-        nav["prefix"] = prefix
+        nav["bucket"]     = bucket
+        nav["prefix"]     = prefix
+        nav["show_files"] = False
         sel["type"]   = "none"
         sel["key"]    = None
         sel["count"]  = 0
@@ -2631,6 +2653,10 @@ def _build_tag_manager_content(
             obj_count_label.value = ""
             apply_status.value = ""
             apply_status.visible = False
+            if _file_editor_section is not None:
+                _file_editor_section.visible  = False
+                _profile_editor_section.visible = True
+                _file_save_status.visible = False
             _rebuild_breadcrumb()
         backend.ui_call(page, _reset_editor)
         backend.safe_thread(page, _load_browser).start()
@@ -2736,6 +2762,11 @@ def _build_tag_manager_content(
                 obj_count_label.value = ""
                 apply_btn.disabled    = False
                 _prefill_fields(tags_cp)
+                _file_name_label.value = key
+                _populate_file_editor(tags_cp)
+                if _file_editor_section is not None:
+                    _file_editor_section.visible  = True
+                    _profile_editor_section.visible = False
                 _render_browser_contents()
             backend.ui_call(page, _upd)
         backend.safe_thread(page, _do).start()
@@ -2751,7 +2782,7 @@ def _build_tag_manager_content(
         color=C_TEXT,
         text_size=13,
         border_radius=6,
-        content_padding=ft.padding.symmetric(horizontal=12, vertical=8),
+        content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
         width=220,
     )
     tag_fields_col  = ft.Column(spacing=10)
@@ -2841,6 +2872,240 @@ def _build_tag_manager_content(
 
     apply_btn.on_click = do_apply
 
+    # ── Editor freeform (fichero individual) ────────────────────────────
+    _add_btn_ref  = {"btn": None}   # forward ref — asignado abajo
+    _save_btn_ref = {"btn": None}   # forward ref — asignado abajo
+
+    _file_name_label  = ft.Text("", size=12, color=C_TEXT_DIM, italic=True)
+    _file_tags_col    = ft.Column(spacing=6, tight=True)
+    _file_save_status = ft.Text("", size=12, visible=False)
+
+    def _refresh_add_btn_state() -> None:
+        if _add_btn_ref["btn"] is not None:
+            _add_btn_ref["btn"].disabled = len(_file_tag_rows) >= 10
+
+    def _build_file_editor_row(key: str = "", value: str = "") -> dict:
+        key_tf = ft.TextField(
+            value=key, hint_text="Clave",
+            bgcolor=C_SURFACE2, border_color=C_BORDER,
+            focused_border_color=C_PRIMARY, color=C_TEXT,
+            hint_style=ft.TextStyle(color=C_TEXT_DIM),
+            border_radius=6,
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            text_size=12, max_length=256, expand=1,
+        )
+        val_tf = ft.TextField(
+            value=value, hint_text="Valor",
+            bgcolor=C_SURFACE2, border_color=C_BORDER,
+            focused_border_color=C_PRIMARY, color=C_TEXT,
+            hint_style=ft.TextStyle(color=C_TEXT_DIM),
+            border_radius=6,
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            text_size=12, max_length=256, expand=2,
+        )
+        row_dict: dict = {"key_tf": key_tf, "val_tf": val_tf, "row": None}
+
+        def _delete(e, rd=row_dict):
+            _file_tag_rows.remove(rd)
+            _file_tags_col.controls.remove(rd["row"])
+            _refresh_add_btn_state()
+            page.update()
+
+        row = ft.Row(
+            [
+                key_tf, val_tf,
+                ft.IconButton(
+                    icon=ft.Icons.CLOSE, icon_size=16, icon_color=C_TEXT_DIM,
+                    tooltip="Eliminar", on_click=_delete,
+                ),
+            ],
+            spacing=6,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+        row_dict["row"] = row
+        return row_dict
+
+    def _populate_file_editor(tags: dict[str, str]) -> None:
+        _file_tag_rows.clear()
+        _file_tags_col.controls.clear()
+        _file_save_status.visible = False
+        for k, v in tags.items():
+            rd = _build_file_editor_row(k, v)
+            _file_tag_rows.append(rd)
+            _file_tags_col.controls.append(rd["row"])
+        _refresh_add_btn_state()
+        page.update()
+
+    def _on_add_tag_row(e) -> None:
+        if len(_file_tag_rows) >= 10:
+            return
+        rd = _build_file_editor_row()
+        _file_tag_rows.append(rd)
+        _file_tags_col.controls.append(rd["row"])
+        _refresh_add_btn_state()
+        page.update()
+
+    def _on_prefill_from_profile(e) -> None:
+        existing_keys = {rd["key_tf"].value for rd in _file_tag_rows if rd["key_tf"].value}
+        for _lbl, pkey in TAG_PROFILES[active_profile["name"]]:
+            if pkey not in existing_keys:
+                if len(_file_tag_rows) >= 10:
+                    break
+                rd = _build_file_editor_row(pkey, "")
+                _file_tag_rows.append(rd)
+                _file_tags_col.controls.append(rd["row"])
+        _refresh_add_btn_state()
+        page.update()
+
+    def _on_save_file_tags(e) -> None:
+        tagset = {
+            rd["key_tf"].value.strip(): rd["val_tf"].value.strip()
+            for rd in _file_tag_rows
+            if rd["key_tf"].value.strip()
+        }
+        if _save_btn_ref["btn"] is not None:
+            _save_btn_ref["btn"].disabled = True
+        _file_save_status.value   = "Guardando..."
+        _file_save_status.color   = C_TEXT_DIM
+        _file_save_status.visible = True
+        page.update()
+
+        def _do():
+            client = _get_client()
+            try:
+                backend.apply_tags_to_object(client, nav["bucket"], sel["key"], tagset)
+                def _ok():
+                    if _save_btn_ref["btn"] is not None:
+                        _save_btn_ref["btn"].disabled = False
+                    _file_save_status.value = "✅ Tags guardados"
+                    _file_save_status.color = C_ACCENT
+                    page.update()
+                backend.ui_call(page, _ok)
+            except Exception as ex:
+                err_str = str(ex)
+                def _err():
+                    if _save_btn_ref["btn"] is not None:
+                        _save_btn_ref["btn"].disabled = False
+                    _file_save_status.value = f"❌ Error: {err_str}"
+                    _file_save_status.color = C_ERROR
+                    page.update()
+                backend.ui_call(page, _err)
+
+        backend.safe_thread(page, _do).start()
+
+    add_tag_btn = btn_secondary("+ Añadir tag", on_click=_on_add_tag_row)
+    _add_btn_ref["btn"] = add_tag_btn
+
+    prefill_profile_dd = ft.Dropdown(
+        options=[ft.dropdown.Option(p) for p in profile_names],
+        value=profile_names[0],
+        bgcolor=C_SURFACE2,
+        border_color=C_BORDER,
+        focused_border_color=C_PRIMARY,
+        color=C_TEXT,
+        text_size=12,
+        border_radius=6,
+        content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+        width=175,
+        on_change=lambda e: active_profile.update({"name": e.control.value}),
+    )
+    prefill_btn   = btn_secondary("Pre-fill", on_click=_on_prefill_from_profile)
+    file_save_btn = btn_primary("Guardar tags")
+    file_save_btn.on_click = _on_save_file_tags
+    _save_btn_ref["btn"]   = file_save_btn
+
+    _file_editor_section = ft.Container(
+        visible=False,
+        expand=True,
+        content=ft.Column(
+            [
+                ft.Text("TAGS DEL FICHERO", size=10, color=C_TEXT_DIM,
+                        weight=ft.FontWeight.W_600),
+                ft.Container(height=8),
+                _file_name_label,
+                ft.Container(height=8),
+                ft.Row(
+                    [
+                        ft.Text("Clave", size=11, color=C_TEXT_DIM, expand=1),
+                        ft.Text("Valor", size=11, color=C_TEXT_DIM, expand=2),
+                        ft.Container(width=40),
+                    ],
+                    spacing=6,
+                ),
+                ft.Container(height=4),
+                _file_tags_col,
+                ft.Container(height=8),
+                add_tag_btn,
+                ft.Container(height=12),
+                ft.Divider(height=1, color=C_BORDER),
+                ft.Container(height=8),
+                ft.Row(
+                    [prefill_profile_dd, prefill_btn],
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Container(height=12),
+                ft.Row(
+                    [file_save_btn, _file_save_status],
+                    spacing=12,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            ],
+            spacing=0,
+            scroll=ft.ScrollMode.AUTO,
+            expand=True,
+        ),
+    )
+
+    _profile_editor_section = ft.Container(
+        visible=True,
+        expand=True,
+        content=ft.Column(
+            [
+                ft.Text("EDITAR TAGS", size=10, color=C_TEXT_DIM,
+                        weight=ft.FontWeight.W_600),
+                ft.Container(height=8),
+                card(
+                    ft.Column(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Text("Perfil:", size=13, color=C_TEXT),
+                                    profile_dd,
+                                ],
+                                spacing=12,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                            ft.Container(height=12),
+                            tag_fields_col,
+                        ],
+                        spacing=0,
+                    ),
+                    padding=16,
+                ),
+                ft.Container(height=12),
+                ft.Container(
+                    content=ft.Column(
+                        [target_label, obj_count_label],
+                        spacing=2,
+                    ),
+                    bgcolor=C_SURFACE2,
+                    border=ft.Border.all(1, C_BORDER),
+                    border_radius=6,
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                ),
+                ft.Container(height=12),
+                ft.Row(
+                    [apply_btn, apply_status],
+                    spacing=12,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            ],
+            spacing=0,
+            expand=True,
+        ),
+    )
+
     # ── Layout ────────────────────────────────────────────────────────────
     back_btn = btn_secondary("← Back", on_click=lambda e: on_back())
 
@@ -2852,7 +3117,7 @@ def _build_tag_manager_content(
                     [back_btn, ft.Container(expand=True)],
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                padding=ft.padding.symmetric(horizontal=24, vertical=8),
+                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
             ),
             ft.Container(
                 content=ft.Row(
@@ -2875,10 +3140,10 @@ def _build_tag_manager_content(
                                             spacing=0,
                                         ),
                                         bgcolor=C_SURFACE,
-                                        border=ft.border.all(1, C_BORDER),
+                                        border=ft.Border.all(1, C_BORDER),
                                         border_radius=6,
                                         height=400,
-                                        padding=ft.padding.all(8),
+                                        padding=ft.Padding.all(8),
                                     ),
                                 ],
                                 spacing=0,
@@ -2886,53 +3151,14 @@ def _build_tag_manager_content(
                             ),
                         ),
                         ft.VerticalDivider(width=1, color=C_BORDER),
-                        # Panel derecho: editor
+                        # Panel derecho: editor (freeform para fichero / perfil para carpeta)
                         ft.Container(
                             content=ft.Column(
-                                [
-                                    ft.Text("EDITAR TAGS", size=10, color=C_TEXT_DIM,
-                                            weight=ft.FontWeight.W_600),
-                                    ft.Container(height=8),
-                                    card(
-                                        ft.Column(
-                                            [
-                                                ft.Row(
-                                                    [
-                                                        ft.Text("Perfil:", size=13, color=C_TEXT),
-                                                        profile_dd,
-                                                    ],
-                                                    spacing=12,
-                                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                                ),
-                                                ft.Container(height=12),
-                                                tag_fields_col,
-                                            ],
-                                            spacing=0,
-                                        ),
-                                        padding=16,
-                                    ),
-                                    ft.Container(height=12),
-                                    ft.Container(
-                                        content=ft.Column(
-                                            [target_label, obj_count_label],
-                                            spacing=2,
-                                        ),
-                                        bgcolor=C_SURFACE2,
-                                        border=ft.border.all(1, C_BORDER),
-                                        border_radius=6,
-                                        padding=ft.padding.symmetric(horizontal=12, vertical=8),
-                                    ),
-                                    ft.Container(height=12),
-                                    ft.Row(
-                                        [apply_btn, apply_status],
-                                        spacing=12,
-                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                    ),
-                                ],
+                                [_file_editor_section, _profile_editor_section],
                                 spacing=0,
                                 expand=True,
                             ),
-                            padding=ft.padding.only(left=16),
+                            padding=ft.Padding.only(left=16),
                             expand=True,
                         ),
                     ],
@@ -2940,7 +3166,7 @@ def _build_tag_manager_content(
                     expand=True,
                     vertical_alignment=ft.CrossAxisAlignment.START,
                 ),
-                padding=ft.padding.symmetric(horizontal=24, vertical=8),
+                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
                 expand=True,
             ),
             log_section,
