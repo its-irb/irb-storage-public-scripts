@@ -1124,9 +1124,9 @@ def build_rclone_browser(
 
                 backend.ui_call(page, _timeout_ui)
             except Exception as ex:
-                def _err():
+                def _err(ex_val=ex):
                     loading_row.visible = False
-                    error_text.value    = f"Error: {ex}"
+                    error_text.value    = f"Error: {ex_val}"
                     error_text.visible  = True
                     page.update()
                 backend.ui_call(page, _err)
@@ -2456,6 +2456,7 @@ def _build_tag_manager_content(
     _file_tag_rows: list[dict] = []          # filas del editor freeform
     _file_editor_section  = None             # asignado tras construir widgets
     _profile_editor_section = None           # asignado tras construir widgets
+    right_panel = {"visible": False}
 
     # ── Log ───────────────────────────────────────────────────────────────
     log_list = ft.ListView(
@@ -2554,49 +2555,83 @@ def _build_tag_manager_content(
 
     def _render_browser_contents() -> None:
         browser_col.controls.clear()
+
         if nav["bucket"] is None:
             for bname in _current_items["folders"]:
+
+                arrow = ft.IconButton(
+                    icon=ft.Icons.CHEVRON_RIGHT,
+                    icon_color=C_TEXT_DIM,
+                    icon_size=16,
+                    tooltip="Entrar en bucket",
+                    on_click=lambda e, b=bname: _navigate(b, ""),
+                )
+
                 c = ft.Container(
                     content=ft.Row([
                         ft.Icon(ft.Icons.STORAGE_OUTLINED, color=C_PRIMARY, size=16),
                         ft.Text(bname, size=13, color=C_TEXT, expand=True),
-                        ft.Icon(ft.Icons.CHEVRON_RIGHT, color=C_TEXT_DIM, size=16),
+                        arrow,
                     ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    bgcolor=C_SURFACE2, border=ft.Border.all(1, C_BORDER),
+                    bgcolor=C_SURFACE2,
+                    border=ft.Border.all(1, C_BORDER),
                     border_radius=6,
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=8), ink=True,
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                    ink=True,
                 )
+
                 browser_col.controls.append(
                     ft.GestureDetector(
                         content=c,
-                        on_tap=lambda e, b=bname: _navigate(b, ""),
+                        # 1 click: seleccionar bucket para tags
+                        on_tap=lambda e, b=bname: _select_prefix(""),
+                        # 2 clicks: navegar dentro del bucket
+                        on_double_tap=lambda e, b=bname: _navigate(b, ""),
                     )
                 )
+
         else:
             for prefix in _current_items["folders"]:
                 name = prefix.rstrip("/").split("/")[-1] + "/"
+
+                arrow = ft.IconButton(
+                    icon=ft.Icons.CHEVRON_RIGHT,
+                    icon_color=C_TEXT_DIM,
+                    icon_size=16,
+                    tooltip="Entrar en carpeta",
+                    on_click=lambda e, p=prefix: _navigate(nav["bucket"], p),
+                )
+
                 c = ft.Container(
                     content=ft.Row([
                         ft.Icon(ft.Icons.FOLDER_OUTLINED, color=C_WARNING, size=16),
                         ft.Text(name, size=13, color=C_TEXT, expand=True),
-                        ft.Icon(ft.Icons.CHEVRON_RIGHT, color=C_TEXT_DIM, size=16),
+                        arrow,
                     ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    bgcolor=C_SURFACE, border=ft.Border.all(1, C_BORDER),
+                    bgcolor=C_SURFACE,
+                    border=ft.Border.all(1, C_BORDER),
                     border_radius=6,
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=8), ink=True,
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                    ink=True,
                 )
+
                 browser_col.controls.append(
                     ft.GestureDetector(
                         content=c,
-                        on_tap=lambda e, p=prefix: _navigate(nav["bucket"], p),
+                        # 1 click: seleccionar carpeta para tags
+                        on_tap=lambda e, p=prefix: _select_prefix(p),
+                        # 2 clicks: navegar dentro de la carpeta
+                        on_double_tap=lambda e, p=prefix: _navigate(nav["bucket"], p),
                     )
                 )
 
             files = _current_items["files"]
+
             if files and not nav["show_files"]:
                 def _on_view_files(e):
                     nav["show_files"] = True
                     backend.ui_call(page, _render_browser_contents)
+
                 browser_col.controls.append(
                     ft.Container(
                         content=ft.TextButton(
@@ -2608,21 +2643,31 @@ def _build_tag_manager_content(
                         padding=ft.Padding.symmetric(horizontal=4, vertical=2),
                     )
                 )
+
             elif nav["show_files"]:
                 for key in files:
-                    name    = key.split("/")[-1]
-                    is_sel  = sel["type"] == "file" and sel["key"] == key
+                    name = key.split("/")[-1]
+                    is_sel = sel["type"] == "file" and sel["key"] == key
+
                     c = ft.Container(
                         content=ft.Row([
-                            ft.Icon(ft.Icons.INSERT_DRIVE_FILE_OUTLINED,
-                                    color=C_ACCENT if is_sel else C_TEXT_DIM, size=16),
+                            ft.Icon(
+                                ft.Icons.INSERT_DRIVE_FILE_OUTLINED,
+                                color=C_ACCENT if is_sel else C_TEXT_DIM,
+                                size=16,
+                            ),
                             ft.Text(name, size=12, color=C_TEXT, expand=True),
                         ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                         bgcolor=f"{C_ACCENT}18" if is_sel else C_SURFACE,
-                        border=ft.Border.all(2 if is_sel else 1, C_ACCENT if is_sel else C_BORDER),
+                        border=ft.Border.all(
+                            2 if is_sel else 1,
+                            C_ACCENT if is_sel else C_BORDER,
+                        ),
                         border_radius=6,
-                        padding=ft.Padding.symmetric(horizontal=12, vertical=6), ink=True,
+                        padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+                        ink=True,
                     )
+
                     browser_col.controls.append(
                         ft.GestureDetector(
                             content=c,
@@ -2634,12 +2679,34 @@ def _build_tag_manager_content(
             browser_col.controls.append(
                 ft.Text("(sin contenido)", size=11, color=C_TEXT_DIM, italic=True)
             )
+
         page.update()
+        
+    def _select_prefix(prefix: str) -> None:
+        nav["show_files"] = False
+        right_panel["visible"] = True
+        right_editor.visible = True
+
+        def _show_panel():
+            right_editor.visible = True
+            if _file_editor_section is not None:
+                _file_editor_section.visible = False
+                _profile_editor_section.visible = True
+            page.update()
+
+        backend.ui_call(page, _show_panel)
+
+        old_prefix = nav["prefix"]
+        nav["prefix"] = prefix
+        _update_prefix_selection()
+        nav["prefix"] = old_prefix
 
     def _navigate(bucket: str | None, prefix: str) -> None:
         nav["bucket"]     = bucket
         nav["prefix"]     = prefix
         nav["show_files"] = False
+        right_editor.visible = False
+        right_panel["visible"] = False
         sel["type"]   = "none"
         sel["key"]    = None
         sel["count"]  = 0
@@ -2691,9 +2758,9 @@ def _build_tag_manager_content(
             backend.ui_call(page, _show)
 
         except Exception as ex:
-            def _err():
+            def _err(ex_val=ex):
                 browser_loading.visible = False
-                browser_error.value     = f"Error: {ex}"
+                browser_error.value     = f"Error: {ex_val}"
                 browser_error.visible   = True
                 page.update()
             backend.ui_call(page, _err)
@@ -2740,6 +2807,8 @@ def _build_tag_manager_content(
     def _select_file(key: str) -> None:
         def _do():
             client = _get_client()
+            right_panel["visible"] = True
+            right_editor.visible = True
             try:
                 tags = backend.get_object_tags(client, nav["bucket"], key)
             except Exception as ex:
@@ -3007,8 +3076,8 @@ def _build_tag_manager_content(
         border_radius=6,
         content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
         width=175,
-        on_change=lambda e: active_profile.update({"name": e.control.value}),
     )
+    prefill_profile_dd.on_change = lambda e: active_profile.update({"name": e.control.value})
     prefill_btn   = btn_secondary("Pre-fill", on_click=_on_prefill_from_profile)
     file_save_btn = btn_primary("Guardar tags")
     file_save_btn.on_click = _on_save_file_tags
@@ -3106,6 +3175,17 @@ def _build_tag_manager_content(
         ),
     )
 
+    right_editor = ft.Container(
+        visible=False,
+        content=ft.Column(
+            [_file_editor_section, _profile_editor_section],
+            spacing=0,
+            expand=True,
+        ),
+        padding=ft.Padding.only(left=16),
+        expand=True,
+    )
+    
     # ── Layout ────────────────────────────────────────────────────────────
     back_btn = btn_secondary("← Back", on_click=lambda e: on_back())
 
@@ -3152,15 +3232,8 @@ def _build_tag_manager_content(
                         ),
                         ft.VerticalDivider(width=1, color=C_BORDER),
                         # Panel derecho: editor (freeform para fichero / perfil para carpeta)
-                        ft.Container(
-                            content=ft.Column(
-                                [_file_editor_section, _profile_editor_section],
-                                spacing=0,
-                                expand=True,
-                            ),
-                            padding=ft.Padding.only(left=16),
-                            expand=True,
-                        ),
+                        # Panel derecho
+                        right_editor,   
                     ],
                     spacing=0,
                     expand=True,
