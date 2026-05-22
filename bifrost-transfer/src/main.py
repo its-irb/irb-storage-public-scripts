@@ -104,6 +104,18 @@ TAG_PROFILES: dict[str, list[tuple[str, str]]] = {
         ("Requested by",     "requested_by"),
         ("Research group",   "research_group"),
     ],
+    "Histopathology": [
+        ("Owner",          "owner"),
+        ("Users",          "users"), 
+        ("Date",          "date"), 
+        ("Provider",          "provider"), 
+        ("Instrument",          "instrument"), 
+        ("Species",          "species"), 
+        ("Sample Type",          "sample_type"), 
+        ("Sample Origin",          "sample_origin"),    
+        ("Magnification",          "magnification"), 
+        ("Channels",          "channels"), 
+    ]
 }
 
 
@@ -2559,6 +2571,14 @@ def _build_tag_manager_content(
         if nav["bucket"] is None:
             for bname in _current_items["folders"]:
 
+                # tag_btn = ft.IconButton(
+                #     icon=ft.Icons.LABEL_OUTLINED,
+                #     icon_color=C_ACCENT,
+                #     icon_size=16,
+                #     tooltip="Editar tags de este bucket",
+                #     on_click=lambda e, b=bname: _select_prefix_and_open(""),
+                # )
+
                 arrow = ft.IconButton(
                     icon=ft.Icons.CHEVRON_RIGHT,
                     icon_color=C_TEXT_DIM,
@@ -2571,6 +2591,7 @@ def _build_tag_manager_content(
                     content=ft.Row([
                         ft.Icon(ft.Icons.STORAGE_OUTLINED, color=C_PRIMARY, size=16),
                         ft.Text(bname, size=13, color=C_TEXT, expand=True),
+                        # tag_btn,
                         arrow,
                     ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     bgcolor=C_SURFACE2,
@@ -2583,8 +2604,7 @@ def _build_tag_manager_content(
                 browser_col.controls.append(
                     ft.GestureDetector(
                         content=c,
-                        # 1 click: seleccionar bucket para tags
-                        on_tap=lambda e, b=bname: _select_prefix(""),
+                        on_tap=None,
                         # 2 clicks: navegar dentro del bucket
                         on_double_tap=lambda e, b=bname: _navigate(b, ""),
                     )
@@ -2593,6 +2613,14 @@ def _build_tag_manager_content(
         else:
             for prefix in _current_items["folders"]:
                 name = prefix.rstrip("/").split("/")[-1] + "/"
+
+                tag_btn = ft.IconButton(
+                    icon=ft.Icons.LABEL_OUTLINED,
+                    icon_color=C_ACCENT,
+                    icon_size=16,
+                    tooltip="Editar tags de esta carpeta",
+                    on_click=lambda e, p=prefix: _select_prefix_and_open(p),
+                )
 
                 arrow = ft.IconButton(
                     icon=ft.Icons.CHEVRON_RIGHT,
@@ -2606,6 +2634,7 @@ def _build_tag_manager_content(
                     content=ft.Row([
                         ft.Icon(ft.Icons.FOLDER_OUTLINED, color=C_WARNING, size=16),
                         ft.Text(name, size=13, color=C_TEXT, expand=True),
+                        tag_btn,
                         arrow,
                     ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     bgcolor=C_SURFACE,
@@ -2618,8 +2647,7 @@ def _build_tag_manager_content(
                 browser_col.controls.append(
                     ft.GestureDetector(
                         content=c,
-                        # 1 click: seleccionar carpeta para tags
-                        on_tap=lambda e, p=prefix: _select_prefix(p),
+                        on_tap=None,
                         # 2 clicks: navegar dentro de la carpeta
                         on_double_tap=lambda e, p=prefix: _navigate(nav["bucket"], p),
                     )
@@ -2627,19 +2655,47 @@ def _build_tag_manager_content(
 
             files = _current_items["files"]
 
-            if files and not nav["show_files"]:
+            if not nav["show_files"]:
+                # 1. Definimos el botón normal
+                view_files_btn = ft.TextButton(
+                    "View files in this folder",
+                    icon=ft.Icons.INSERT_DRIVE_FILE_OUTLINED,
+                    style=ft.ButtonStyle(color=C_TEXT_DIM),
+                )
+
                 def _on_view_files(e):
-                    nav["show_files"] = True
-                    backend.ui_call(page, _render_browser_contents)
+                    # Deshabilitamos el botón para evitar clics dobles
+                    view_files_btn.disabled = True
+                    view_files_btn.text = "Loading files..."
+                    
+                    # Activamos el indicador circular de carga del propio browser (el spinner/loading)
+                    browser_loading.visible = True
+                    page.update()
+
+                    # 2. Creamos una función interna para ejecutar rclone en segundo plano (Thread)
+                    def _async_load():
+                        real_files = backend.rclone_list_files_only(
+                            perfil_rclone, nav["bucket"], nav["prefix"]
+                        )
+                        
+                        # Al terminar, actualizamos los datos de forma segura para la interfaz
+                        _current_items["files"] = real_files
+                        nav["show_files"] = True
+                        browser_loading.visible = False
+                        
+                        # Redibujamos la sección usando la función segura de hilos que ya tienes
+                        backend.ui_call(page, _render_browser_contents)
+
+                    # 3. Lanzamos el hilo para que la interfaz NO se congele
+                    import threading
+                    threading.Thread(target=_async_load, daemon=True).start()
+
+                # Asignamos el evento click
+                view_files_btn.on_click = _on_view_files
 
                 browser_col.controls.append(
                     ft.Container(
-                        content=ft.TextButton(
-                            f"View files ({len(files)})",
-                            icon=ft.Icons.INSERT_DRIVE_FILE_OUTLINED,
-                            on_click=_on_view_files,
-                            style=ft.ButtonStyle(color=C_TEXT_DIM),
-                        ),
+                        content=view_files_btn,
                         padding=ft.Padding.symmetric(horizontal=4, vertical=2),
                     )
                 )
@@ -2682,6 +2738,38 @@ def _build_tag_manager_content(
 
         page.update()
         
+    def _select_prefix_and_open(prefix: str) -> None:
+        nav["show_files"] = False
+        right_panel["visible"] = True
+        right_editor.visible = True
+
+        def _show_panel():
+            right_editor.visible = True
+            if _file_editor_section is not None:
+                _file_editor_section.visible = False
+                _profile_editor_section.visible = True
+            page.update()
+
+        backend.ui_call(page, _show_panel)
+
+        bucket = nav["bucket"] 
+        if not bucket: 
+            return 
+        
+        label   = f"📁 {prefix or (bucket + '/')}"
+        note    = "(Se aplicará recursivamente a todos los ficheros del prefijo)"
+
+        def _upd():
+            sel["type"]    = "prefix"
+            sel["key"]     = prefix  # <--- Guardamos AQUÍ el prefijo objetivo
+            sel["count"]   = 0
+            sel["display"] = label
+            target_label.value    = label
+            obj_count_label.value = note
+            apply_btn.disabled    = False
+            _prefill_fields({})
+        backend.ui_call(page, _upd)
+
     def _select_prefix(prefix: str) -> None:
         nav["show_files"] = False
         right_panel["visible"] = True
@@ -2739,18 +2827,15 @@ def _build_tag_manager_content(
         try:
             client = _get_client()
             if nav["bucket"] is None:
-                resp    = client.list_buckets()
-                buckets = [b["Name"] for b in resp.get("Buckets", [])]
+                buckets = backend.rclone_lsd(perfil=perfil_rclone, path="")
                 _current_items["folders"] = buckets
                 _current_items["files"]   = []
             else:
                 folders, files = backend.list_prefix_contents(
-                    client, nav["bucket"], nav["prefix"]
+                    perfil_rclone, nav["bucket"], nav["prefix"]
                 )
                 _current_items["folders"] = folders
                 _current_items["files"]   = files
-                # Auto-select current prefix for bulk edit
-                _update_prefix_selection()
 
             def _show():
                 browser_loading.visible = False
@@ -2771,27 +2856,11 @@ def _build_tag_manager_content(
         prefix = nav["prefix"]
         if not bucket:
             return
-        client    = _get_client()
-        paginator = client.get_paginator("list_objects_v2")
-        count     = 0
-        first_key = None
-        for pg in paginator.paginate(Bucket=bucket, Prefix=prefix):
-            for obj in pg.get("Contents") or []:
-                if first_key is None:
-                    first_key = obj["Key"]
-                count += 1
-
-        tags = {}
-        if first_key:
-            try:
-                tags = backend.get_object_tags(client, bucket, first_key)
-            except Exception:
-                pass
-
-        label   = f"📁 {prefix or (bucket + '/')} — {count} objeto{'s' if count != 1 else ''}"
-        note    = "(tags del primer objeto)" if first_key else "(sin objetos)"
-        tags_cp = dict(tags)
-        cnt_cp  = count
+        
+        label   = f"📁 {prefix or (bucket + '/')}"
+        note    = "(Conteo e inspección de tags deshabilitados por velocidad)"
+        tags_cp = {} # Enviamos un diccionario vacío por defecto
+        cnt_cp  = 0  # Forzamos a 0 o 1 para desbloquear el botón de aplicar si se desea
 
         def _upd():
             sel["type"]    = "prefix"
@@ -2800,7 +2869,7 @@ def _build_tag_manager_content(
             sel["display"] = label
             target_label.value    = label
             obj_count_label.value = note
-            apply_btn.disabled    = (cnt_cp == 0)
+            apply_btn.disabled    = False # Lo dejamos en False para que te deje aplicar tags a la carpeta igualmente
             _prefill_fields(tags_cp)
         backend.ui_call(page, _upd)
 
@@ -2909,8 +2978,9 @@ def _build_tag_manager_content(
                     _log(f"  ✓ {sel['key']}\n", C_ACCENT)
                     n_ok = 1
                 else:
-                    prefix = nav["prefix"]
-                    _log(f"📁 Prefijo: {bucket}/{prefix} — {sel['count']} objeto(s)\n")
+                    prefix = sel["key"] if sel["key"] is not None else ""
+                    _log(f"📁 Prefijo masivo S3/MinIO: {bucket}/{prefix}\n")
+                    _log(f"⏳ Buscando recursivamente todos los objetos bajo este prefijo...\n", C_TEXT_DIM)
                     n_ok = backend.apply_tags_to_prefix(
                         client, bucket, prefix, tagset,
                         log_fn=lambda msg: _log(msg),
@@ -2961,7 +3031,7 @@ def _build_tag_manager_content(
             hint_style=ft.TextStyle(color=C_TEXT_DIM),
             border_radius=6,
             content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
-            text_size=12, max_length=256, expand=1,
+            text_size=12, max_length=128, expand=1,
         )
         val_tf = ft.TextField(
             value=value, hint_text="Valor",
