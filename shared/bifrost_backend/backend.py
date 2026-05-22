@@ -939,24 +939,69 @@ def get_s3_client_from_profile(profile_name: str, endpoint: str):
     )
 
 
-def list_prefix_contents(s3_client, bucket: str, prefix: str) -> tuple[list[str], list[str]]:
-    """Lista carpetas (prefijos) y ficheros en un nivel del bucket.
+def list_prefix_contents(perfil_rclone: str, bucket: str, prefix: str) -> tuple[list[str], list[str]]:
+    """Lista únicamente carpetas (prefijos) usando rclone lsd.
+    Los ficheros se omiten por rendimiento.
 
     Returns:
-        (folders, files): folders son prefijos terminados en '/',
-                          files son claves completas de objetos.
+        (folders, files): folders son prefijos terminados en '/',,
+                          files siempre estará vacío [].
     """
-    paginator = s3_client.get_paginator("list_objects_v2")
-    folders: list[str] = []
-    files: list[str] = []
-    for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter="/"):
-        for cp in page.get("CommonPrefixes") or []:
-            folders.append(cp["Prefix"])
-        for obj in page.get("Contents") or []:
-            if obj["Key"] != prefix:
-                files.append(obj["Key"])
-    return folders, files
+    path_rclone = bucket
+    if prefix:
+        path_rclone = f"{bucket}/{prefix.rstrip('/')}"
+    try:
+        raw_folders = rclone_lsd(perfil=perfil_rclone, path=path_rclone)
+        folders = []
+        for f in raw_folders:
+            if prefix:
+                folders.append(f"{prefix.rstrip('/')}/{f}/")
+            else:
+                folders.append(f"{f}/")
+                
+    except Exception as e:
+        print(f"Error listing prefix contents with rclone: {e}")
+        folders = []
+    return folders, []
 
+def rclone_list_files_only(perfil_rclone: str, bucket: str, prefix: str) -> list[str]:
+    """Lista exclusivamente los archivos de un prefijo usando rclone lsf.
+    Se ejecuta bajo demanda para no ralentizar el browser principal.
+    """
+    import subprocess
+    rclone = get_rclone_executable() # Usa tu función existente
+    
+    # Construimos el path para rclone
+    path_rclone = bucket
+    if prefix:
+        path_rclone = f"{bucket}/{prefix.rstrip('/')}"
+        
+    target = f"{perfil_rclone}:{path_rclone}"
+
+    try:
+        # lsf con --files-only nos devuelve solo los nombres de archivos en este nivel
+        result = subprocess.run(
+            [rclone, "lsf", target, "--files-only"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            **_subprocess_kwargs(), # Usa tus kwargs existentes
+        )
+        if result.returncode != 0:
+            return []
+            
+        files = []
+        for line in result.stdout.splitlines():
+            name = line.strip()
+            if name:
+                # El frontend espera la clave completa (prefix + nombre)
+                if prefix:
+                    files.append(f"{prefix.rstrip('/')}/{name}")
+                else:
+                    files.append(name)
+        return files
+    except Exception:
+        return []
 
 def get_object_tags(s3_client, bucket: str, key: str) -> dict[str, str]:
     """Devuelve los tags de un objeto S3 como dict key→value."""
