@@ -49,6 +49,7 @@ import flet as ft
 from bifrost_backend import backend
 from bifrost_frontend.frontend import *
 from config import APP_INFO
+from version import __version__
 
 # ============================================================================
 # MODO DE EJECUCIÓN
@@ -84,13 +85,20 @@ _LOG_DIR  = pathlib.Path.home() / "bifrost-mount-logs"
 _LOG_FILE = _LOG_DIR / f"bifrost-mount-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
 
 def _write_to_log_file(msg: str) -> None:
-    """Escribe msg en el fichero de log de sesión. Falla silenciosamente."""
+    """Escribe msg en el fichero de log de sesión con timestamp. Falla silenciosamente."""
     try:
         _LOG_DIR.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         with open(_LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(msg if msg.endswith("\n") else msg + "\n")
+            line = msg if msg.endswith("\n") else msg + "\n"
+            f.write(f"[{timestamp}] {line}")
     except Exception:
         pass
+
+
+def _log_event(msg: str) -> None:
+    """Registra un evento de usuario en el log de sesión."""
+    _write_to_log_file(msg)
 
 
 
@@ -177,8 +185,10 @@ def _build_login_content(
 
         def _auth():
             creds = {"usuario": user, "password": pwd}
+            _log_event(f"LOGIN attempt — user: {user}")
             ok, motivo = backend.validar_credenciales_ldap(creds)
             if ok:
+                _log_event(f"LOGIN success — user: {user}")
                 backend.ui_call(page, lambda: on_success(creds))
             else:
                 msg = (
@@ -186,6 +196,7 @@ def _build_login_content(
                     if motivo == "vpn"
                     else "Invalid credentials. Please try again."
                 )
+                _log_event(f"LOGIN failed — user: {user} — {msg}")
                 def _fail():
                     error_text.value   = msg
                     error_text.visible = True
@@ -559,6 +570,7 @@ def build_rclone_browser(
 
     def _select_bucket(bucket_name: str):
         selected_state["bucket"] = bucket_name
+        _log_event(f"BUCKET selected — {bucket_name}")
         on_select(bucket_name)
         _render_buckets(selected_state.get("_all_buckets", []))
 
@@ -575,9 +587,11 @@ def build_rclone_browser(
         if not mp:
             return
         def _do():
+            _log_event(f"UNMOUNT — bucket: {bucket_name}, path: {mp}")
             try:
                 backend.desmontar_punto_montaje(mp)
             except Exception as ex:
+                _log_event(f"UNMOUNT error — bucket: {bucket_name} — {ex}")
                 print(f"[unmount] Error: {ex}")
             finally:
                 mounted_state.pop(bucket_name, None)
@@ -592,10 +606,12 @@ def build_rclone_browser(
 
     def _unmount_all():
         def _do():
+            _log_event(f"UNMOUNT ALL — {len(mounted_state)} mounts")
             for bname, mp in list(mounted_state.items()):
                 try:
                     backend.desmontar_punto_montaje(mp)
                 except OSError as ex:
+                    _log_event(f"UNMOUNT error — bucket: {bname} — {ex}")
                     # WinError 1005: WinFSP volume already in inconsistent state
                     # El proceso rclone probablemente ya no existe (perdido tras rebuild)
                     # Forzar taskkill por nombre como fallback
@@ -609,6 +625,7 @@ def build_rclone_browser(
                         except Exception:
                             pass
                 except Exception as ex:
+                    _log_event(f"UNMOUNT error — bucket: {bname} — {ex}")
                     print(f"[unmount_all] Error {bname}: {ex}")
                 finally:
                     mounted_state.pop(bname, None)
@@ -1134,6 +1151,97 @@ def _build_mount_bucket(
     mount_btn    = btn_secondary("⊞  Mount bucket")
     mount_status = ft.Text("", size=12, color=C_TEXT_DIM, visible=False)
 
+    def _prompt_install_winfsp(on_success):
+        """Pregunta al usuario si quiere descargar e instalar WinFsp.
+        Si acepta y la instalación termina OK, ejecuta on_success() para reintentar el mount.
+        """
+        def _close(dlg):
+            dlg.open = False
+            page.update()
+
+        def _do_install(_e):
+            _close(confirm_dlg)
+
+            progress_text = ft.Text("Starting...")
+            progress_dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Installing WinFsp"),
+                content=ft.Column(
+                    [ft.ProgressRing(), progress_text],
+                    tight=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            )
+            page.overlay.append(progress_dlg)
+            progress_dlg.open = True
+            page.update()
+
+            def _on_progress(msg):
+                def _upd():
+                    progress_text.value = msg
+                    page.update()
+                backend.ui_call(page, _upd)
+
+            def _worker():
+                try:
+                    ok = backend.install_winfsp_windows(page=page, on_progress=_on_progress)
+                except Exception as ex:
+                    err = str(ex)
+                    _log_event(f"WINFSP install error — {err}")
+                    def _err():
+                        _close(progress_dlg)
+                        show_dialog(
+                            page,
+                            "Error installing WinFsp",
+                            f"{err}\n\nYou can install it manually from https://winfsp.dev",
+                            C_ERROR,
+                        )
+                    backend.ui_call(page, _err)
+                    return
+
+                def _done():
+                    _close(progress_dlg)
+                    if ok:
+                        _log_event("WINFSP install success")
+                        on_success()
+                    else:
+                        _log_event("WINFSP install cancelled")
+                        show_dialog(
+                            page,
+                            "Installation cancelled",
+                            "The WinFsp installation was cancelled. You can retry the mount whenever you want.",
+                            C_ERROR,
+                        )
+                backend.ui_call(page, _done)
+
+            backend.safe_thread(page, _worker).start()
+
+        def _do_cancel(_e):
+            _close(confirm_dlg)
+            show_dialog(
+                page,
+                "WinFsp not detected",
+                "WinFsp is required to mount S3 folders on Windows. Download it from https://winfsp.dev",
+                C_ERROR,
+            )
+
+        confirm_dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("WinFsp is not installed"),
+            content=ft.Text(
+                "WinFsp is required to mount S3 folders on Windows.\n\n"
+                "Do you want to download and install the latest version now? "
+                "Administrator permissions will be required."
+            ),
+            actions=[
+                ft.TextButton("Install", on_click=_do_install),
+                ft.TextButton("Cancel", on_click=_do_cancel),
+            ],
+        )
+        page.overlay.append(confirm_dlg)
+        confirm_dlg.open = True
+        page.update()
+
     def do_mount(e, ruta: str | None = None):
         ruta = ruta or _dest_path["value"].strip()
         if not ruta:
@@ -1147,6 +1255,7 @@ def _build_mount_bucket(
         page.update()
 
         def _do():
+            _log_event(f"MOUNT start — bucket: {ruta}, profile: {perfil_rclone}")
             try:
                 backend.mount_rclone_S3_prefix_to_folder(perfil_rclone, ruta)
                 mp = backend.resolver_mount_point_destino(perfil_rclone, ruta)
@@ -1166,6 +1275,7 @@ def _build_mount_bucket(
                 time.sleep(2)  # espera extra antes de abrir el explorador
 
                 mounted_state[ruta] = mp
+                _log_event(f"MOUNT success — bucket: {ruta}, path: {mp}")
 
                 # Abrir explorador
                 try:
@@ -1193,8 +1303,18 @@ def _build_mount_bucket(
                     threading.Timer(0.2, dest_browser_refresh).start()
                     page.update()
                 backend.ui_call(page, _ok)
+            except backend.WinFspMissingError:
+                _log_event(f"MOUNT error (WinFsp missing) — bucket: {ruta}")
+                def _ask():
+                    mount_btn.disabled   = False
+                    mount_status.value   = ""
+                    mount_status.visible = False
+                    page.update()
+                    _prompt_install_winfsp(on_success=lambda: do_mount(e, ruta))
+                backend.ui_call(page, _ask)
             except EnvironmentError as ex:
                 err_str = str(ex)
+                _log_event(f"MOUNT error (FUSE/WinFSP) — bucket: {ruta} — {err_str}")
                 def _err():
                     mount_btn.disabled   = False
                     mount_status.value   = ""
@@ -1204,6 +1324,7 @@ def _build_mount_bucket(
                 backend.ui_call(page, _err)
             except Exception as ex:
                 err_str = str(ex)
+                _log_event(f"MOUNT error — bucket: {ruta} — {err_str}")
                 def _err():
                     mount_btn.disabled   = False
                     mount_status.value   = ""
@@ -1277,33 +1398,6 @@ def _build_mount_bucket(
 
 
 # ============================================================================
-# VERIFICACIÓN DE RCLONE EN DESKTOP
-# ============================================================================
-
-def check_rclone_installation_flet(page: ft.Page) -> None:
-    if not backend.detect_rclone_installed():
-        sistema = sys.platform
-        if sistema == "darwin":
-            show_dialog(
-                page,
-                "Rclone not found",
-                "Download it with macos-third-party-assets-downloader.sh.\n",
-                C_ERROR,
-            )
-            sys.exit(1)
-        elif sistema == "win32":
-            show_dialog(
-                page,
-                "Rclone.exe not found",
-                "Download rclone.exe and place it in the same folder as this executable.\n"
-                "https://rclone.org/downloads/\n\n"
-                "Also install WinFsp from https://winfsp.dev/rel/",
-                C_ERROR,
-            )
-            sys.exit(1)
-
-
-# ============================================================================
 # UPDATER WINDOWS
 # ============================================================================
 
@@ -1346,6 +1440,7 @@ exit /b 1
 # ============================================================================
 
 def main(page: ft.Page):
+    _log_event(f"APP start — bifrost-mount v{__version__}")
     page.title             = "BIFROST MOUNT — IRB MinIO"
     page.bgcolor           = C_BG
     page.window.width      = 1100
@@ -1435,7 +1530,7 @@ def main(page: ft.Page):
         state["servidor_minio"] = eleccion["servidor"]
         state["perfil_rclone"]  = eleccion["perfil"]
         state["endpoint"]       = eleccion["endpoint"]
-        check_rclone_installation_flet(page)
+        _log_event(f"PROFILE selected — {eleccion['perfil']} ({eleccion['endpoint']})")
         _go_credentials_or_mount()
 
     def _go_credentials_or_mount():

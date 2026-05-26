@@ -10,7 +10,7 @@ Repositorio de **herramientas de acceso al almacenamiento MinIO S3 — IRB Barce
 
 | App | Carpeta | Función |
 |---|---|---|
-| **bifrost-transfer** | `bifrost-transfer/` | Copia datos desde carpetas de red (SMB/CIFS) o local a buckets MinIO S3, con verificación de integridad y etiquetado de metadatos. Soporta **modo desktop y modo web** (Open OnDemand). |
+| **bifrost-transfer** | `bifrost-transfer/` | Copia datos desde carpetas de red (SMB/CIFS) o local a buckets MinIO S3, con verificación de integridad y etiquetado de metadatos. Incluye **Tag Manager** para navegar buckets/carpetas/ficheros S3 y aplicar tagsets masivamente sin re-subida. Soporta **modo desktop y modo web** (Open OnDemand). |
 | **bifrost-mount** | `bifrost-mount/` | Monta carpetas MinIO S3 como unidad local (Windows/macOS/Linux). Solo modo desktop. |
 
 Ambas son apps Flet con punto de entrada `src/main.py` y configuración `pyproject.toml` por app.
@@ -64,11 +64,11 @@ README.md                 # Doc canónica (en español)
 ## Código compartido vs específico
 
 **Compartido (`shared/`)** — se empaqueta como wheel `bifrost-shared`:
-- `bifrost_backend.backend` — *todo* el negocio: rclone exec resolution, STS credentials, LDAP auth, SMB/CIFS shares, perfiles rclone, copy/check, `ui_call()`, `safe_thread()`.
+- `bifrost_backend.backend` — *todo* el negocio: rclone exec resolution, STS credentials, LDAP auth, SMB/CIFS shares, perfiles rclone, copy/check, `ui_call()`, `safe_thread()`. Incluye también 5 funciones boto3 para tagging S3: `get_s3_client_from_profile`, `list_prefix_contents`, `get_object_tags`, `apply_tags_to_object`, `apply_tags_to_prefix`.
 - `bifrost_frontend.frontend` — paleta de colores (`C_BG`, `C_PRIMARY`, …), botones (`btn_primary`, `btn_secondary`), helpers comunes. Cada app hace `from bifrost_frontend.frontend import *`.
 
 **Específico por app**:
-- `src/main.py` — flujo de vistas Flet (login → minio → credentials → mount/copy). Es donde está toda la UI específica.
+- `src/main.py` — flujo de vistas Flet (login → minio → credentials → mount/copy). Es donde está toda la UI específica. En `bifrost-transfer` incluye además `TAG_PROFILES` (constante que centraliza los campos de metadatos para el formulario de copia y el Tag Manager) y `_build_tag_manager_content` (vista Tag Manager).
 - `src/config.py` — solo `APP_INFO = {"flavour": "mount"|"transfer", "name": ..., "description": ...}`. El backend lee `APP_INFO["flavour"]` para resolver rutas de assets en dev.
 - `src/version.py` — escrito por CI en cada build (`__version__ = "1.0.<run_number>"`).
 - `installer.iss`, `build-macos.sh`, `pyproject.toml` (con su lista de deps congelada por app).
@@ -164,3 +164,13 @@ Cuando hay una release nueva en GitHub, la app pregunta al usuario si quiere act
 5. **`config.py` debe ser importable como módulo top-level** en cada app — el backend hace `from config import APP_INFO`. Por eso cada app tiene su propio `config.py` aunque solo contenga `APP_INFO`.
 6. **Credenciales STS**: si quedan >3 días se reutilizan; <3 días se renuevan automáticamente por 7 días. Constantes `STS_RENEWAL_THRESHOLD_DAYS` / `STS_AUTO_RENEWAL_DAYS` en `main.py`.
 7. **No commitear `.venv/`, `dist/`, `build/`, `src/version.py` generado**. Ver `.gitignore`.
+8. **`TAG_PROFILES` es la fuente canónica de campos de metadatos en `bifrost-transfer`**: tanto el formulario de copia (`meta_labels`) como el editor del Tag Manager leen de `TAG_PROFILES` en `main.py`. Si hay que añadir o renombrar un campo, cambiarlo solo aquí.
+9. **Auto-instalación de WinFsp (solo `bifrost-mount`, Windows)**: si falta WinFsp al montar, el backend levanta `WinFspMissingError` (subclase de `EnvironmentError`) y la UI ofrece descargar e instalar la última release oficial desde `github.com/winfsp/winfsp` vía `backend.install_winfsp_windows()`. Requiere UAC; el MSI se cachea en `%TEMP%`. Los mensajes de este flujo están en **inglés** (excepción al punto 3) para alinearse con el resto de la UI de `bifrost-mount`. `bifrost-transfer` no tiene este flujo.
+
+---
+
+## Wiki del proyecto
+
+Hay una base de conocimiento incremental en `docs/wiki/` que acumula **decisiones técnicas, estado de infra (MinIO/Nexica/IRB) y gotchas de usuarios** entre sesiones. Antes de responder preguntas sobre el "por qué" de patrones del repo o sobre infra externa, consulta `docs/wiki/index.md`.
+
+El protocolo completo (ingest, query, lint, formato de páginas, reglas de seguridad, **convención de cierre de tarea**) está en `docs/wiki/CLAUDE_WIKI.md` — léelo antes de crear/modificar páginas. Las fuentes brutas viven en `docs/wiki/raw/` y están gitignored; el resto de la wiki sí se commitea.

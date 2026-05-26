@@ -32,6 +32,8 @@ MANIFEST
 !*/src/assets/splash.png
 */frameworks/*
 !*/frameworks/**/.keep
+*.tar.gz
+*.whl
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -190,3 +192,8 @@ src/storage/data/
 
 
 .claude/
+
+# Wiki LLM — fuentes brutas locales (las páginas sintetizadas en docs/wiki/ sí se commitean)
+docs/wiki/raw/**
+!docs/wiki/raw/**/
+!docs/wiki/raw/**/.gitkeep
