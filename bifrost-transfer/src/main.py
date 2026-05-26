@@ -102,6 +102,7 @@ class FieldType(Enum):
     NUMBER     = "number"
     UNISELECT  = "uniselect"
     MULTISELECT = "multiselect"
+    MULTIFREETEXT = "multifreetext"
 
 # Estructura: (label, key, FieldType, allow_custom, options_list_or_None, help_text)
 TAG_PROFILES: dict[str, list[tuple]] = {
@@ -126,15 +127,15 @@ TAG_PROFILES: dict[str, list[tuple]] = {
             "Francesc Posas/ Eulalia de Nadal","Modesto Orozco","Ferran Azorin",
             "Jordi Casanova","Miquel Coll"
         ], None),
-        ("Users",        "users",        FieldType.TEXT,        False, None, "Enter Linux usernames separated by semicolons, e.g. eperez;fmartinez"),
+        ("Users", "users", FieldType.MULTIFREETEXT, False, None, "Enter Linux usernames, add each one separately"),
         ("Date",         "date",         FieldType.DATE,        False, None, None),
         ("Provider",     "provider",     FieldType.UNISELECT,   False, ["Histopathology IRB Core Facility"], None),
         ("Instrument",   "instrument",   FieldType.UNISELECT,   False, ["Phenoimager", "Nanozoomer"], None),
         ("Species",      "species",      FieldType.UNISELECT,   False, ["mouse", "human", "rat", "pig", "cow"], None),
         ("Sample Type",  "sample_type",  FieldType.UNISELECT,   False, ["tissue section", "organoid", "cell pellet"], None),
-        ("Sample Origin","sample_origin",FieldType.TEXT,        False, None, None),
+        ("Sample Origin","sample_origin",FieldType.TEXT,        False, None, "Specify the biological source depending on the sample type:\n- For Tissue: enter tissue type (e.g., Lung, Colon)\n- For Organoid: enter organoid type/model (e.g., Colorectal Organoid)\n- For Cell Pellet: enter cell line origin (e.g., HeLa, HEK293)"),
         ("Magnification","magnification",FieldType.UNISELECT,   False, ["20x", "40x"], None),
-        ("Channels",     "channels",     FieldType.UNISELECT, True,  ["Brightfield","DAPI","DAPI + 488","DAPI + 568","DAPI + 647","DAPI + 488 + 568","DAPI + 488 + 647","DAPI + 568 + 647","DAPI + 488 + 568 + 647"], None),
+        ("Channels",     "channels",     FieldType.UNISELECT, False,  ["Brightfield","DAPI","DAPI + 488","DAPI + 568","DAPI + 647","DAPI + 488 + 568","DAPI + 488 + 647","DAPI + 568 + 647","DAPI + 488 + 568 + 647", "4plex", "5plex","6plex"], None),
     ],
 }
 # ============================================================================
@@ -2961,6 +2962,7 @@ def _build_tag_manager_content(
             field_type   = item[2]
             allow_custom = item[3]
             options_list = item[4]
+            helper       = item[5] if len(item) > 5 else None
             
             if field_type == FieldType.UNISELECT:
                 CUSTOM_KEY = "__custom__"
@@ -3051,7 +3053,7 @@ def _build_tag_manager_content(
                                     delete_icon_color=C_TEXT_DIM,
                                 )
                             )
-                        hidden.value = ";".join(sorted(sel["s"]))
+                        hidden.value = ":".join(sorted(sel["s"]))
                         
                         # Reconstruir opciones del dropdown con colores según selección
                         dd_ref.options = [
@@ -3146,6 +3148,78 @@ def _build_tag_manager_content(
                 col_controls.append(hidden_tf)
 
                 tag_fields_col.controls.append(ft.Column(col_controls, spacing=6))
+
+            elif field_type == FieldType.MULTIFREETEXT:
+                selected_vals = {"s": set()}
+                chips_row = ft.Row(wrap=True, spacing=6, run_spacing=6)
+                hidden_tf = ft.TextField(visible=False, value="")
+                fields[key] = hidden_tf
+
+                def make_multifreetext(sel, chips, hidden):
+                    def _sync():
+                        chips.controls.clear()
+                        for v in sorted(sel["s"]):
+                            def make_delete(val):
+                                def _del(e):
+                                    sel["s"].discard(val)
+                                    _sync()
+                                    page.update()
+                                return _del
+                            chips.controls.append(
+                                ft.Chip(
+                                    label=ft.Text(v, size=12, color=C_TEXT),
+                                    bgcolor=f"{C_ACCENT}22",
+                                    on_delete=make_delete(v),
+                                    delete_icon_color=C_TEXT_DIM,
+                                )
+                            )
+                        hidden.value = ":".join(sorted(sel["s"]))
+
+                    custom_tf = ft.TextField(
+                        hint_text="Add value...",
+                        bgcolor=C_SURFACE2,
+                        border_color=C_BORDER,
+                        focused_border_color=C_PRIMARY,
+                        color=C_TEXT,
+                        text_size=12,
+                        border_radius=6,
+                        content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+                        expand=True,
+                    )
+
+                    def _add(e):
+                        val = custom_tf.value.strip()
+                        if val and val not in sel["s"]:
+                            sel["s"].add(val)
+                            custom_tf.value = ""
+                            _sync()
+                            page.update()
+
+                    custom_tf.on_submit = _add  # ← también al pulsar Enter
+
+                    return custom_tf, _add
+
+                custom_tf, add_fn = make_multifreetext(selected_vals, chips_row, hidden_tf)
+
+                col = ft.Column([
+                    ft.Text(label, size=12, color=C_TEXT_DIM),
+                    ft.Row([
+                        custom_tf,
+                        ft.IconButton(
+                            icon=ft.Icons.ADD,
+                            icon_color=C_PRIMARY,
+                            icon_size=18,
+                            on_click=add_fn,
+                        ),
+                    ], spacing=4),
+                    chips_row,
+                    hidden_tf,
+                ], spacing=6)
+
+                if helper:
+                    col.controls.append(ft.Text(helper, size=11, color=C_TEXT_DIM, italic=True))
+
+                tag_fields_col.controls.append(col)
             elif field_type == FieldType.DATE:
                 def make_date_picker(tf):
                     def _on_change(e):
