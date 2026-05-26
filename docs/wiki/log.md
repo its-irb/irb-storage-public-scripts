@@ -4,6 +4,10 @@ Registro cronológico append-only. Prefijo `## [YYYY-MM-DD] <tipo> | <título>` 
 
 ---
 
+## [2026-05-21] task | Tag Manager — browser de solo carpetas con "View files"
+
+Cambiado el comportamiento del browser de MinIO en el Tag Manager (`bifrost-transfer/src/main.py`): por defecto ahora muestra solo carpetas (sin renderizar ficheros), lo que mejora el rendimiento de la UI cuando hay muchas entradas. Si la carpeta actual contiene ficheros, aparece un botón "View files (N)" que al pulsarlo expande los ficheros en el mismo panel (sin nueva llamada a S3 — los datos ya estaban cargados). El estado `nav["show_files"]` se resetea a `False` cada vez que se navega a una carpeta nueva. No se modificó el backend ni la llamada a la API.
+
 ## [2026-05-18] task | bootstrap de la wiki LLM
 
 Creado el scaffolding completo de `docs/wiki/` siguiendo el spec `docs/superpowers/specs/2026-05-18-llm-wiki-design.md`: estructura de carpetas, `CLAUDE_WIKI.md` con el protocolo (ingest/query/lint/cierre de tarea/seguridad), `index.md` y `log.md` vacíos, página de ejemplo [[wheel-local-bifrost-shared]] en `decisiones/`, `.gitignore` actualizado para excluir `raw/`, y puntero añadido al `CLAUDE.md` raíz. Memorias de Claude actualizadas (`project-llm-wiki`, `feedback-end-of-task-logging`).

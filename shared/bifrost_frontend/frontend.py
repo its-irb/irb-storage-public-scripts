@@ -69,7 +69,7 @@ def card(content: ft.Control, padding=20) -> ft.Container:
     return ft.Container(
         content=content,
         bgcolor=C_SURFACE,
-        border=ft.border.all(1, C_BORDER),
+        border=ft.Border.all(1, C_BORDER),
         border_radius=10,
         padding=padding,
     )
