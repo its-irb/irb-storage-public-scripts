@@ -1,163 +1,170 @@
 # BIFROST
-**Herramientas de acceso al almacenamiento MinIO S3 — IRB Barcelona**
+**MinIO S3 storage tools — IRB Barcelona**
 
-Este repositorio contiene dos aplicaciones de escritorio (Flet/Python) para interactuar con el servidor MinIO S3 de IRB Barcelona:
+This repository contains two desktop apps (Flet/Python) for interacting with IRB Barcelona's MinIO S3 server:
 
-| App | Carpeta | Función |
+| App | Folder | Description |
 |---|---|---|
-| **bifrost-transfer** | `bifrost-transfer/` | Copia datos desde carpetas de red (SMB/CIFS) o local a buckets de MinIO S3, con verificación de integridad y etiquetado automático de metadatos. Incluye **Tag Manager** para navegar y editar los tags de objetos S3 existentes sin re-subida. |
-| **bifrost-mount** | `bifrost-mount/` | Monta carpetas de MinIO S3 como unidad local en el ordenador. |
+| **bifrost-transfer** | `bifrost-transfer/` | Upload data from network shares (SMB/CIFS) or local folders to MinIO S3 buckets, with integrity verification and automatic metadata tagging. Includes a **Tag Manager** to browse and edit S3 object tags without re-uploading. |
+| **bifrost-mount** | `bifrost-mount/` | Mount MinIO S3 folders as a local drive. |
 
-Ambas aplicaciones comparten el backend definido en `shared/bifrost_backend` (LDAP, rclone, SMB, S3). También comparten parte del frontend en `shared/bifrost_frontend` y ambos se importan como paquetes en los main.py de cada app. 
-
----
-
-## Requisitos
-
-- **Estar conectado a la VPN de Nexica** (Forticlient)
-
-**Dependencias binarias**
-
-Las dependencias como el binario de `rclone` o el framework `fuse-t` (este último solo en macOS, usado por `bifrost-mount`) se empaquetan dentro del ejecutable y no es necesario tenerlas instaladas en el equipo.
-
-En Windows, `bifrost-mount` necesita además **WinFsp** instalado en el sistema (no se puede empaquetar porque incluye un driver de kernel). Si falta, la propia app detecta su ausencia al montar y ofrece descargar e instalar automáticamente la última versión oficial desde [github.com/winfsp/winfsp](https://github.com/winfsp/winfsp/releases) (requiere permisos de administrador). La instalación manual desde [winfsp.dev](https://winfsp.dev) sigue siendo válida.
+Both apps share the backend defined in `shared/bifrost_backend` (LDAP, rclone, SMB, S3). They also share part of the frontend in `shared/bifrost_frontend`, both imported as packages in each app's `main.py`.
 
 ---
 
-## Estructura del repositorio
+## Requirements
+
+- **Nexica VPN** (Forticlient) must be active.
+
+**Binary dependencies**
+
+Dependencies such as the `rclone` binary or the `fuse-t` framework (macOS only, used by `bifrost-mount`) are bundled inside the executable — no manual installation needed.
+
+On Windows, `bifrost-mount` additionally requires **WinFsp** installed on the system (it cannot be bundled because it includes a kernel driver). If missing, the app detects its absence when mounting and offers to download and install the latest official version from [github.com/winfsp/winfsp](https://github.com/winfsp/winfsp/releases) (requires admin rights). Manual installation from [winfsp.dev](https://winfsp.dev) is also valid.
+
+---
+
+## Repository structure
 
 ```
-bifrost-mount/          # App de montado de buckets S3
+bifrost-mount/          # S3 bucket mounting app
   src/
-    main.py             # Interfaz gráfica (Flet). Punto de entrada.
+    main.py             # GUI (Flet). Entry point.
     version.py
-    assets/bin/         # Binarios empaquetados (rclone, etc.)
+    assets/bin/         # Bundled binaries (rclone, etc.)
     frameworks/         # fuse-t framework (macOS)
-  pyproject.toml        # Configuración de flet build
-  installer.iss         # Inno Setup (instalador Windows)
+  pyproject.toml        # flet build configuration
+  installer.iss         # Inno Setup (Windows installer)
 
-bifrost-transfer/       # App de transferencia de datos a S3
+bifrost-transfer/       # Data transfer app
   src/
-    main.py             # Interfaz gráfica (Flet). Punto de entrada.
+    main.py             # GUI (Flet). Entry point.
     pip-requirements.txt
     version.py
-    assets/bin/         # Binarios empaquetados (rclone, etc.)
+    assets/bin/         # Bundled binaries (rclone, etc.)
     frameworks/
-    storage/            # Datos temporales de transferencia
-  pyproject.toml        # Configuración de flet build
-  installer.iss         # Inno Setup (instalador Windows)
-  build.sh              # Script de build
+    storage/            # Temporary transfer data
+  pyproject.toml        # flet build configuration
+  installer.iss         # Inno Setup (Windows installer)
+  build.sh              # Build script
 
 shared/
-  backend.py            # Lógica de negocio compartida (LDAP, rclone, SMB, S3)
+  backend.py            # Shared business logic (LDAP, rclone, SMB, S3)
   linux-assets-downloader.sh
   macos-assets-downloader.sh
   macos-rclone-downloader.sh
   windows-assets-downloader.sh
-  requirements.txt     # Compartimos requirements en ambas apps
+  requirements.txt      # Shared requirements for both apps
 
 old/
-  minio-sts-credentials-request.py  # Script legacy para generar credenciales STS
+  minio-sts-credentials-request.py  # Legacy script for STS credentials
 
-build-local.ps1      # Para desarrollo: hacer flet build en windows en local
+build-local.ps1      # Local Windows development build (flet build)
 ```
----
-
-## Autoupdate
-
-Cuando hay una release nueva disponible de Bifrost-mount o bifrost-transfer, pregunta al usuario si este quiere hacer el upgrade a la última versión. Si es así, se descarga la nueva release del repo de git. 
 
 ---
 
-## Cómo ejecutar (desarrollo)
+## Tag Manager (bifrost-transfer)
 
-Los pasos son los mismos para ambas apps. Ejecutar desde la carpeta de la app (`bifrost-mount/` o `bifrost-transfer/`).
+The Tag Manager lets you browse buckets, folders, and files in S3 and apply metadata tags in bulk — without re-uploading any data.
 
-La primera vez, crear el virtual environment:
+Tags are organized in **profiles**:
+
+- **IRB Standard** — general metadata fields: project, host machine, sample type, data types, requester, research group.
+- **Histopathology** — specialized fields for histopathology data: owner, users, date, provider, instrument, species, sample type, magnification, channels.
+
+Select a profile, fill in the fields, and apply the tagset to a file, a folder, or an entire bucket prefix.
+
+---
+
+## Auto-update
+
+When a new release of bifrost-mount or bifrost-transfer is available, the app asks the user whether they want to upgrade. If so, the new release is downloaded from this git repo.
+
+---
+
+## Running (development)
+
+Steps are the same for both apps. Run from the app folder (`bifrost-mount/` or `bifrost-transfer/`).
+
+First time — create the virtual environment:
 ```bash
 python -m venv .venv
 source venv/bin/activate          # macOS / Linux
-# .\venv\Scripts\Activate.ps1     # Windows PowerShell
+# .\venv\Scripts\Activate.ps1    # Windows PowerShell
 python -m pip install --upgrade pip
 python -m pip install -r ./shared/requirements.txt
 .\.venv\Scripts\python.exe -m pip install build
-.\build-local.ps1 -app bifrost-mount # para windows
+.\build-local.ps1 -app bifrost-mount  # Windows only
 ```
 
-Cada vez que se quiera ejecutar, cargar el virtual environment y lanzar:
+Each time — load the virtual environment and run:
 ```bash
 source venv/bin/activate
 flet run
 ```
 
-Opciones adicionales (disponibles en ambas apps):
+Additional options (available in both apps):
 ```bash
-flet run --customuser   # Iniciar sesión con un usuario distinto al del sistema
-flet run --update       # Forzar la auto-actualización
+flet run --customuser   # Log in as a different user
+flet run --update       # Force auto-update
 ```
 
-Opciones adicionales (disponibles en ambas apps):
+`bifrost-transfer` also supports web mode (Open OnDemand / Linux cluster):
 ```bash
 python src/main.py --web
-# o bien:
-BIFROST_DEV=1 flet run   # Simular modo web en desarrollo
-```
-
-`bifrost-transfer` también soporta modo web (Open OnDemand / cluster Linux):
-```bash
-python src/main.py --web
-# o bien:
-BIFROST_DEV=1 flet run   # Simular modo web en desarrollo
+# or:
+BIFROST_DEV=1 flet run   # Simulate web mode in development
 ```
 
 ---
 
-## Empaquetar
+## Packaging
 
-`flet build` utiliza los parámetros definidos en `pyproject.toml` de cada app.
+`flet build` uses the parameters defined in each app's `pyproject.toml`.
 
-Si se actualizan los paquetes del virtual environment, regenerar `requirements.txt` e importarlo al `pyproject.toml`:
+If virtual environment packages are updated, regenerate `requirements.txt` and import it into `pyproject.toml`:
 ```bash
 python -m pip freeze > src/pip-requirements.txt
 uv add -r pip-requirements.txt
 ```
 
-Para generar un instalador para windows se ha utilizado Inno Setup, que empaqueta toda la carpeta generada popr flet en un solo .exe que después puede instalarse de la forma habitual. En este caso el archivo de configuración es `installer.iss`.
+The Windows installer uses Inno Setup, which packages the entire folder generated by flet into a single `.exe`. The configuration file is `installer.iss`.
 
 ---
 
-## BIFROST OOD — Modo web (OpenOnDemand)
+## BIFROST OOD — Web mode (OpenOnDemand)
 
-Esta sección documenta la arquitectura del modo web, que es el que se usa en el clúster a través de OpenOnDemand. Es sustancialmente diferente al modo desktop y tiene su propia gestión de sesiones, threading y resiliencia de WebSocket.
+This section documents the web mode architecture, used on the cluster via OpenOnDemand. It is substantially different from desktop mode and has its own session management, threading, and WebSocket resilience.
 
 ---
 
-### Cómo se lanza en OOD
+### How it launches on OOD
 
-OpenOnDemand arranca BIFROST como un proceso Python estándar al que le pasa el archivo `main.py` como módulo ASGI. Flet detecta que se está importando (no ejecutado como `__main__`) y activa el modo web automáticamente.
+OpenOnDemand starts BIFROST as a standard Python process, passing `main.py` as an ASGI module. Flet detects it is being imported (not run as `__main__`) and activates web mode automatically.
 
-La condición en el código es:
+The condition in the code is:
 
 ```python
 IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or DEV_WEB
 ```
 
-Esto significa:
-- Si OOD importa `main.py` como módulo ASGI → `__name__ != "__main__"` → `IS_WEB = True`
-- Si se lanza manualmente con `flet run --web` → `"--web" in sys.argv` → `IS_WEB = True`
-- Si se activa `BIFROST_DEV=1` en el entorno → `DEV_WEB = True` → `IS_WEB = True`
+This means:
+- If OOD imports `main.py` as an ASGI module → `__name__ != "__main__"` → `IS_WEB = True`
+- If launched manually with `flet run --web` → `"--web" in sys.argv` → `IS_WEB = True`
+- If `BIFROST_DEV=1` is set in the environment → `DEV_WEB = True` → `IS_WEB = True`
 
-El servidor ASGI que usa Flet para el modo web es **Hypercorn**, que corre un event loop asyncio único para toda la aplicación. Cada pestaña del navegador abre un WebSocket independiente con su propia instancia de `page`.
+The ASGI server Flet uses for web mode is **Hypercorn**, which runs a single asyncio event loop for the entire application. Each browser tab opens an independent WebSocket with its own `page` instance.
 
-Para desarrollo local en modo web:
+For local development in web mode:
 
 ```bash
 BIFROST_DEV=1 flet run
-# o equivalentemente:
+# or equivalently:
 flet run --web
 ```
 
-Para forzar el modo cluster (con flujo CIFS):
+To force cluster mode (with CIFS flow):
 
 ```bash
 BIFROST_CLUSTER=1 BIFROST_DEV=1 flet run
@@ -165,93 +172,93 @@ BIFROST_CLUSTER=1 BIFROST_DEV=1 flet run
 
 ---
 
-### Arquitectura de sesiones (`_WEB_SESSIONS`)
+### Session architecture (`_WEB_SESSIONS`)
 
-En modo desktop, cuando el usuario cierra la ventana el proceso muere. En modo web el proceso Hypercorn sigue vivo y el usuario puede cerrar la pestaña, la conexión WebSocket se rompe y Flet destruye el objeto `page` — pero el proceso de rclone que estaba corriendo **sigue vivo**.
+In desktop mode, when the user closes the window the process dies. In web mode the Hypercorn process stays alive — the user can close the tab, the WebSocket connection breaks and Flet destroys the `page` object, but the rclone process that was running **keeps running**.
 
-Para manejar esto existe `_WEB_SESSIONS`, un diccionario global en memoria indexado por `username`:
+To handle this, `_WEB_SESSIONS` is a global in-memory dictionary indexed by `username`:
 
 ```python
 _WEB_SESSIONS: dict[str, dict] = {}
 ```
 
-El TTL de una sesión es la vida del proceso Hypercorn (es decir, la vida del job de OOD). La contraseña LDAP **nunca** se guarda aquí.
+The TTL of a session is the lifetime of the Hypercorn process (i.e., the lifetime of the OOD job). The LDAP password is **never** stored here.
 
-Cada entrada contiene:
+Each entry contains:
 
-| Campo | Tipo | Descripción |
+| Field | Type | Description |
 |---|---|---|
-| `servidor_minio` | `str` | Nombre del servidor MinIO seleccionado |
-| `perfil_rclone` | `str` | Perfil rclone correspondiente |
-| `endpoint` | `str` | URL del endpoint S3 |
-| `extra_config` | `dict\|None` | Config extra de rclone (si aplica) |
-| `copy_log_buffer` | `list[str]` | Todas las líneas de log desde el inicio de la copia |
+| `servidor_minio` | `str` | Selected MinIO server name |
+| `perfil_rclone` | `str` | Corresponding rclone profile |
+| `endpoint` | `str` | S3 endpoint URL |
+| `extra_config` | `dict\|None` | Extra rclone config (if applicable) |
+| `copy_log_buffer` | `list[str]` | All log lines since the copy started |
 | `copy_status` | `str` | `"idle"` \| `"running"` \| `"done"` \| `"error"` |
-| `copy_origen` | `str` | Path origen de la última copia |
-| `copy_destino` | `str` | Path destino de la última copia |
-| `copy_proceso` | `dict` | `{"proc": Popen \| None}` — el subproceso de rclone vivo |
-| `copy_log_callbacks` | `list[Callable]` | Funciones `log()` de las páginas suscritas actualmente |
+| `copy_origen` | `str` | Source path of the last copy |
+| `copy_destino` | `str` | Destination path of the last copy |
+| `copy_proceso` | `dict` | `{"proc": Popen \| None}` — the live rclone subprocess |
+| `copy_log_callbacks` | `list[Callable]` | `log()` functions of currently subscribed pages |
 
-#### Funciones de gestión de sesión
+#### Session management functions
 
-- `_ws_save(usuario, state)` — guarda/actualiza la sesión al navegar a la vista de copia
-- `_ws_load(usuario)` → `dict | None` — devuelve la sesión si es suficientemente completa para restaurar (tiene `perfil_rclone` y `endpoint`)
-- `_ws_clear(usuario)` — elimina la sesión al hacer logout; también cancela el timer de throttle pendiente y limpia los callbacks para no disparar sobre páginas muertas
-
----
-
-### Flujo de reconexión
-
-Cuando el usuario cierra y reabre la pestaña:
-
-1. Flet asigna una nueva `page` con un nuevo WebSocket
-2. `main(page)` se vuelve a ejecutar desde cero para esa página
-3. Al llegar al login, `go_login()` comprueba si existe sesión para `_LAST_WEB_USER[0]`
-4. Si existe, muestra el login con el `username` pre-rellenado y el callback `on_login_success_with_restore`
-5. El usuario solo introduce la **contraseña** (LDAP re-auth), sin pasar por la selección de servidor MinIO ni la descarga de shares
-6. Si la contraseña es correcta, se salta directamente a la vista de copia (`_build_copy_content`)
-7. `_build_copy_content` detecta la sesión activa y lanza el hilo `_replay`
-
-El hilo `_replay`:
-- Espera 200 ms para que el árbol de controles se estabilice
-- Muestra un banner de reconexión con el estado actual
-- Reproduce las últimas 200 líneas del buffer (el resto está en `~/bifrost-logs/`)
-- Si `_active_proceso["proc"]` sigue vivo (`proc.poll() is None`), restaura el botón Cancel y lanza `_watch_proc_end` para detectar cuando termine
-- Si el proceso ya acabó (carrera entre `copy_status` y el vaciado de `proc`), ajusta el estado a `"done"` o `"error"`
+- `_ws_save(usuario, state)` — saves/updates the session when navigating to the copy view
+- `_ws_load(usuario)` → `dict | None` — returns the session if complete enough to restore (has `perfil_rclone` and `endpoint`)
+- `_ws_clear(usuario)` — deletes the session on logout; also cancels any pending throttle timer and clears callbacks to avoid firing on dead pages
 
 ---
 
-### Log dispatcher y throttle (`_dispatch_log`)
+### Reconnection flow
 
-El problema: rclone con 8 transferencias paralelas genera >15 líneas de log por segundo. Sin throttle, cada línea haría un `page.update()` individual, saturando el event loop de Hypercorn e impidiendo que nuevas conexiones WebSocket pudieran establecerse (el síntoma era que reconectar durante una copia se quedaba eternamente en "checking for updates").
+When the user closes and reopens the tab:
 
-La solución es un dispatcher con throttle de 150 ms:
+1. Flet assigns a new `page` with a new WebSocket
+2. `main(page)` re-executes from scratch for that page
+3. On reaching login, `go_login()` checks if a session exists for `_LAST_WEB_USER[0]`
+4. If so, shows the login with `username` pre-filled and the `on_login_success_with_restore` callback
+5. The user only enters the **password** (LDAP re-auth), skipping MinIO server selection and share download
+6. If the password is correct, jumps directly to the copy view (`_build_copy_content`)
+7. `_build_copy_content` detects the active session and launches the `_replay` thread
+
+The `_replay` thread:
+- Waits 200 ms for the control tree to stabilize
+- Shows a reconnection banner with the current status
+- Replays the last 200 lines from the buffer (the rest is in `~/bifrost-logs/`)
+- If `_active_proceso["proc"]` is still alive (`proc.poll() is None`), restores the Cancel button and launches `_watch_proc_end` to detect when it finishes
+- If the process already ended (race between `copy_status` and `proc` teardown), adjusts status to `"done"` or `"error"`
+
+---
+
+### Log dispatcher and throttle (`_dispatch_log`)
+
+The problem: rclone with 8 parallel transfers generates >15 log lines per second. Without throttling, each line would trigger an individual `page.update()`, saturating Hypercorn's event loop and preventing new WebSocket connections (the symptom was that reconnecting during a copy would hang forever at "checking for updates").
+
+The solution is a dispatcher with a 150 ms throttle:
 
 ```
 _dispatch_log(msg)
     │
-    ├── Append a copy_log_buffer (capped a 5000 entradas)
-    ├── Append a _dispatch_pending
+    ├── Append to copy_log_buffer (capped at 5000 entries)
+    ├── Append to _dispatch_pending
     │
-    ├── Si han pasado ≥ 150 ms desde el último flush → flush inmediato
-    └── Si no → armar threading.Timer(0.2s) si no hay uno ya pendiente
+    ├── If ≥ 150 ms since last flush → immediate flush
+    └── If not → arm threading.Timer(0.2s) if none pending
                         │
                         └── _flush_log_callbacks()
                                 │
-                                └── Itera copy_log_callbacks → cb(combined_lines)
+                                └── Iterate copy_log_callbacks → cb(combined_lines)
                                         │
                                         └── log(msg) → ui_call(page, _add) → page.update()
 ```
 
-`copy_log_callbacks` permite que **múltiples páginas** (p.ej. dos pestañas del mismo usuario) reciban el mismo log simultaneamente. Los callbacks que fallen (página muerta) se eliminan automáticamente.
+`copy_log_callbacks` allows **multiple pages** (e.g. two tabs from the same user) to receive the same log simultaneously. Callbacks that fail (dead page) are removed automatically.
 
-El lock `_dispatch_lock` protege el acceso a `_dispatch_pending` y `_dispatch_last` contra condiciones de carrera entre el hilo del timer y el hilo de rclone que también llama `_dispatch_log`.
+The lock `_dispatch_lock` protects access to `_dispatch_pending` and `_dispatch_last` against race conditions between the timer thread and the rclone thread that also calls `_dispatch_log`.
 
 ---
 
-### El bug `IndexError: list index out of range` — qué era y por qué está resuelto
+### The `IndexError: list index out of range` bug — what it was and why it's fixed
 
-#### El síntoma
+#### Symptom
 
 ```
 Unhandled error in 'on_app_lifecycle_state_change' handler
@@ -262,27 +269,27 @@ File "object_patch.py", line 889, in _compare_lists
 IndexError: list index out of range
 ```
 
-Ocurría al enfocar/desenfocar la pestaña del navegador mientras había una copia en marcha, y de forma especialmente frecuente al iniciar una copia (el botón Copy dispara el browser refresh del destino).
+Occurred when focusing/unfocusing the browser tab while a copy was running, and especially frequently when starting a copy (the Copy button triggers a destination browser refresh).
 
-#### La causa raíz
+#### Root cause
 
-Flet mantiene un "snapshot" del árbol de controles anterior y, en cada evento, calcula un diff (`ObjectPatch.from_diff`) para enviar solo los cambios al cliente. Ese diff recorre las listas de controles (`controls`) **en el thread del event loop asyncio**, sin ningún lock.
+Flet maintains a "snapshot" of the previous control tree and, on each event, computes a diff (`ObjectPatch.from_diff`) to send only changes to the client. That diff walks the control lists (`controls`) **on the asyncio event loop thread**, without any lock.
 
-El código original usaba `page.run_thread(fn)` para todas las actualizaciones de UI desde hilos de background (log callbacks, browser de carpetas, etc.). `run_thread` lanza `fn()` en un `ThreadPoolExecutor` que corre **en paralelo real** al event loop asyncio.
+The original code used `page.run_thread(fn)` for all UI updates from background threads (log callbacks, folder browser, etc.). `run_thread` launches `fn()` in a `ThreadPoolExecutor` that runs **in true parallel** with the asyncio event loop.
 
-La colisión:
+The collision:
 
 ```
-Event loop asyncio (diff walker):   counts controls: 0, 1, 2, 3, 4...
+asyncio event loop (diff walker):   counts controls: 0, 1, 2, 3, 4...
 ThreadPoolExecutor worker:                                  ← controls.clear()
-Event loop asyncio (diff walker):                    ...5? → CRASH (list is empty)
+asyncio event loop (diff walker):                    ...5? → CRASH (list is empty)
 ```
 
-El GIL de Python no ayuda aquí porque la iteración del diff y el `.clear()` abarcan múltiples opcodes de bytecode entre los que el GIL puede cambiar de thread.
+Python's GIL doesn't help here because the diff iteration and `.clear()` span multiple bytecode opcodes between which the GIL can switch threads.
 
-#### La solución
+#### Fix
 
-Se cambió `page.run_thread(fn)` por `page.run_task(async_wrapper)` en `ui_call`:
+`page.run_thread(fn)` was replaced with `page.run_task(async_wrapper)` in `ui_call`:
 
 ```python
 def ui_call(page: ft.Page, fn: Callable) -> None:
@@ -291,46 +298,46 @@ def ui_call(page: ft.Page, fn: Callable) -> None:
     page.run_task(_wrapper)
 ```
 
-`page.run_task` usa `asyncio.run_coroutine_threadsafe(coro, loop)`, que encola la coroutine en el **mismo event loop single-threaded** donde corre el diff walker. Asyncio es cooperative: una coroutine solo cede el control en un `await`. Como `_compare_lists` no contiene ningún `await`, nunca puede ser interrumpida por una coroutine enqueuada — el diff siempre ve una lista estable.
+`page.run_task` uses `asyncio.run_coroutine_threadsafe(coro, loop)`, which enqueues the coroutine in the **same single-threaded event loop** where the diff walker runs. Asyncio is cooperative: a coroutine only yields at an `await`. Since `_compare_lists` contains no `await`, it can never be interrupted by an enqueued coroutine — the diff always sees a stable list.
 
-Adicionalmente se corrigieron los dos `threading.Timer` que llamaban directamente a funciones de navegación de carpetas sin pasar por `ui_call`:
+Two `threading.Timer` calls that were directly calling folder navigation functions without going through `ui_call` were also fixed:
 
 ```python
-# Antes (incorrecto — timer thread muta controls directamente):
+# Before (incorrect — timer thread mutates controls directly):
 threading.Timer(0.1, dest_browser_refresh).start()
 threading.Timer(0.1, refresh_fn).start()
 
-# Después (correcto — encolado en asyncio):
+# After (correct — enqueued in asyncio):
 threading.Timer(0.1, lambda: ui_call(page, dest_browser_refresh)).start()
 threading.Timer(0.1, lambda: ui_call(page, refresh_fn)).start()
 ```
 
-#### Regla general
+#### General rule
 
-> **Toda mutación de `control.controls` o llamada a `page.update()` desde fuera del event loop de Flet debe ir envuelta en `ui_call(page, fn)`.**
+> **Every mutation of `control.controls` or call to `page.update()` from outside Flet's event loop must be wrapped in `ui_call(page, fn)`.**
 
-Los únicos sitios donde se puede llamar `page.update()` directamente sin `ui_call` son los event handlers de Flet (botones, dialogs, etc.) porque Flet los ejecuta ya como tareas asyncio.
+The only places where `page.update()` can be called directly without `ui_call` are Flet event handlers (buttons, dialogs, etc.) because Flet already executes them as asyncio tasks.
 
 ---
 
-### Autosave de logs
+### Log autosave
 
-Al terminar cada copia o check (éxito o error), `_autosave_log()` guarda el contenido del buffer en:
+At the end of each copy or check (success or error), `_autosave_log()` saves the buffer contents to:
 
 ```
 ~/bifrost-logs/bifrost-YYYY-MM-DD_HH-MM-SS.log
 ```
 
-Esto es especialmente importante en modo web porque:
-- El buffer en memoria se trunca a las últimas 5000 líneas
-- En reconexión solo se reproducen las últimas 200 líneas en pantalla
-- El log completo siempre está disponible en el sistema de ficheros del servidor OOD
+This is especially important in web mode because:
+- The in-memory buffer is truncated to the last 5000 lines
+- On reconnection only the last 200 lines are replayed on screen
+- The full log is always available on the OOD server filesystem
 
 ---
 
-### Variables de entorno
+### Environment variables
 
-| Variable | Valor | Efecto |
+| Variable | Value | Effect |
 |---|---|---|
-| `BIFROST_DEV` | `1` | Activa `IS_WEB` y `DEV_WEB` para desarrollo local |
-| `BIFROST_CLUSTER` | `1` | Activa `IS_LINUX_CLUSTER` (incluye flujo CIFS/shares) |
+| `BIFROST_DEV` | `1` | Enables `IS_WEB` and `DEV_WEB` for local development |
+| `BIFROST_CLUSTER` | `1` | Enables `IS_LINUX_CLUSTER` (includes CIFS/shares flow) |
