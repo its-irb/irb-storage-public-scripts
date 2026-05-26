@@ -94,31 +94,49 @@ STS_AUTO_RENEWAL_DAYS = 7
 # PERFILES DE TAGS DE METADATOS
 # ============================================================================
 
-TAG_PROFILES: dict[str, list[tuple[str, str]]] = {
+from enum import Enum
+
+class FieldType(Enum):
+    TEXT       = "text"
+    DATE       = "date"
+    NUMBER     = "number"
+    UNISELECT  = "uniselect"
+    MULTISELECT = "multiselect"
+
+# Estructura: (label, key, FieldType, allow_custom, options_list_or_None, help_text)
+TAG_PROFILES: dict[str, list[tuple]] = {
     "IRB Standard": [
-        ("Project",          "project_name"),
-        ("Host machine",     "compute_node"),
-        ("Sample type",      "sample_type"),
-        ("Input data type",  "input_data_type"),
-        ("Output data type", "output_data_type"),
-        ("Requested by",     "requested_by"),
-        ("Research group",   "research_group"),
+        ("Project",          "project_name",    FieldType.TEXT,        False, None, None),
+        ("Host machine",     "compute_node",     FieldType.TEXT,        False, None, None),
+        ("Sample type",      "sample_type",      FieldType.TEXT,        False, None, None),
+        ("Input data type",  "input_data_type",  FieldType.TEXT,        False, None, None),
+        ("Output data type", "output_data_type", FieldType.TEXT,        False, None, None),
+        ("Requested by",     "requested_by",     FieldType.TEXT,        False, None, None),
+        ("Research group",   "research_group",   FieldType.TEXT,        False, None, None),
     ],
     "Histopathology": [
-        ("Owner",          "owner"),
-        ("Users",          "users"), 
-        ("Date",          "date"), 
-        ("Provider",          "provider"), 
-        ("Instrument",          "instrument"), 
-        ("Species",          "species"), 
-        ("Sample Type",          "sample_type"), 
-        ("Sample Origin",          "sample_origin"),    
-        ("Magnification",          "magnification"), 
-        ("Channels",          "channels"), 
-    ]
+        ("Owner",        "owner",        FieldType.UNISELECT,   False, [
+            "Eduard Batlle","Direna Alonso-Curbelo","Alexandra Avgustinova","Roger Gomis",
+            "Cayetano González","Nuria López-Bigas","Angel R. Nebreda","Antoni Riera",
+            "Fran Supek","Salvador Aznar Benitah","Xavier Salvatella",
+            "Ana Victoria Lechuga-Vieco","Manuel Palacín","Lluis Ribas",
+            "Alejo Rodríguez-Fraticelli","Stefanie Wculek","Antonio Zorzano",
+            "Marco Milán","Patrick Aloy","Toni Gabaldón","Jens Lüders",
+            "María Macías","Cristina Mayor-Ruiz","Raúl Méndez",
+            "Francesc Posas/ Eulalia de Nadal","Modesto Orozco","Ferran Azorin",
+            "Jordi Casanova","Miquel Coll"
+        ], None),
+        ("Users",        "users",        FieldType.TEXT,        False, None, "Enter Linux usernames separated by semicolons, e.g. eperez;fmartinez"),
+        ("Date",         "date",         FieldType.DATE,        False, None, None),
+        ("Provider",     "provider",     FieldType.UNISELECT,   False, ["Histopathology IRB Core Facility"], None),
+        ("Instrument",   "instrument",   FieldType.UNISELECT,   False, ["Phenoimager", "Nanozoomer"], None),
+        ("Species",      "species",      FieldType.UNISELECT,   False, ["mouse", "human", "rat", "pig", "cow"], None),
+        ("Sample Type",  "sample_type",  FieldType.UNISELECT,   False, ["tissue section", "organoid", "cell pellet"], None),
+        ("Sample Origin","sample_origin",FieldType.TEXT,        False, None, None),
+        ("Magnification","magnification",FieldType.UNISELECT,   False, ["20x", "40x"], None),
+        ("Channels",     "channels",     FieldType.UNISELECT, True,  ["Brightfield","DAPI","DAPI + 488","DAPI + 568","DAPI + 647","DAPI + 488 + 568","DAPI + 488 + 647","DAPI + 568 + 647","DAPI + 488 + 568 + 647"], None),
+    ],
 }
-
-
 # ============================================================================
 # PARA EVITAR PROBLEMAS DE CODIFICACIÓN EN CONSOLA (ESPECIALMENTE EN WINDOWS)
 # ============================================================================
@@ -1750,7 +1768,7 @@ def _build_copy_content(
     meta_labels = TAG_PROFILES["IRB Standard"]
     meta_fields: dict[str, ft.TextField] = {}
     meta_controls = []
-    for label, key in meta_labels:
+    for label, key, field_type, allow_custom, options_list, helper in TAG_PROFILES["IRB Standard"]:
         tf, col = styled_field(label)
         meta_fields[key] = tf
         meta_controls.append(col)
@@ -2448,7 +2466,7 @@ exit /b 1
 
 
 # ============================================================================
-# VISTA: TAG MANAGER
+# VIEW: TAG MANAGER
 # ============================================================================
 
 def _build_tag_manager_content(
@@ -2457,7 +2475,7 @@ def _build_tag_manager_content(
     endpoint: str,
     on_back: Callable,
 ) -> ft.Control:
-    # ── Estado ────────────────────────────────────────────────────────────
+    # ── State ────────────────────────────────────────────────────────────
     s3  = {"client": None}
     nav = {"bucket": None, "prefix": "", "show_files": False}
     sel = {"type": "none", "key": None, "count": 0, "display": ""}
@@ -2465,9 +2483,9 @@ def _build_tag_manager_content(
     tag_fields: dict[str, ft.TextField] = {}
     _log_buffer: list[str] = []
     _current_items = {"folders": [], "files": []}
-    _file_tag_rows: list[dict] = []          # filas del editor freeform
-    _file_editor_section  = None             # asignado tras construir widgets
-    _profile_editor_section = None           # asignado tras construir widgets
+    _file_tag_rows: list[dict] = []          # freeform editor rows
+    _file_editor_section  = None             # assigned after building widgets
+    _profile_editor_section = None           # assigned after building widgets
     right_panel = {"visible": False}
 
     # ── Log ───────────────────────────────────────────────────────────────
@@ -2477,7 +2495,7 @@ def _build_tag_manager_content(
     )
     log_section = ft.Container(
         content=ft.Column([
-            ft.Text("LOG", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600),
+            ft.Text("LOGS", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600),
             ft.Container(height=6),
             ft.Container(
                 content=log_list,
@@ -2510,9 +2528,9 @@ def _build_tag_manager_content(
             log_dir.mkdir(parents=True, exist_ok=True)
             fpath = log_dir / f"bifrost-tags-{ts}.log"
             fpath.write_text(content, encoding="utf-8")
-            _log(f"\n📄 Log guardado en: {fpath}", C_TEXT_DIM)
+            _log(f"\n📄 Log saved to: {fpath}", C_TEXT_DIM)
         except Exception as ex:
-            _log(f"\n⚠️  No se pudo guardar el log: {ex}", C_WARNING)
+            _log(f"\n⚠️  Could not save log file: {ex}", C_WARNING)
 
     def _get_client():
         if s3["client"] is None:
@@ -2525,7 +2543,7 @@ def _build_tag_manager_content(
     browser_loading = ft.Row(
         [
             ft.ProgressRing(width=14, height=14, stroke_width=2, color=C_PRIMARY),
-            ft.Text("Cargando...", size=11, color=C_TEXT_DIM),
+            ft.Text("Loading...", size=11, color=C_TEXT_DIM),
         ],
         spacing=8, visible=False,
     )
@@ -2566,24 +2584,18 @@ def _build_tag_manager_content(
         page.update()
 
     def _render_browser_contents() -> None:
-        browser_col.controls.clear()
+        if hasattr(browser_col.controls, "clear"):
+            browser_col.controls.clear()
+        else:
+            browser_col.controls = []
 
         if nav["bucket"] is None:
             for bname in _current_items["folders"]:
-
-                # tag_btn = ft.IconButton(
-                #     icon=ft.Icons.LABEL_OUTLINED,
-                #     icon_color=C_ACCENT,
-                #     icon_size=16,
-                #     tooltip="Editar tags de este bucket",
-                #     on_click=lambda e, b=bname: _select_prefix_and_open(""),
-                # )
-
                 arrow = ft.IconButton(
                     icon=ft.Icons.CHEVRON_RIGHT,
                     icon_color=C_TEXT_DIM,
                     icon_size=16,
-                    tooltip="Entrar en bucket",
+                    tooltip="Enter bucket",
                     on_click=lambda e, b=bname: _navigate(b, ""),
                 )
 
@@ -2591,7 +2603,6 @@ def _build_tag_manager_content(
                     content=ft.Row([
                         ft.Icon(ft.Icons.STORAGE_OUTLINED, color=C_PRIMARY, size=16),
                         ft.Text(bname, size=13, color=C_TEXT, expand=True),
-                        # tag_btn,
                         arrow,
                     ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     bgcolor=C_SURFACE2,
@@ -2604,21 +2615,19 @@ def _build_tag_manager_content(
                 browser_col.controls.append(
                     ft.GestureDetector(
                         content=c,
-                        on_tap=None,
-                        # 2 clicks: navegar dentro del bucket
                         on_double_tap=lambda e, b=bname: _navigate(b, ""),
                     )
                 )
-
         else:
             for prefix in _current_items["folders"]:
                 name = prefix.rstrip("/").split("/")[-1] + "/"
+                is_sel = sel["type"] == "prefix" and sel["key"] == prefix
 
                 tag_btn = ft.IconButton(
                     icon=ft.Icons.LABEL_OUTLINED,
                     icon_color=C_ACCENT,
                     icon_size=16,
-                    tooltip="Editar tags de esta carpeta",
+                    tooltip="Edit tags for all files in this folder",
                     on_click=lambda e, p=prefix: _select_prefix_and_open(p),
                 )
 
@@ -2626,7 +2635,7 @@ def _build_tag_manager_content(
                     icon=ft.Icons.CHEVRON_RIGHT,
                     icon_color=C_TEXT_DIM,
                     icon_size=16,
-                    tooltip="Entrar en carpeta",
+                    tooltip="Enter folder",
                     on_click=lambda e, p=prefix: _navigate(nav["bucket"], p),
                 )
 
@@ -2637,8 +2646,11 @@ def _build_tag_manager_content(
                         tag_btn,
                         arrow,
                     ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    bgcolor=C_SURFACE,
-                    border=ft.Border.all(1, C_BORDER),
+                    bgcolor=f"{C_ACCENT}18" if is_sel else C_SURFACE,
+                    border=ft.Border.all(
+                        2 if is_sel else 1,
+                        C_ACCENT if is_sel else C_BORDER,                     
+                    ),
                     border_radius=6,
                     padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                     ink=True,
@@ -2647,8 +2659,6 @@ def _build_tag_manager_content(
                 browser_col.controls.append(
                     ft.GestureDetector(
                         content=c,
-                        on_tap=None,
-                        # 2 clicks: navegar dentro de la carpeta
                         on_double_tap=lambda e, p=prefix: _navigate(nav["bucket"], p),
                     )
                 )
@@ -2656,7 +2666,6 @@ def _build_tag_manager_content(
             files = _current_items["files"]
 
             if not nav["show_files"]:
-                # 1. Definimos el botón normal
                 view_files_btn = ft.TextButton(
                     "View files in this folder",
                     icon=ft.Icons.INSERT_DRIVE_FILE_OUTLINED,
@@ -2664,35 +2673,24 @@ def _build_tag_manager_content(
                 )
 
                 def _on_view_files(e):
-                    # Deshabilitamos el botón para evitar clics dobles
                     view_files_btn.disabled = True
                     view_files_btn.text = "Loading files..."
-                    
-                    # Activamos el indicador circular de carga del propio browser (el spinner/loading)
                     browser_loading.visible = True
                     page.update()
 
-                    # 2. Creamos una función interna para ejecutar rclone en segundo plano (Thread)
                     def _async_load():
                         real_files = backend.rclone_list_files_only(
                             perfil_rclone, nav["bucket"], nav["prefix"]
                         )
-                        
-                        # Al terminar, actualizamos los datos de forma segura para la interfaz
                         _current_items["files"] = real_files
                         nav["show_files"] = True
                         browser_loading.visible = False
-                        
-                        # Redibujamos la sección usando la función segura de hilos que ya tienes
                         backend.ui_call(page, _render_browser_contents)
 
-                    # 3. Lanzamos el hilo para que la interfaz NO se congele
                     import threading
                     threading.Thread(target=_async_load, daemon=True).start()
 
-                # Asignamos el evento click
                 view_files_btn.on_click = _on_view_files
-
                 browser_col.controls.append(
                     ft.Container(
                         content=view_files_btn,
@@ -2733,13 +2731,13 @@ def _build_tag_manager_content(
 
         if not _current_items["folders"] and not _current_items["files"]:
             browser_col.controls.append(
-                ft.Text("(sin contenido)", size=11, color=C_TEXT_DIM, italic=True)
+                ft.Text("(empty content)", size=11, color=C_TEXT_DIM, italic=True)
             )
 
         page.update()
         
     def _select_prefix_and_open(prefix: str) -> None:
-        nav["show_files"] = False
+        # nav["show_files"] = False
         right_panel["visible"] = True
         right_editor.visible = True
 
@@ -2752,22 +2750,23 @@ def _build_tag_manager_content(
 
         backend.ui_call(page, _show_panel)
 
-        bucket = nav["bucket"] 
-        if not bucket: 
-            return 
+        bucket = nav["bucket"]
+        if not bucket:
+            return
         
         label   = f"📁 {prefix or (bucket + '/')}"
-        note    = "(Se aplicará recursivamente a todos los ficheros del prefijo)"
+        note    = "(Will be recursively applied to all objects within this folder)"
 
         def _upd():
             sel["type"]    = "prefix"
-            sel["key"]     = prefix  # <--- Guardamos AQUÍ el prefijo objetivo
+            sel["key"]     = prefix
             sel["count"]   = 0
             sel["display"] = label
             target_label.value    = label
             obj_count_label.value = note
             apply_btn.disabled    = False
-            _prefill_fields({})
+            _rebuild_tag_fields(profile_dd.value)
+            _render_browser_contents() 
         backend.ui_call(page, _upd)
 
     def _select_prefix(prefix: str) -> None:
@@ -2804,7 +2803,7 @@ def _build_tag_manager_content(
 
         def _reset_editor():
             apply_btn.disabled = True
-            target_label.value = "Selecciona una carpeta o fichero"
+            target_label.value = "Select a folder or a file"
             obj_count_label.value = ""
             apply_status.value = ""
             apply_status.visible = False
@@ -2813,14 +2812,21 @@ def _build_tag_manager_content(
                 _profile_editor_section.visible = True
                 _file_save_status.visible = False
             _rebuild_breadcrumb()
+            
         backend.ui_call(page, _reset_editor)
         backend.safe_thread(page, _load_browser).start()
+
+    def _navigate_to_prefix(bucket: str, prefix: str) -> None:
+        _navigate(bucket, prefix)
 
     def _load_browser() -> None:
         def _set_loading():
             browser_loading.visible = True
             browser_error.visible   = False
-            browser_col.controls.clear()
+            if hasattr(browser_col.controls, "clear"):
+                browser_col.controls.clear()
+            else:
+                browser_col.controls = []
             page.update()
         backend.ui_call(page, _set_loading)
 
@@ -2851,16 +2857,15 @@ def _build_tag_manager_content(
             backend.ui_call(page, _err)
 
     def _update_prefix_selection() -> None:
-        """Cuenta objetos bajo el prefijo actual y samplea tags del primero."""
         bucket = nav["bucket"]
         prefix = nav["prefix"]
         if not bucket:
             return
         
         label   = f"📁 {prefix or (bucket + '/')}"
-        note    = "(Conteo e inspección de tags deshabilitados por velocidad)"
-        tags_cp = {} # Enviamos un diccionario vacío por defecto
-        cnt_cp  = 0  # Forzamos a 0 o 1 para desbloquear el botón de aplicar si se desea
+        note    = "(Tag scanning and counting disabled for speed)"
+        tags_cp = {}
+        cnt_cp  = 0
 
         def _upd():
             sel["type"]    = "prefix"
@@ -2869,7 +2874,7 @@ def _build_tag_manager_content(
             sel["display"] = label
             target_label.value    = label
             obj_count_label.value = note
-            apply_btn.disabled    = False # Lo dejamos en False para que te deje aplicar tags a la carpeta igualmente
+            apply_btn.disabled    = False
             _prefill_fields(tags_cp)
         backend.ui_call(page, _upd)
 
@@ -2882,8 +2887,9 @@ def _build_tag_manager_content(
                 tags = backend.get_object_tags(client, nav["bucket"], key)
             except Exception as ex:
                 tags = {}
+                ex_str = str(ex)
                 def _err():
-                    browser_error.value   = f"Error al leer tags: {ex}"
+                    browser_error.value   = f"Error reading tags: {ex_str}"
                     browser_error.visible = True
                     page.update()
                 backend.ui_call(page, _err)
@@ -2899,12 +2905,17 @@ def _build_tag_manager_content(
                 target_label.value    = display
                 obj_count_label.value = ""
                 apply_btn.disabled    = False
-                _prefill_fields(tags_cp)
+                #_prefill_fields(tags_cp)
                 _file_name_label.value = key
                 _populate_file_editor(tags_cp)
+                file_editor_mode["mode"] = "list"
+                file_card_container.visible = False
+                _file_tags_col.visible = True
+                add_tag_btn.visible = True
+                file_list_headers.visible = True
                 if _file_editor_section is not None:
                     _file_editor_section.visible  = True
-                    _profile_editor_section.visible = False
+                _profile_editor_section.visible = False
                 _render_browser_contents()
             backend.ui_call(page, _upd)
         backend.safe_thread(page, _do).start()
@@ -2922,39 +2933,317 @@ def _build_tag_manager_content(
         border_radius=6,
         content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
         width=220,
+        #on_change=_on_profile_change,
     )
-    tag_fields_col  = ft.Column(spacing=10)
-    target_label    = ft.Text("Selecciona una carpeta o fichero",
-                               size=12, color=C_TEXT_DIM, italic=True)
+
+    print(f"[DEBUG] profile_dd creado: {id(profile_dd)}")
+    
+    # Contenedor raíz para los campos dinámicos
+    card_container = ft.Container()
+    target_label    = ft.Text("Select a folder or a file", size=12, color=C_TEXT_DIM, italic=True)
     obj_count_label = ft.Text("", size=11, color=C_TEXT_DIM)
     apply_btn       = btn_primary("Apply tags →")
     apply_btn.disabled = True
     apply_status    = ft.Text("", size=12, color=C_TEXT_DIM, visible=False)
-
-    def _rebuild_tag_fields(profile_name: str) -> None:
+        
+    def _rebuild_tag_fields(profile_name: str, target_container=None, target_fields=None) -> None:
+        print(f"[DEBUG] _rebuild_tag_fields called with profile: {profile_name}")
+        container = target_container if target_container is not None else card_container
+        fields    = target_fields    if target_fields    is not None else tag_fields
         active_profile["name"] = profile_name
-        tag_fields.clear()
-        tag_fields_col.controls.clear()
-        for label, key in TAG_PROFILES[profile_name]:
-            tf, col = styled_field(label)
-            tag_fields[key] = tf
-            tag_fields_col.controls.append(col)
-        page.update()
+        fields.clear()
+        
+        tag_fields_col = ft.Column(spacing=10)
+        
+        for item in TAG_PROFILES[profile_name]:
+            label        = item[0]
+            key          = item[1]
+            field_type   = item[2]
+            allow_custom = item[3]
+            options_list = item[4]
+            
+            if field_type == FieldType.UNISELECT:
+                CUSTOM_KEY = "__custom__"
+                
+                custom_tf = ft.TextField(
+                    hint_text="Custom value...",
+                    bgcolor=C_SURFACE2,
+                    border_color=C_BORDER,
+                    focused_border_color=C_PRIMARY,
+                    color=C_TEXT,
+                    text_size=12,
+                    border_radius=6,
+                    content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+                    expand=True,
+                    visible=False,
+                )
 
+                # Campo oculto que almacena el valor final
+                hidden_tf = ft.TextField(visible=False, value="")
+
+                def make_uniselect(dd_ref, custom_ref, hidden_ref):
+                    def _on_select(e):
+                        val = dd_ref.value
+                        if val == CUSTOM_KEY:
+                            custom_ref.visible = True
+                            hidden_ref.value = custom_ref.value or ""
+                        else:
+                            custom_ref.visible = False
+                            hidden_ref.value = val or ""
+                        page.update()
+
+                    def _on_custom_change(e):
+                        hidden_ref.value = custom_ref.value or ""
+
+                    dd_ref.on_select = _on_select
+                    custom_ref.on_change = _on_custom_change
+
+                dd = ft.Dropdown(
+                    options=[ft.DropdownOption(key="", text="")] +
+                            [ft.DropdownOption(key=opt, text=opt) for opt in options_list] +
+                            ([ft.DropdownOption(key=CUSTOM_KEY, text="✏️ Custom value...")] if allow_custom else []),
+                    value="",
+                    bgcolor=C_SURFACE2,
+                    border_color=C_BORDER,
+                    focused_border_color=C_PRIMARY,
+                    color=C_TEXT,
+                    text_size=13,
+                    border_radius=6,
+                    content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                    expand=True,
+                )
+
+                make_uniselect(dd, custom_tf, hidden_tf)
+
+                col = ft.Column(
+                    [
+                        ft.Text(label, size=12, color=C_TEXT_DIM),
+                        dd,
+                        custom_tf,
+                        hidden_tf,
+                    ],
+                    spacing=4,
+                )
+                fields[key] = hidden_tf  # ← hidden_tf guarda siempre el valor final
+                tag_fields_col.controls.append(col)
+            elif field_type == FieldType.MULTISELECT:
+                selected_vals = {"s": set()}
+                chips_row = ft.Row(wrap=True, spacing=6, run_spacing=6)
+                hidden_tf = ft.TextField(visible=False, value="")
+                fields[key] = hidden_tf
+
+                def make_multiselect(sel, chips, dd_ref, hidden, k, opts, custom):
+                    def _sync():
+                        chips.controls.clear()
+                        for v in sorted(sel["s"]):
+                            v_copy = v
+                            def make_delete(val):
+                                def _del(e):
+                                    sel["s"].discard(val)
+                                    _sync()
+                                    page.update()
+                                return _del
+                            chips.controls.append(
+                                ft.Chip(
+                                    label=ft.Text(v_copy, size=12, color=C_TEXT),
+                                    bgcolor=f"{C_ACCENT}22",
+                                    on_delete=make_delete(v_copy),
+                                    delete_icon_color=C_TEXT_DIM,
+                                )
+                            )
+                        hidden.value = ";".join(sorted(sel["s"]))
+                        
+                        # Reconstruir opciones del dropdown con colores según selección
+                        dd_ref.options = [
+                            ft.DropdownOption(
+                                key=opt,
+                                text=opt,
+                                content=ft.Row([
+                                    ft.Icon(
+                                        ft.Icons.CHECK,
+                                        size=14,
+                                        color=C_ACCENT,
+                                        visible=opt in sel["s"],
+                                    ),
+                                    ft.Text(
+                                        opt,
+                                        size=12,
+                                        color=C_ACCENT if opt in sel["s"] else C_TEXT,
+                                    ),
+                                ], spacing=6),
+                            )
+                            for opt in opts
+                        ]
+
+                    def _on_select(e):
+                        val = dd_ref.value
+                        if not val:
+                            return
+                        if val in sel["s"]:
+                            sel["s"].discard(val)
+                        else:
+                            sel["s"].add(val)
+                        dd_ref.value = None
+                        _sync()
+                        page.update()
+
+                    dd_ref.on_select = _on_select
+
+                    if custom:
+                        custom_tf = ft.TextField(
+                            hint_text="Custom value...",
+                            bgcolor=C_SURFACE2,
+                            border_color=C_BORDER,
+                            focused_border_color=C_PRIMARY,
+                            color=C_TEXT,
+                            text_size=12,
+                            border_radius=6,
+                            content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+                            expand=True,
+                        )
+                        def _add_custom(e):
+                            val = custom_tf.value.strip()
+                            if val and val not in sel["s"]:
+                                sel["s"].add(val)
+                                custom_tf.value = ""
+                                _sync()
+                                page.update()
+                        return custom_tf, _add_custom
+                    return None, None
+
+                options_dd = ft.Dropdown(
+                    options=[ft.DropdownOption(key=opt, text=opt) for opt in options_list],
+                    hint_text="Select...",
+                    bgcolor=C_SURFACE2,
+                    border_color=C_BORDER,
+                    focused_border_color=C_PRIMARY,
+                    color=C_TEXT,
+                    text_size=12,
+                    border_radius=6,
+                    content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+                    expand=True,
+                )
+
+                custom_tf, add_custom_fn = make_multiselect(
+                    selected_vals, chips_row, options_dd, hidden_tf, key, options_list, allow_custom
+                )
+
+                col_controls = [
+                    ft.Text(label, size=12, color=C_TEXT_DIM),
+                    options_dd,
+                    chips_row,
+                ]
+                if allow_custom and custom_tf:
+                    col_controls.insert(2, ft.Row([
+                        custom_tf,
+                        ft.IconButton(
+                            icon=ft.Icons.ADD,
+                            icon_color=C_PRIMARY,
+                            icon_size=18,
+                            on_click=add_custom_fn,
+                        ),
+                    ], spacing=4))
+                col_controls.append(hidden_tf)
+
+                tag_fields_col.controls.append(ft.Column(col_controls, spacing=6))
+            elif field_type == FieldType.DATE:
+                def make_date_picker(tf):
+                    def _on_change(e):
+                        if e.control.value:
+                            tf.value = e.control.value.strftime("%Y-%m-%d")
+                            page.update()
+                    picker = ft.DatePicker(on_change=_on_change)
+                    page.overlay.append(picker)
+                    def _open(e):
+                        picker.open = True
+                        page.update()
+                    return _open
+
+                date_tf = ft.TextField(
+                    read_only=True,
+                    hint_text="YYYY-MM-DD",
+                    bgcolor=C_SURFACE2,
+                    border_color=C_BORDER,
+                    focused_border_color=C_PRIMARY,
+                    color=C_TEXT,
+                    text_size=13,
+                    border_radius=6,
+                    content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                    expand=True,
+                )
+
+                open_fn = make_date_picker(date_tf)  # ← pasamos date_tf ya creado
+                date_tf.on_click = open_fn           # ← asignamos después
+
+                fields[key] = date_tf
+
+                col = ft.Column([
+                    ft.Text(label, size=12, color=C_TEXT_DIM),
+                    ft.Row([
+                        date_tf,
+                        ft.IconButton(
+                            icon=ft.Icons.CALENDAR_MONTH,
+                            icon_color=C_PRIMARY,
+                            icon_size=18,
+                            on_click=open_fn,
+                        ),
+                    ], spacing=4),
+                ], spacing=4)
+                tag_fields_col.controls.append(col)
+
+            elif field_type == FieldType.NUMBER:   
+                pass  # Implement number field logic
+            else:
+                tf, col = styled_field(label)
+                fields[key] = tf
+                tf.expand = True
+                tag_fields_col.controls.append(col)
+                helper = item[5]
+                if helper:
+                    col.controls.append(
+                        ft.Text(helper, size=11, color=C_TEXT_DIM, italic=True)
+                    )
+
+        # Un único update al final, con el contenido ya construido
+        container.content = card(tag_fields_col, padding=16)
+        page.update()
+        print(f"[DEBUG] page.update() done")
+
+
+    def _on_profile_change(e):
+        print(f"[DEBUG] _on_profile_change fired RAW, value: {e.control.value}")
+        name = e.control.value
+        print(f"[DEBUG] _on_profile_change fired, value: {name}")
+        backend.ui_call(page, lambda: _rebuild_tag_fields(name))
+        print(f"[DEBUG] ui_call scheduled")
+    
     def _prefill_fields(tags: dict[str, str]) -> None:
         for key, tf in tag_fields.items():
-            tf.value = tags.get(key, "")
+            if key in tags:
+                tf.value = tags[key]
         page.update()
 
-    profile_dd.on_change = lambda e: backend.ui_call(
-        page, lambda: _rebuild_tag_fields(e.control.value)
+    profile_dd = ft.Dropdown(
+        options=[ft.dropdown.Option(p) for p in profile_names],
+        value=profile_names[0],
+        bgcolor=C_SURFACE2,
+        border_color=C_BORDER,
+        focused_border_color=C_PRIMARY,
+        color=C_TEXT,
+        text_size=13,
+        border_radius=6,
+        content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+        width=220
     )
+
+    profile_dd.on_select = _on_profile_change
+    print(f"[DEBUG] profile_dd id: {id(profile_dd)}, on_select registrado: {profile_dd.on_select}")
     _rebuild_tag_fields(profile_names[0])
 
     def do_apply(e) -> None:
         tagset = {k: (tf.value or "").strip() for k, tf in tag_fields.items()}
         apply_btn.disabled  = True
-        apply_status.value  = "Aplicando tags..."
+        apply_status.value  = "Applying tags..."
         apply_status.color  = C_TEXT_DIM
         apply_status.visible = True
         log_section.visible  = True
@@ -2964,8 +3253,8 @@ def _build_tag_manager_content(
             client = _get_client()
             bucket = nav["bucket"]
             ts     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            _log(f"### Tags aplicados — {ts} ###\n")
-            _log(f"Perfil : {active_profile['name']}\n", C_TEXT_DIM)
+            _log(f"### Tags applied — {ts} ###\n")
+            _log(f"Profile: {active_profile['name']}\n", C_TEXT_DIM)
             for k, v in tagset.items():
                 if v:
                     _log(f"  {k}: {v}\n", C_TEXT_DIM)
@@ -2973,24 +3262,24 @@ def _build_tag_manager_content(
 
             try:
                 if sel["type"] == "file":
-                    _log(f"📄 Fichero: {sel['key']}\n")
+                    _log(f"📄 File: {sel['key']}\n")
                     backend.apply_tags_to_object(client, bucket, sel["key"], tagset)
                     _log(f"  ✓ {sel['key']}\n", C_ACCENT)
                     n_ok = 1
                 else:
                     prefix = sel["key"] if sel["key"] is not None else ""
-                    _log(f"📁 Prefijo masivo S3/MinIO: {bucket}/{prefix}\n")
-                    _log(f"⏳ Buscando recursivamente todos los objetos bajo este prefijo...\n", C_TEXT_DIM)
+                    _log(f"📁 Bulk Prefix S3/MinIO: {bucket}/{prefix}\n")
+                    _log(f"⏳ Searching recursively for all objects inside this prefix...\n", C_TEXT_DIM)
                     n_ok = backend.apply_tags_to_prefix(
                         client, bucket, prefix, tagset,
                         log_fn=lambda msg: _log(msg),
                     )
 
-                _log(f"\n✅ {n_ok} objeto(s) tagueado(s) correctamente.\n", C_ACCENT)
+                _log(f"\n✅ {n_ok} object(s) tagged successfully.\n", C_ACCENT)
 
                 def _ok():
                     apply_btn.disabled   = False
-                    apply_status.value   = f"✅ {n_ok} objeto(s) actualizados"
+                    apply_status.value   = f"✅ {n_ok} object(s) updated"
                     apply_status.color   = C_ACCENT
                     page.update()
                 backend.ui_call(page, _ok)
@@ -3000,7 +3289,7 @@ def _build_tag_manager_content(
                 _log(f"\n❌ Error: {err_str}\n", C_ERROR)
                 def _err():
                     apply_btn.disabled   = False
-                    apply_status.value   = "❌ Error al aplicar tags"
+                    apply_status.value   = "❌ Error applying tags"
                     apply_status.color   = C_ERROR
                     page.update()
                 backend.ui_call(page, _err)
@@ -3011,21 +3300,34 @@ def _build_tag_manager_content(
 
     apply_btn.on_click = do_apply
 
-    # ── Editor freeform (fichero individual) ────────────────────────────
-    _add_btn_ref  = {"btn": None}   # forward ref — asignado abajo
-    _save_btn_ref = {"btn": None}   # forward ref — asignado abajo
+    # ── Freeform Editor (Individual File) ────────────────────────────
+    _add_btn_ref  = {"btn": None}   
+    _save_btn_ref = {"btn": None}   
 
     _file_name_label  = ft.Text("", size=12, color=C_TEXT_DIM, italic=True)
     _file_tags_col    = ft.Column(spacing=6, tight=True)
     _file_save_status = ft.Text("", size=12, visible=False)
+    file_card_container = ft.Container(visible=False, expand=True)
+    file_editor_mode = {"mode": "list"}  # "list" o "profile"
+    file_tag_fields: dict = {}    
+
+    file_list_headers = ft.Row(
+            [
+                ft.Text("Key", size=11, color=C_TEXT_DIM, expand=1),
+                ft.Text("Value", size=11, color=C_TEXT_DIM, expand=2),
+                ft.Container(width=40),
+            ],
+            spacing=6,
+        )
 
     def _refresh_add_btn_state() -> None:
         if _add_btn_ref["btn"] is not None:
             _add_btn_ref["btn"].disabled = len(_file_tag_rows) >= 10
 
     def _build_file_editor_row(key: str = "", value: str = "") -> dict:
+        
         key_tf = ft.TextField(
-            value=key, hint_text="Clave",
+            value=key, hint_text="Key",
             bgcolor=C_SURFACE2, border_color=C_BORDER,
             focused_border_color=C_PRIMARY, color=C_TEXT,
             hint_style=ft.TextStyle(color=C_TEXT_DIM),
@@ -3033,29 +3335,46 @@ def _build_tag_manager_content(
             content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
             text_size=12, max_length=128, expand=1,
         )
-        val_tf = ft.TextField(
-            value=value, hint_text="Valor",
-            bgcolor=C_SURFACE2, border_color=C_BORDER,
-            focused_border_color=C_PRIMARY, color=C_TEXT,
-            hint_style=ft.TextStyle(color=C_TEXT_DIM),
-            border_radius=6,
-            content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
-            text_size=12, max_length=256, expand=2,
-        )
-        row_dict: dict = {"key_tf": key_tf, "val_tf": val_tf, "row": None}
+        
+        val_container = ft.Container(expand=2)
+        row_dict: dict = {"key_tf": key_tf, "val_tf": None, "row": None, "val_container": val_container}
+
+        def update_value_field_type(current_key: str, current_val: str):
+            field_tf = ft.TextField(
+                value=current_val, hint_text="Value",
+                bgcolor=C_SURFACE2, border_color=C_BORDER,
+                focused_border_color=C_PRIMARY, color=C_TEXT,
+                hint_style=ft.TextStyle(color=C_TEXT_DIM),
+                border_radius=6,
+                content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                text_size=12, max_length=256, expand=True
+            )
+            row_dict["val_tf"] = field_tf
+            val_container.content = field_tf  # siempre simple, sin dropdown
+
+        update_value_field_type(key, value)
+
+        def on_key_change(e):
+            old_val = row_dict["val_tf"].value or ""
+            update_value_field_type(key_tf.value, old_val)
+            page.update()
+            
+        key_tf.on_change = on_key_change
 
         def _delete(e, rd=row_dict):
-            _file_tag_rows.remove(rd)
-            _file_tags_col.controls.remove(rd["row"])
+            if rd in _file_tag_rows:
+                _file_tag_rows.remove(rd)
+            if rd["row"] in _file_tags_col.controls:
+                _file_tags_col.controls.remove(rd["row"])
             _refresh_add_btn_state()
             page.update()
 
         row = ft.Row(
             [
-                key_tf, val_tf,
+                key_tf, val_container,
                 ft.IconButton(
                     icon=ft.Icons.CLOSE, icon_size=16, icon_color=C_TEXT_DIM,
-                    tooltip="Eliminar", on_click=_delete,
+                    tooltip="Remove", on_click=_delete,
                 ),
             ],
             spacing=6,
@@ -3066,7 +3385,7 @@ def _build_tag_manager_content(
 
     def _populate_file_editor(tags: dict[str, str]) -> None:
         _file_tag_rows.clear()
-        _file_tags_col.controls.clear()
+        _file_tags_col.controls = []
         _file_save_status.visible = False
         for k, v in tags.items():
             rd = _build_file_editor_row(k, v)
@@ -3085,26 +3404,30 @@ def _build_tag_manager_content(
         page.update()
 
     def _on_prefill_from_profile(e) -> None:
-        existing_keys = {rd["key_tf"].value for rd in _file_tag_rows if rd["key_tf"].value}
-        for _lbl, pkey in TAG_PROFILES[active_profile["name"]]:
-            if pkey not in existing_keys:
-                if len(_file_tag_rows) >= 10:
-                    break
-                rd = _build_file_editor_row(pkey, "")
-                _file_tag_rows.append(rd)
-                _file_tags_col.controls.append(rd["row"])
-        _refresh_add_btn_state()
-        page.update()
+        profile_name = prefill_profile_dd.value
+        active_profile["name"] = profile_name
+        file_editor_mode["mode"] = "profile"
+        
+        _file_tags_col.visible      = False
+        add_tag_btn.visible         = False
+        file_list_headers.visible   = False
+        file_card_container.visible = True
+        
+        _rebuild_tag_fields(profile_name, target_container=file_card_container, target_fields=file_tag_fields)
 
     def _on_save_file_tags(e) -> None:
-        tagset = {
-            rd["key_tf"].value.strip(): rd["val_tf"].value.strip()
-            for rd in _file_tag_rows
-            if rd["key_tf"].value.strip()
-        }
+        if file_editor_mode["mode"] == "profile":
+            tagset = {k: (c.value or "").strip() for k, c in file_tag_fields.items()}
+        else:
+            tagset = {
+                rd["key_tf"].value.strip(): rd["val_tf"].value.strip()
+                for rd in _file_tag_rows
+                if rd["key_tf"].value.strip()
+            }
+
         if _save_btn_ref["btn"] is not None:
             _save_btn_ref["btn"].disabled = True
-        _file_save_status.value   = "Guardando..."
+        _file_save_status.value   = "Saving..."
         _file_save_status.color   = C_TEXT_DIM
         _file_save_status.visible = True
         page.update()
@@ -3116,7 +3439,7 @@ def _build_tag_manager_content(
                 def _ok():
                     if _save_btn_ref["btn"] is not None:
                         _save_btn_ref["btn"].disabled = False
-                    _file_save_status.value = "✅ Tags guardados"
+                    _file_save_status.value = "✅ Tags saved successfully"
                     _file_save_status.color = C_ACCENT
                     page.update()
                 backend.ui_call(page, _ok)
@@ -3132,7 +3455,7 @@ def _build_tag_manager_content(
 
         backend.safe_thread(page, _do).start()
 
-    add_tag_btn = btn_secondary("+ Añadir tag", on_click=_on_add_tag_row)
+    add_tag_btn = btn_secondary("+ Add tag", on_click=_on_add_tag_row)
     _add_btn_ref["btn"] = add_tag_btn
 
     prefill_profile_dd = ft.Dropdown(
@@ -3149,7 +3472,7 @@ def _build_tag_manager_content(
     )
     prefill_profile_dd.on_change = lambda e: active_profile.update({"name": e.control.value})
     prefill_btn   = btn_secondary("Pre-fill", on_click=_on_prefill_from_profile)
-    file_save_btn = btn_primary("Guardar tags")
+    file_save_btn = btn_primary("Save tags")
     file_save_btn.on_click = _on_save_file_tags
     _save_btn_ref["btn"]   = file_save_btn
 
@@ -3158,21 +3481,14 @@ def _build_tag_manager_content(
         expand=True,
         content=ft.Column(
             [
-                ft.Text("TAGS DEL FICHERO", size=10, color=C_TEXT_DIM,
-                        weight=ft.FontWeight.W_600),
+                ft.Text("FILE TAGS EDITOR", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600),
                 ft.Container(height=8),
                 _file_name_label,
                 ft.Container(height=8),
-                ft.Row(
-                    [
-                        ft.Text("Clave", size=11, color=C_TEXT_DIM, expand=1),
-                        ft.Text("Valor", size=11, color=C_TEXT_DIM, expand=2),
-                        ft.Container(width=40),
-                    ],
-                    spacing=6,
-                ),
+                file_list_headers,
                 ft.Container(height=4),
                 _file_tags_col,
+                file_card_container, 
                 ft.Container(height=8),
                 add_tag_btn,
                 ft.Container(height=12),
@@ -3201,27 +3517,20 @@ def _build_tag_manager_content(
         expand=True,
         content=ft.Column(
             [
-                ft.Text("EDITAR TAGS", size=10, color=C_TEXT_DIM,
-                        weight=ft.FontWeight.W_600),
+                ft.Text("EDIT FOLDER TAGS", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600),
                 ft.Container(height=8),
-                card(
-                    ft.Column(
-                        [
-                            ft.Row(
-                                [
-                                    ft.Text("Perfil:", size=13, color=C_TEXT),
-                                    profile_dd,
-                                ],
-                                spacing=12,
-                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            ),
-                            ft.Container(height=12),
-                            tag_fields_col,
-                        ],
-                        spacing=0,
-                    ),
-                    padding=16,
+                # El seleccionador de Perfil se encuentra FUERA del cuadro de metadatos
+                ft.Row(
+                    [
+                        ft.Text("Profile:", size=13, color=C_TEXT),
+                        profile_dd,
+                    ],
+                    spacing=12,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
+                ft.Container(height=12),
+                # Contenedor dinámico que aloja los metadatos de la carpeta
+                card_container,
                 ft.Container(height=12),
                 ft.Container(
                     content=ft.Column(
@@ -3272,12 +3581,11 @@ def _build_tag_manager_content(
             ft.Container(
                 content=ft.Row(
                     [
-                        # Panel izquierdo: browser
+                        # Left panel: Browser
                         ft.Container(
                             content=ft.Column(
                                 [
-                                    ft.Text("NAVEGAR", size=10, color=C_TEXT_DIM,
-                                            weight=ft.FontWeight.W_600),
+                                    ft.Text("BROWSE", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600),
                                     ft.Container(height=8),
                                     breadcrumb_row,
                                     ft.Container(height=6),
@@ -3301,9 +3609,8 @@ def _build_tag_manager_content(
                             ),
                         ),
                         ft.VerticalDivider(width=1, color=C_BORDER),
-                        # Panel derecho: editor (freeform para fichero / perfil para carpeta)
-                        # Panel derecho
-                        right_editor,   
+                        # Right panel: Editor
+                        right_editor,  
                     ],
                     spacing=0,
                     expand=True,
@@ -3321,7 +3628,6 @@ def _build_tag_manager_content(
 
     backend.safe_thread(page, _load_browser).start()
     return content
-
 
 # ============================================================================
 # FUNCIÓN PRINCIPAL
@@ -3680,6 +3986,7 @@ def main(page: ft.Page):
             go_copy()
 
     def go_tags():
+        print("[tags] Entrando en Tag Manager", flush=True)
         show_screen(_build_tag_manager_content(
             page,
             perfil_rclone=state["perfil_rclone"],
