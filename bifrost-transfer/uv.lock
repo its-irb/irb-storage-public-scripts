@@ -3,15 +3,6 @@ revision = 3
 requires-python = ">=3.12"
 
 [[package]]
-name = "annotated-doc"
-version = "0.0.4"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/57/ba/046ceea27344560984e26a590f90bc7f4a75b06701f653222458922b558c/annotated_doc-0.0.4.tar.gz", hash = "sha256:fbcda96e87e9c92ad167c2e53839e57503ecfda18804ea28102353485033faa4", size = 7288, upload-time = "2025-11-10T22:07:42.062Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/1e/d3/26bf1008eb3d2daa8ef4cacc7f3bfdc11818d111f7e2d0201bc6e3b49d45/annotated_doc-0.0.4-py3-none-any.whl", hash = "sha256:571ac1dc6991c450b25a9c2d84a3705e2ae7a53467b5d111c24fa8baabbed320", size = 5303, upload-time = "2025-11-10T22:07:40.673Z" },
-]
-
-[[package]]
 name = "annotated-types"
 version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -34,13 +25,52 @@ wheels = [
 ]
 
 [[package]]
-name = "bifrost"
-version = "1.0.dev0"
+name = "bifrost-shared"
+version = "0.1.0"
+source = { directory = "C:/Users/operez/irb-storage-public-scripts/shared" }
+dependencies = [
+    { name = "boto3" },
+    { name = "botocore" },
+    { name = "cryptography" },
+    { name = "flet" },
+    { name = "jmespath" },
+    { name = "ldap3" },
+    { name = "pyasn1" },
+    { name = "pycparser" },
+    { name = "pyjwt" },
+    { name = "python-dateutil" },
+    { name = "requests" },
+    { name = "s3transfer" },
+    { name = "six" },
+    { name = "urllib3" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = "==1.42.12" },
+    { name = "botocore", specifier = "==1.42.12" },
+    { name = "cryptography", specifier = "==46.0.3" },
+    { name = "flet", specifier = "==0.84.0" },
+    { name = "jmespath", specifier = "==1.0.1" },
+    { name = "ldap3", specifier = "==2.9.1" },
+    { name = "pyasn1", specifier = "==0.6.1" },
+    { name = "pycparser", specifier = "==2.23" },
+    { name = "pyjwt", specifier = "==2.10.1" },
+    { name = "python-dateutil", specifier = "==2.9.0.post0" },
+    { name = "requests", specifier = "==2.32.5" },
+    { name = "s3transfer", specifier = "==0.16.0" },
+    { name = "six", specifier = "==1.17.0" },
+    { name = "urllib3", specifier = ">=2.7.0" },
+]
+
+[[package]]
+name = "bifrost-transfer"
+version = "2.0.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "annotated-doc" },
     { name = "annotated-types" },
     { name = "anyio" },
+    { name = "bifrost-shared" },
     { name = "boto3" },
     { name = "botocore" },
     { name = "certifi" },
@@ -77,16 +107,16 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "annotated-doc", specifier = "==0.0.4" },
     { name = "annotated-types", specifier = "==0.7.0" },
     { name = "anyio", specifier = "==4.12.1" },
+    { name = "bifrost-shared", directory = "C:/Users/operez/irb-storage-public-scripts/shared" },
     { name = "boto3", specifier = "==1.42.12" },
     { name = "botocore", specifier = "==1.42.12" },
     { name = "certifi", specifier = "==2025.11.12" },
     { name = "cffi", specifier = "==2.0.0" },
     { name = "charset-normalizer", specifier = "==3.4.4" },
     { name = "cryptography", specifier = "==46.0.3" },
-    { name = "flet", specifier = "==0.28.2" },
+    { name = "flet", specifier = "==0.84.0" },
     { name = "h11", specifier = "==0.16.0" },
     { name = "httpcore", specifier = "==1.0.9" },
     { name = "httptools", specifier = "==0.7.1" },
@@ -108,7 +138,7 @@ requires-dist = [
     { name = "s3transfer", specifier = "==0.16.0" },
     { name = "six", specifier = "==1.17.0" },
     { name = "typing-extensions", specifier = "==4.15.0" },
-    { name = "urllib3", specifier = "==1.26.20" },
+    { name = "urllib3", specifier = ">=2.7.0" },
     { name = "uvloop", marker = "sys_platform != 'win32'", specifier = "==0.22.1" },
     { name = "watchfiles", specifier = "==1.1.1" },
     { name = "websockets", specifier = "==15.0.1" },
@@ -323,15 +353,17 @@ wheels = [
 
 [[package]]
 name = "flet"
-version = "0.28.2"
+version = "0.84.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx", marker = "platform_system != 'Pyodide'" },
+    { name = "msgpack" },
     { name = "oauthlib", marker = "platform_system != 'Pyodide'" },
     { name = "repath" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/1b/8e/d042b5cefa507195683ba439ee183ce24f0cdfa13005b0a8ab64dd403e72/flet-0.84.0.tar.gz", hash = "sha256:f8a4121666c8df2d1c5ea10b14113755895328251b7ce4ab37b140fc8b23fa36", size = 472575, upload-time = "2026-04-01T19:23:59.207Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/37/ae/a05260d6f32929d14183347cca9fb6d642d4a08de7015e0afb1b674a931e/flet-0.28.2-py3-none-any.whl", hash = "sha256:599ae936863510e427b03ccc7f84d57eda712080d95e72e2086a2fa8ec5e6661", size = 462918, upload-time = "2025-05-10T22:02:07.584Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/cf/2ea7810646e310977b2f756c875b3556dc8893aa706177106712ba8f77f9/flet-0.84.0-py3-none-any.whl", hash = "sha256:0661e317a7451d7ca562dde22520598e0ada74038ea171783c18dbc26c6cc5ca", size = 560353, upload-time = "2026-04-01T19:23:57.914Z" },
 ]
 
 [[package]]
@@ -734,11 +766,11 @@ wheels = [
 
 [[package]]
 name = "urllib3"
-version = "1.26.20"
+version = "2.7.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e4/e8/6ff5e6bc22095cfc59b6ea711b687e2b7ed4bdb373f7eeec370a97d7392f/urllib3-1.26.20.tar.gz", hash = "sha256:40c2dc0c681e47eb8f90e7e27bf6ff7df2e677421fd46756da1161c39ca70d32", size = 307380, upload-time = "2024-08-29T15:43:11.37Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/53/0c/06f8b233b8fd13b9e5ee11424ef85419ba0d8ba0b3138bf360be2ff56953/urllib3-2.7.0.tar.gz", hash = "sha256:231e0ec3b63ceb14667c67be60f2f2c40a518cb38b03af60abc813da26505f4c", size = 433602, upload-time = "2026-05-07T16:13:18.596Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/33/cf/8435d5a7159e2a9c83a95896ed596f68cf798005fe107cc655b5c5c14704/urllib3-1.26.20-py2.py3-none-any.whl", hash = "sha256:0ed14ccfbf1c30a9072c7ca157e4319b70d65f623e91e7b32fadb2853431016e", size = 144225, upload-time = "2024-08-29T15:43:08.921Z" },
+    { url = "https://files.pythonhosted.org/packages/7f/3e/5db95bcf282c52709639744ca2a8b149baccf648e39c8cc87553df9eae0c/urllib3-2.7.0-py3-none-any.whl", hash = "sha256:9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897", size = 131087, upload-time = "2026-05-07T16:13:17.151Z" },
 ]
 
 [[package]]
