@@ -36,7 +36,7 @@ dependencies = [
     "ldap3==2.9.1",
     "msgpack==1.1.2",
     "oauthlib==3.3.1",
-    "pyasn1==0.6.1",
+    "pyasn1>=0.6.3",
     "pycparser==2.23",
     "pydantic==2.12.5",
     "pydantic-core==2.41.5",
@@ -52,7 +52,7 @@ dependencies = [
     "uvloop==0.22.1 ; sys_platform != 'win32'",
     "watchfiles==1.1.1",
     "websockets==15.0.1",
-    "bifrost-shared @ file:///__BUILDPATH__/shared",
+    "bifrost-shared @ file:///__BUILDPATH__/shared"
 ]
 
 [tool.flet.flutter.pubspec.dependency_overrides]

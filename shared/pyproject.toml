@@ -9,7 +9,7 @@ dependencies = [
     "cryptography>=46.0.7",
     "jmespath==1.0.1",
     "ldap3==2.9.1",
-    "pyasn1==0.6.1",
+    "pyasn1>=0.6.3",
     "pycparser==2.23",
     "pyjwt==2.10.1",
     "python-dateutil==2.9.0.post0",
