@@ -38,6 +38,7 @@ jobs:
       - name: Instalar dependencias Python
         run: |
           pip install --upgrade pip
+          pip install -e ./shared
           pip install -r shared/requirements.txt
 
       - name: Copiar macos-assets-downloader.sh dentro de src/
@@ -187,7 +188,9 @@ jobs:
       #     channel: stable
 
       - name: Instalar dependencias Python
-        run: pip install -r shared/requirements.txt
+        run: |
+          pip install -e ./shared 
+          pip install -r shared/requirements.txt
 
       - name: Copiar windows-assets-downloader.sh dentro de src/
         shell: bash
@@ -306,6 +309,7 @@ jobs:
 
       - name: Instalar dependencias Python
         run: |
+          python3.11 -m pip install -e ./shared
           python3.11 -m pip install -r shared/requirements.txt
           python3.11 -m pip install pyinstaller
 
