@@ -53,7 +53,7 @@ import subprocess
 import threading
 import traceback
 import pathlib
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable
 
 import flet as ft
@@ -3224,9 +3224,13 @@ def _build_tag_manager_content(
                 def make_date_picker(tf):
                     def _on_change(e):
                         if e.control.value:
-                            tf.value = e.control.value.strftime("%Y-%m-%d")
+                            print(f"[DEBUG] Date selected: {e.control.value} (type: {type(e.control.value)}) ")
+                            selected_date = e.control.value.astimezone()
+                            tf.value = f"{selected_date.year}-{selected_date.month:02d}-{selected_date.day:02d}"
+                            print(f"[DEBUG] TextField updated with value + hora local: {tf.value} (type: {type(tf.value)})")
+                            #tf.value = e.control.value.strftime("%Y-%m-%d")
                             page.update()
-                    picker = ft.DatePicker(on_change=_on_change)
+                    picker = ft.DatePicker(on_change=_on_change, locale=ft.Locale("en", "GB"))
                     page.overlay.append(picker)
                     def _open(e):
                         picker.open = True
@@ -3235,7 +3239,7 @@ def _build_tag_manager_content(
 
                 date_tf = ft.TextField(
                     read_only=True,
-                    hint_text="YYYY-MM-DD",
+                    #hint_text="YYYY-MM-DD",
                     bgcolor=C_SURFACE2,
                     border_color=C_BORDER,
                     focused_border_color=C_PRIMARY,
