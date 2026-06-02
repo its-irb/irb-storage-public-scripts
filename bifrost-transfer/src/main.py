@@ -4111,7 +4111,10 @@ def main(page: ft.Page):
         else:
             page.window.close()
 
-    show_screen(build_update_content(page, on_continue=go_login))
+    if IS_WEB:
+        go_login()
+    else:
+        show_screen(build_update_content(page, on_continue=go_login))
 
 # ============================================================================
 # WEB VERSION IN OOD
