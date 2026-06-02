@@ -83,6 +83,20 @@ IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or (os.environ.get("B
 
 ---
 
+## Actualización de la wiki LLM
+
+Al implementar este cambio, crear la página `docs/wiki/decisiones/variables-modo-is-web.md` con la decisión de fusionar `IS_LINUX_CLUSTER` y `DEV_WEB` en `IS_WEB`. Esta decisión no es obvia leyendo el código y merece quedarse registrada.
+
+Contenido mínimo de la página:
+- **Por qué** se fusionaron: `IS_WEB` e `IS_LINUX_CLUSTER` eran semánticamente lo mismo en bifrost-transfer (modo web = modo cluster).
+- **Por qué** desaparece `BIFROST_DEV`: `flet run --web` cubre el mismo caso de uso sin necesidad de una env var adicional.
+- **Por qué** desaparece `IS_LINUX_CLUSTER` de bifrost-mount: el flujo CIFS se moverá a bifrost-transfer web (tarea futura).
+- La señal de producción (`BIFROST_CLUSTER=1`) pasa a ser sinónimo de "modo web".
+
+Añadir entrada en `index.md` bajo `## Decisiones` y entrada en `log.md` con prefijo `## [2026-06-02] task | simplificar variables de modo`.
+
+---
+
 ## Fuera de scope (tarea futura)
 
 Añadir la funcionalidad de montar shares CIFS a la vista web de bifrost-transfer (equivalente al botón que existía en bifrost-mount). Esto se diseñará e implementará por separado.
