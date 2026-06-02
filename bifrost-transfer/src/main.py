@@ -3705,6 +3705,8 @@ def _build_tag_manager_content(
 # ============================================================================
 
 def main(page: ft.Page):
+    global IS_WEB
+    IS_WEB = IS_WEB or page.web
     page.title             = "BIFROST — TRANSFER"
     page.bgcolor           = C_BG
     page.window.width      = 1100
