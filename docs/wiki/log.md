@@ -4,6 +4,10 @@ Registro cronológico append-only. Prefijo `## [YYYY-MM-DD] <tipo> | <título>` 
 
 ---
 
+## [2026-06-02] task | simplificar variables de modo IS_WEB / IS_LINUX_CLUSTER
+
+Se fusionaron `IS_LINUX_CLUSTER` y `DEV_WEB` en una única variable `IS_WEB` en bifrost-transfer. En bifrost-mount se eliminó `IS_LINUX_CLUSTER` y todo el bloque CIFS (se moverá a bifrost-transfer web en una tarea futura). La env var `BIFROST_CLUSTER=1` pasa a ser la señal canónica de producción para modo web. Detalle y decisiones en [[variables-modo-is-web]]. Spec: `docs/superpowers/specs/2026-06-02-simplificar-variables-modo-design.md`.
+
 ## [2026-05-21] task | Tag Manager — browser de solo carpetas con "View files"
 
 Cambiado el comportamiento del browser de MinIO en el Tag Manager (`bifrost-transfer/src/main.py`): por defecto ahora muestra solo carpetas (sin renderizar ficheros), lo que mejora el rendimiento de la UI cuando hay muchas entradas. Si la carpeta actual contiene ficheros, aparece un botón "View files (N)" que al pulsarlo expande los ficheros en el mismo panel (sin nueva llamada a S3 — los datos ya estaban cargados). El estado `nav["show_files"]` se resetea a `False` cada vez que se navega a una carpeta nueva. No se modificó el backend ni la llamada a la API.

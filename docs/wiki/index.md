@@ -7,6 +7,7 @@ Protocolo de mantenimiento en [CLAUDE_WIKI.md](CLAUDE_WIKI.md).
 ---
 
 ## Decisiones
+- [Variables de modo: unificación en IS_WEB](decisiones/variables-modo-is-web.md) — por qué IS_LINUX_CLUSTER y DEV_WEB se fusionaron en IS_WEB y BIFROST_CLUSTER=1 es la señal de producción.
 - [Wheel local bifrost-shared](decisiones/wheel-local-bifrost-shared.md) — por qué se referencia `bifrost-shared` como wheel local con `__BUILDPATH__` y no desde PyPI.
 
 ## Infra
