@@ -145,7 +145,7 @@ OpenOnDemand starts BIFROST as a standard Python process, passing `main.py` as a
 The condition in the code is:
 
 ```python
-IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or bool(os.environ.get("BIFROST_CLUSTER"))
+IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or (os.environ.get("BIFROST_CLUSTER") == "1")
 ```
 
 This means:
