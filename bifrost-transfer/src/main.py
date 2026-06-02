@@ -75,15 +75,8 @@ from config import APP_INFO
 
 
 
-#Para desarrollo local: DEV_WEB = True
-DEV_WEB = os.environ.get("BIFROST_DEV") == "1"
-IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or DEV_WEB
-
-# En Linux cluster el flujo incluye CIFS; en el resto se omite
-# Para desarrollo local: BIFROST_CLUSTER = "1"
-IS_LINUX_CLUSTER = (sys.platform == "linux" and "_linux_cluster" in os.path.basename(
-    sys.argv[0] if sys.argv else "" 
-)) or os.environ.get("BIFROST_CLUSTER") == "1"
+# Modo web: producción (BIFROST_CLUSTER=1), Flet web runtime, o dev local (--web)
+IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or (os.environ.get("BIFROST_CLUSTER") == "1")
 
 # Umbral (en días) por debajo del cual se renuevan las credenciales STS automáticamente
 STS_RENEWAL_THRESHOLD_DAYS = 3
@@ -3742,7 +3735,7 @@ def main(page: ft.Page):
         print("[atexit] Cleaning up...")
         backend.desmontar_todos_los_mounts_s3()
         mounts = state.get("mounts_activos", [])
-        if mounts and IS_LINUX_CLUSTER:
+        if mounts and IS_WEB:
             usuario = (state.get("credenciales_smb") or {}).get("usuario") or getpass.getuser()
             try:
                 backend.desmontar_todos_los_shares(usuario)
@@ -3833,17 +3826,6 @@ def main(page: ft.Page):
             )
         )
 
-    if not IS_WEB:
-        def on_close(e):
-            if IS_LINUX_CLUSTER and state["mounts_activos"]:
-                usuario = (
-                    (state["credenciales_smb"] or {}).get("usuario")
-                    or getpass.getuser()
-                )
-                backend.safe_thread(page, lambda: backend.desmontar_todos_los_shares(usuario)).start()
-
-        page.on_close = on_close
-
     def go_login():
         # If a previous session exists for the last known user, pre-fill the
         # username and use a special on_success that skips update/shares/minio.
@@ -3890,7 +3872,7 @@ def main(page: ft.Page):
 
     def on_login_success(creds: dict):
         state["credenciales_ldap"] = creds
-        if IS_LINUX_CLUSTER:
+        if IS_WEB:
             show_loading("Fetching LDAP groups...")
 
             def _load_groups():
@@ -4099,7 +4081,7 @@ def main(page: ft.Page):
             usuario = (state.get("credenciales_ldap") or {}).get("usuario")
             if usuario:
                 _ws_clear(usuario)
-        if IS_LINUX_CLUSTER and state["mounts_activos"]:
+        if IS_WEB and state["mounts_activos"]:
             usuario = (state["credenciales_smb"] or {}).get("usuario") or getpass.getuser()
             backend.safe_thread(page, lambda: backend.desmontar_todos_los_shares(usuario)).start()
         if IS_WEB:
@@ -4149,7 +4131,7 @@ if IS_WEB:
 
     @app.websocket(WEBSOCKET_ENDPOINT)
     async def flet_app(websocket: WebSocket):
-        if not DEV_WEB:
+        if "--web" not in sys.argv:
             token = websocket.cookies.get("bifrost_auth_token")
 
             if not SECRET_TOKEN or token != SECRET_TOKEN:
