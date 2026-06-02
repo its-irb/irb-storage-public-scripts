@@ -10,7 +10,6 @@ Soporta modo desktop (Mac, Windows, Linux).
 
 Uso:
     python main.py             # desktop
-    BIFROST_LINUX=1 python main.py  # simular modo Linux cluster
 
 Flujo de vistas:
     view_update → view_login → view_minio → view_credentials (auto) → view_mount
@@ -20,9 +19,6 @@ Notas sobre credenciales STS:
   - Si quedan MENOS de 3 días (o no hay credenciales) → renueva automáticamente
     por 7 días, mostrando el progreso en un log en pantalla
 
-En Linux cluster (IS_LINUX_CLUSTER=True):
-  - La vista de montado incluye una sección CIFS con checkboxes para montar shares
-  - Botón opcional para usar credenciales de admin (admin_<usuario>)
 """
 
 import os
@@ -54,12 +50,6 @@ from version import __version__
 # ============================================================================
 # MODO DE EJECUCIÓN
 # ============================================================================
-
-# En Linux cluster el flujo incluye CIFS; en el resto se omite
-# Para desarrollo local: BIFROST_LINUX = "1"
-IS_LINUX_CLUSTER = (sys.platform == "linux" and "_linux_cluster" in os.path.basename(
-    sys.argv[0] if sys.argv else ""
-)) or os.environ.get("BIFROST_LINUX") == "1"
 
 # Umbral (en días) por debajo del cual se renuevan las credenciales STS automáticamente
 STS_RENEWAL_THRESHOLD_DAYS = 3
@@ -910,228 +900,6 @@ def _build_mount_bucket(
     renew_btn = btn_secondary("🔑 Renew credentials", on_click=show_renew_dialog)
     back_btn  = btn_secondary("← Back", on_click=lambda e: on_back()) if on_back else None
 
-    # ── Sección CIFS (solo Linux) ─────────────────────────────────────────
-    if IS_LINUX_CLUSTER:
-        cifs_shares_col   = ft.Column(spacing=6, tight=True)
-        cifs_loading      = ft.Row(
-            [
-                ft.ProgressRing(width=14, height=14, stroke_width=2, color=C_PRIMARY),
-                ft.Text("Loading shares...", size=11, color=C_TEXT_DIM),
-            ],
-            spacing=8, visible=False,
-        )
-        cifs_error        = ft.Text("", color=C_ERROR, size=11, visible=False)
-        cifs_status       = ft.Text("", color=C_TEXT_DIM, size=11, visible=False)
-        cifs_checkboxes: dict[str, ft.Checkbox] = {}
-        mount_cifs_btn    = btn_secondary("⊞  Mount selected shares")
-        admin_creds_state = {"usando": False, "credenciales": None}
-
-        admin_badge = ft.Container(
-            content=ft.Row(
-                [
-                    ft.Icon(ft.Icons.VERIFIED_USER, color=C_ACCENT, size=14),
-                    ft.Text("Using admin credentials", size=11, color=C_ACCENT),
-                ],
-                spacing=6,
-            ),
-            bgcolor=f"{C_ACCENT}18",
-            border=ft.Border.all(1, f"{C_ACCENT}44"),
-            border_radius=6,
-            padding=ft.Padding.symmetric(horizontal=10, vertical=4),
-            visible=False,
-        )
-
-        def _load_cifs_shares(creds_smb: dict | None = None):
-            creds_to_use = creds_smb or credenciales_ldap
-
-            def _set_loading():
-                cifs_loading.visible = True
-                cifs_error.visible   = False
-                cifs_shares_col.controls.clear()
-                page.update()
-            backend.ui_call(page, _set_loading)
-
-            try:
-                grupos = backend.get_ldap_groups(usuario_actual)
-                shares = backend.obtener_shares_accesibles(
-                    grupos,
-                    usuario_actual,
-                    creds_to_use["password"],
-                    creds_to_use["usuario"],
-                    backend.EXCEPCION_FILERS,
-                    usar_privilegios=admin_creds_state["usando"],
-                )
-                perfiles = backend.obtener_perfiles_rclone_config()
-                backend.configurar_perfiles_smb_si_faltan(shares, creds_to_use, perfiles)
-
-                def _render():
-                    cifs_loading.visible = False
-                    cifs_shares_col.controls.clear()
-                    cifs_checkboxes.clear()
-
-                    if not shares:
-                        cifs_shares_col.controls.append(
-                            ft.Text("(no shares found)", size=11, color=C_TEXT_DIM, italic=True)
-                        )
-                    else:
-                        for share in shares:
-                            cb = ft.Checkbox(
-                                label=f"{share['name']}  ({share['host']})",
-                                value=False,
-                                active_color=C_PRIMARY,
-                                label_style=ft.TextStyle(color=C_TEXT, size=13),
-                            )
-                            cifs_checkboxes[share["name"]] = cb
-                            cifs_shares_col.controls.append(cb)
-                    page.update()
-
-                backend.ui_call(page, _render)
-
-            except Exception as ex:
-                def _err():
-                    cifs_loading.visible = False
-                    cifs_error.value     = f"Error loading shares: {ex}"
-                    cifs_error.visible   = True
-                    page.update()
-                backend.ui_call(page, _err)
-
-        def _show_admin_dialog(e):
-            admin_user  = f"admin_{usuario_actual}"
-            pass_tf, pass_col = styled_field("Admin password", password=True)
-            err = ft.Text("", color=C_ERROR, size=12, visible=False)
-
-            def confirm(ev):
-                pwd = (pass_tf.value or "").strip()
-                if not pwd:
-                    err.value   = "Password required."
-                    err.visible = True
-                    page.update()
-                    return
-
-                admin_creds = {"usuario": admin_user, "password": pwd}
-                ok, motivo = backend.validar_credenciales_ldap(admin_creds)
-                if not ok:
-                    err.value   = "⚠️ Cannot reach the IRB network. Are you connected to the VPN?" if motivo == "vpn" else "Invalid admin credentials."
-                    err.visible = True
-                    page.update()
-                    return
-
-                admin_creds_state["usando"]       = True
-                admin_creds_state["credenciales"] = admin_creds
-                page.pop_dialog()
-
-                admin_badge.visible   = True
-                use_admin_btn.visible = False
-                page.update()
-
-                backend.safe_thread(page, lambda: _load_cifs_shares(admin_creds)).start()
-
-            def cancel(ev):
-                page.pop_dialog()
-
-            dlg = ft.AlertDialog(
-                modal=True,
-                title=ft.Row(
-                    [
-                        ft.Icon(ft.Icons.ADMIN_PANEL_SETTINGS, color=C_PRIMARY, size=20),
-                        ft.Text("Admin Credentials", color=C_TEXT, size=15,
-                                weight=ft.FontWeight.W_600),
-                    ],
-                    spacing=8,
-                ),
-                content=ft.Column(
-                    [
-                        ft.Text(f"Username: {admin_user}", color=C_TEXT_DIM, size=12),
-                        ft.Container(height=10),
-                        pass_col,
-                        err,
-                    ],
-                    spacing=6, tight=True, width=300,
-                ),
-                actions=[
-                    btn_secondary("Cancel", on_click=cancel),
-                    btn_primary("Confirm", on_click=confirm),
-                ],
-                bgcolor=C_OVERLAY,
-                shape=ft.RoundedRectangleBorder(radius=10),
-            )
-            page.show_dialog(dlg)
-            page.update()
-
-        def do_mount_cifs(e):
-            seleccionados = [n for n, cb in cifs_checkboxes.items() if cb.value]
-            if not seleccionados:
-                show_dialog(page, "Error", "Select at least one share.", C_ERROR)
-                return
-
-            mount_cifs_btn.disabled = True
-            cifs_status.value   = "Mounting..."
-            cifs_status.color   = C_TEXT_DIM
-            cifs_status.visible = True
-            page.update()
-
-            def _mount():
-                creds_to_use = admin_creds_state["credenciales"] or credenciales_ldap
-                grupos  = backend.get_ldap_groups(usuario_actual)
-                shares  = backend.obtener_shares_accesibles(
-                    grupos, usuario_actual, creds_to_use["password"],
-                    creds_to_use["usuario"], backend.EXCEPCION_FILERS,
-                    usar_privilegios=admin_creds_state["usando"],
-                )
-                recursos = backend.construir_recursos_cifs_dict(shares, usuario_actual)
-                fallidos = backend.montar_shares_seleccionados(
-                    seleccionados, recursos, mounts_activos
-                )
-
-                def _after():
-                    mount_cifs_btn.disabled = False
-                    if fallidos:
-                        cifs_status.value = f"❌ Could not mount: {', '.join(fallidos)}"
-                        cifs_status.color = C_ERROR
-                    else:
-                        cifs_status.value = "✅ Shares mounted successfully."
-                        cifs_status.color = C_ACCENT
-                    page.update()
-
-                backend.ui_call(page, _after)
-
-            backend.safe_thread(page, _mount).start()
-
-        use_admin_btn           = btn_secondary("🔑 Use admin credentials", on_click=_show_admin_dialog)
-        mount_cifs_btn.on_click = do_mount_cifs
-        threading.Thread(target=_load_cifs_shares, daemon=True).start()
-
-        cifs_section = ft.Column(
-            [
-                section_title("CIFS SHARES"),
-                ft.Container(height=10),
-                card(
-                    ft.Column(
-                        [
-                            cifs_loading,
-                            cifs_error,
-                            cifs_shares_col,
-                            ft.Container(height=8),
-                            ft.Row(
-                                [mount_cifs_btn, cifs_status],
-                                spacing=12,
-                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            ),
-                            ft.Container(height=8),
-                            ft.Row(
-                                [use_admin_btn, admin_badge],
-                                spacing=12,
-                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            ),
-                        ],
-                        spacing=0,
-                    ),
-                ),
-                ft.Container(height=16),
-            ],
-            spacing=0,
-        )
-
     # ── Destino: selector de buckets ──────────────────────────────────────
     _dest_path = {"value": ""}
     if mounted_state is None:
@@ -1364,7 +1132,6 @@ def _build_mount_bucket(
             ft.Container(
                 content=ft.Column(
                     [
-                        *([cifs_section] if IS_LINUX_CLUSTER else []),
                         section_title("SELECT BUCKET"),
                         ft.Container(height=10),
                         card(
@@ -1465,12 +1232,6 @@ def main(page: ft.Page):
     def _cleanup_on_exit():
         print("[atexit] Cleaning up...")
         backend.desmontar_todos_los_mounts_s3()
-        if IS_LINUX_CLUSTER and state["mounts_activos"]:
-            usuario = (state.get("credenciales_ldap") or {}).get("usuario") or getpass.getuser()
-            try:
-                backend.desmontar_todos_los_shares(usuario)
-            except Exception as e:
-                print(f"[atexit] Error unmounting shares: {e}")
 
     atexit.register(_cleanup_on_exit)
 
@@ -1593,9 +1354,6 @@ def main(page: ft.Page):
         ))
 
     def do_close():
-        if IS_LINUX_CLUSTER and state["mounts_activos"]:
-            usuario = (state.get("credenciales_ldap") or {}).get("usuario") or getpass.getuser()
-            backend.safe_thread(page, lambda: backend.desmontar_todos_los_shares(usuario)).start()
         page.window.close()
 
     show_screen(build_update_content(page, on_continue=go_login))
