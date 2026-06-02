@@ -39,7 +39,7 @@ from config import APP_INFO                  # {"flavour": "mount"|"transfer", .
 ```
 
 A continuación:
-1. Detecta modo de ejecución (`IS_WEB`, `IS_LINUX_CLUSTER`, `DEV_WEB`, …).
+1. Detecta modo de ejecución (`IS_WEB`, …).
 2. Reenvuelve `sys.stdout`/`sys.stderr` en UTF-8 (Windows console).
 3. Configura el fichero de log persistente bajo `~/bifrost-<flavour>-logs/`.
 4. Define `main(page: ft.Page)` que arma el flujo de vistas y lo arranca con `ft.app(target=main, ...)`.
@@ -54,15 +54,13 @@ A continuación:
 view_update → view_login → view_minio → view_credentials (auto) → view_mount
 ```
 
-En **Linux cluster** (`BIFROST_LINUX=1` o nombre de ejecutable contiene `_linux_cluster`), `view_mount` incluye sección CIFS con checkboxes para montar shares y un toggle opcional para usar credenciales de admin (`admin_<usuario>`).
-
 ### `bifrost-transfer` (desktop + web)
 
 ```
-# Mac / Windows / Web:
+# Mac / Windows / Desktop:
 view_update → view_login → view_minio → view_credentials (auto) → view_copy
 
-# Linux cluster:
+# Linux cluster (BIFROST_CLUSTER=1):
 view_update → view_login → view_shares → view_minio → view_credentials → view_copy
 ```
 
@@ -91,12 +89,12 @@ Esta sección documenta lo que diferencia el modo web del desktop. Es **crítico
 ### Detección
 
 ```python
-DEV_WEB = os.environ.get("BIFROST_DEV") == "1"
-IS_WEB  = ("--web" in sys.argv) or (__name__ != "__main__") or DEV_WEB
+IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or (os.environ.get("BIFROST_CLUSTER") == "1")
 ```
 
 - OOD importa `main.py` como módulo ASGI → `__name__ != "__main__"` → `IS_WEB=True`.
-- `flet run --web` o `BIFROST_DEV=1 flet run` también activan modo web.
+- `flet run --web` activa modo web en desarrollo local.
+- `BIFROST_CLUSTER=1` activa `IS_WEB=True` (flujo CIFS/shares del cluster Linux).
 
 El servidor ASGI bajo modo web es **Hypercorn** (event loop asyncio único). Cada pestaña del navegador abre su propio WebSocket con su propio objeto `page`.
 
@@ -223,9 +221,7 @@ Los únicos sitios donde se puede llamar `page.update()` directamente son los ev
 
 | Variable | Aplica a | Efecto |
 |---|---|---|
-| `BIFROST_DEV=1` | transfer | Fuerza `IS_WEB=True` y `DEV_WEB=True` (simula modo web en local) |
-| `BIFROST_CLUSTER=1` | transfer | Fuerza `IS_LINUX_CLUSTER=True` (flujo CIFS/shares) |
-| `BIFROST_LINUX=1` | mount | Fuerza `IS_LINUX_CLUSTER=True` en bifrost-mount |
+| `BIFROST_CLUSTER=1` | transfer | Fuerza `IS_WEB=True` (flujo CIFS/shares del cluster Linux) |
 | `FLET_ASSETS_DIR` | ambas | Lo setea Flet runtime; usado por el backend para localizar `rclone` |
 
 ---
