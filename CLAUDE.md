@@ -98,10 +98,8 @@ Flags útiles:
 ```bash
 flet run --customuser     # Login con usuario distinto al del sistema
 flet run --update         # Forzar autoupdate
-python src/main.py --web  # (solo transfer) modo web
-BIFROST_DEV=1 flet run    # (solo transfer) simular modo web en local
-BIFROST_CLUSTER=1 BIFROST_DEV=1 flet run  # forzar flujo CIFS de cluster
-BIFROST_LINUX=1 python src/main.py        # (mount) simular Linux cluster
+flet run --web            # (solo transfer) modo web para desarrollo local
+BIFROST_CLUSTER=1 python src/main.py --web  # (solo transfer) simular producción OOD
 ```
 
 Requisito previo: estar conectado a la VPN de Nexica (Forticlient). Las dependencias binarias (`rclone`, `fuse-t`) se descargan/empaquetan automáticamente — no hace falta instalarlas.
@@ -147,9 +145,7 @@ Cuando hay una release nueva en GitHub, la app pregunta al usuario si quiere act
 
 | Variable | Aplica a | Efecto |
 |---|---|---|
-| `BIFROST_DEV=1` | transfer | Activa `IS_WEB`/`DEV_WEB` para simular modo web en local |
-| `BIFROST_CLUSTER=1` | transfer | Activa `IS_LINUX_CLUSTER` (incluye flujo CIFS/shares) |
-| `BIFROST_LINUX=1` | mount | Activa flujo de Linux cluster en `bifrost-mount` |
+| `BIFROST_CLUSTER=1` | transfer | Activa `IS_WEB` (modo web completo; señal de producción OOD) |
 | `FLET_ASSETS_DIR` | ambas | Lo setea Flet en runtime; el backend lo usa para localizar el `rclone` empaquetado |
 | `FLET_APP_STORAGE_TEMP` | ambas | Setado por Flet; usado para debug de localización de binarios |
 

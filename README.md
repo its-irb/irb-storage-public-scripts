@@ -112,9 +112,8 @@ flet run --update       # Force auto-update
 
 `bifrost-transfer` also supports web mode (Open OnDemand / Linux cluster):
 ```bash
-python src/main.py --web
-# or:
-BIFROST_DEV=1 flet run   # Simulate web mode in development
+flet run --web                              # Web mode for local development
+BIFROST_CLUSTER=1 python src/main.py --web  # Simulate OOD production mode
 ```
 
 ---
@@ -146,28 +145,26 @@ OpenOnDemand starts BIFROST as a standard Python process, passing `main.py` as a
 The condition in the code is:
 
 ```python
-IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or DEV_WEB
+IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or bool(os.environ.get("BIFROST_CLUSTER"))
 ```
 
 This means:
 - If OOD imports `main.py` as an ASGI module → `__name__ != "__main__"` → `IS_WEB = True`
 - If launched manually with `flet run --web` → `"--web" in sys.argv` → `IS_WEB = True`
-- If `BIFROST_DEV=1` is set in the environment → `DEV_WEB = True` → `IS_WEB = True`
+- If `BIFROST_CLUSTER=1` is set in the environment → `IS_WEB = True`
 
 The ASGI server Flet uses for web mode is **Hypercorn**, which runs a single asyncio event loop for the entire application. Each browser tab opens an independent WebSocket with its own `page` instance.
 
 For local development in web mode:
 
 ```bash
-BIFROST_DEV=1 flet run
-# or equivalently:
 flet run --web
 ```
 
-To force cluster mode (with CIFS flow):
+To simulate OOD production mode (with CIFS flow):
 
 ```bash
-BIFROST_CLUSTER=1 BIFROST_DEV=1 flet run
+BIFROST_CLUSTER=1 python src/main.py --web
 ```
 
 ---
@@ -339,5 +336,4 @@ This is especially important in web mode because:
 
 | Variable | Value | Effect |
 |---|---|---|
-| `BIFROST_DEV` | `1` | Enables `IS_WEB` and `DEV_WEB` for local development |
-| `BIFROST_CLUSTER` | `1` | Enables `IS_LINUX_CLUSTER` (includes CIFS/shares flow) |
+| `BIFROST_CLUSTER` | `1` | Enables `IS_WEB` (full web mode; OOD production signal) |
