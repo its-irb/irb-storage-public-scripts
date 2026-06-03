@@ -46,14 +46,14 @@ go_cifs():
      a. show_loading("Loading accessible shares...")
      b. En hilo background:
         - backend.get_ldap_groups(usuario) → state["grupos_ldap"]
-        - Si "its" en grupos → pedir privilegios admin (igual que _ask_admin_creds actual)
-        - backend.construir_credenciales_smb(...) → state["credenciales_smb"]
+        - backend.construir_credenciales_smb(creds_ldap, usar_privilegios=False, admin=None)
+          → state["credenciales_smb"]
         - backend.obtener_shares_accesibles(...) → state["shares_accesibles"]
         - backend.configurar_perfiles_smb_si_faltan(...) → state["perfiles_configurados"]
      c. show_screen(_build_shares_content(..., on_back=go_copy))
 ```
 
-El diálogo de credenciales admin (`_ask_admin_creds`) se reutiliza sin cambios; solo cambia en qué momento se invoca.
+No se pregunta sobre privilegios admin al entrar. El botón admin es opcional dentro de la vista (ver sección `_build_shares_content`).
 
 ### Cambio en `go_copy()`
 - Añadir `on_cifs=go_cifs` en la llamada a `_build_copy_content`.
@@ -119,6 +119,13 @@ El montado ocurre en `backend.safe_thread` para no bloquear la UI.
 ### Botones de la vista
 - **"← Back"** (btn_secondary): llama `on_back()` (→ `go_copy`). No bloquea aunque haya shares montándose.
 - **"Update SMB credentials"**: se mantiene igual.
+- **"Admin credentials"** (btn_secondary): visible **solo si `"its" in state["grupos_ldap"]`**. Al pulsarlo abre un diálogo que pide la contraseña del usuario `admin_<usuario>`. Si las credenciales son correctas:
+  - `state["usar_privilegios"] = True`
+  - `state["credenciales_admin"] = {...}`
+  - Reconstruye `state["credenciales_smb"]` con privilegios elevados
+  - Recarga `state["shares_accesibles"]` (show_loading inline o spinner en botón)
+  - Refresca la lista de shares en la vista
+  - El botón pasa a estado "Admin active" (deshabilitado o badge verde) para indicar que ya está activo
 - Se elimina **"Continue →"**.
 
 ---
@@ -135,6 +142,7 @@ No se toca `shared/` ni ningún otro fichero.
 
 ## Notas de implementación
 
-- `_ask_admin_creds` y `_after_privileges` se refactorizan como subfunciones de `go_cifs()` (o se mantienen como helpers internos de `main()`).
+- `_ask_admin_creds` y `_after_privileges` se eliminan del flujo de arranque. La lógica de admin credentials vive ahora dentro de `_build_shares_content` como callback del botón "Admin credentials".
 - El bloque de eliminación de shares del arranque afecta solo a IS_WEB; desktop nunca tuvo ese flujo.
-- La variable `state["credenciales_smb"]` actúa como caché: si el usuario pulsa "Mount CIFS" dos veces, la segunda no recarga grupos LDAP.
+- La variable `state["credenciales_smb"]` actúa como caché: si el usuario pulsa "Mount CIFS" dos veces, la segunda no recarga grupos LDAP. La caché se invalida si el usuario activa credenciales admin (se reconstruye con privilegios elevados).
+- `_build_shares_content` necesita recibir también `grupos_ldap` (para saber si mostrar el botón admin) y un callback para recargar shares con nuevas credenciales.
