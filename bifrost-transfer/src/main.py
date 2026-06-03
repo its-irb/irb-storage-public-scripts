@@ -1632,6 +1632,7 @@ def _build_copy_content(
     web_session: dict | None = None,
     on_back: Callable | None = None,
     on_tags: Callable | None = None,
+    on_cifs: Callable | None = None,
 ) -> ft.Control:
     usuario_actual = credenciales_ldap["usuario"]
 
@@ -1747,6 +1748,11 @@ def _build_copy_content(
     renew_btn = btn_secondary("🔑 Renew credentials", on_click=show_renew_dialog)
     back_btn  = btn_secondary("← Back", on_click=lambda e: on_back()) if on_back else None
     tags_btn  = btn_secondary("🏷️ Tags", on_click=lambda e: on_tags()) if on_tags else None
+    cifs_btn = (
+        btn_secondary("⊞  Mount CIFS", on_click=lambda e: on_cifs())
+        if IS_WEB and on_cifs is not None
+        else None
+    )
 
     # ── Origen ────────────────────────────────────────────────────────────
     origen_tf, origen_col = styled_field(
@@ -2273,7 +2279,7 @@ def _build_copy_content(
             build_header(subtitle=f"Copy & Verify — {perfil_rclone}", IS_WEB=IS_WEB),
             ft.Container(
                 content=ft.Row(
-                    [c for c in [back_btn, tags_btn, expiry_badge, ft.Container(expand=True), renew_btn] if c is not None],
+                    [c for c in [back_btn, tags_btn, cifs_btn, expiry_badge, ft.Container(expand=True), renew_btn] if c is not None],
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 padding=ft.Padding.symmetric(horizontal=24, vertical=8),
@@ -4044,6 +4050,7 @@ def main(page: ft.Page):
             web_session=session,
             on_back=go_minio,
             on_tags=go_tags,
+            on_cifs=go_cifs,          # ← nuevo
         ))
 
     def do_close():
