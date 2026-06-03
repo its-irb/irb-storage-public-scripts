@@ -627,6 +627,11 @@ def _build_shares_content(
                     ft.Container(height=10),
                     pass_col,
                     err,
+                    ft.Container(height=4),
+                    ft.Row(
+                        [loading_indicator],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                    ),
                 ],
                 spacing=6,
                 tight=True,
@@ -634,8 +639,7 @@ def _build_shares_content(
             ),
             actions=[
                 btn_secondary("Cancel", on_click=cancel),
-                ft.Row([loading_indicator, confirm_btn], spacing=8,
-                       vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                confirm_btn,
             ],
             bgcolor=C_OVERLAY,
             shape=ft.RoundedRectangleBorder(radius=10),
