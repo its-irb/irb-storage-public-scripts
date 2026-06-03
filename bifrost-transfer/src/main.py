@@ -3729,6 +3729,7 @@ def main(page: ft.Page):
         "servidor_minio":        None,
         "perfil_rclone":         None,
         "endpoint":              None,
+        "_cifs_loading":         False,
     }
 
     import atexit
@@ -3941,53 +3942,59 @@ def main(page: ft.Page):
 
     def _load_and_show_shares(skip_groups: bool = False) -> None:
         """Carga grupos LDAP + credentials SMB + shares en background y muestra la vista."""
+        if state.get("_cifs_loading"):
+            return
+        state["_cifs_loading"] = True
         creds_ldap = state["credenciales_ldap"]
 
         show_loading("Loading accessible shares...")
 
         def _bg():
-            if not skip_groups:
-                grupos = backend.get_ldap_groups(creds_ldap["usuario"])
-                state["grupos_ldap"] = grupos
-
             try:
-                state["credenciales_smb"] = backend.construir_credenciales_smb(
-                    creds_ldap,
+                if not skip_groups:
+                    grupos = backend.get_ldap_groups(creds_ldap["usuario"])
+                    state["grupos_ldap"] = grupos
+
+                try:
+                    state["credenciales_smb"] = backend.construir_credenciales_smb(
+                        creds_ldap,
+                        state["usar_privilegios"],
+                        state["credenciales_admin"],
+                    )
+                except ValueError as ex:
+                    backend.ui_call(page, lambda: show_dialog(page, "Error", str(ex), C_ERROR))
+                    return
+
+                shares = backend.obtener_shares_accesibles(
+                    state["grupos_ldap"],
+                    creds_ldap["usuario"],
+                    creds_ldap["password"],
+                    state["credenciales_smb"]["usuario"],
+                    backend.EXCEPCION_FILERS,
                     state["usar_privilegios"],
-                    state["credenciales_admin"],
                 )
-            except ValueError as ex:
-                backend.ui_call(page, lambda: show_dialog(page, "Error", str(ex), C_ERROR))
-                return
+                perfiles = backend.configurar_perfiles_smb_si_faltan(
+                    shares,
+                    state["credenciales_smb"],
+                    backend.obtener_perfiles_rclone_config(),
+                )
+                state["shares_accesibles"]     = shares
+                state["perfiles_configurados"] = perfiles
 
-            shares = backend.obtener_shares_accesibles(
-                state["grupos_ldap"],
-                creds_ldap["usuario"],
-                creds_ldap["password"],
-                state["credenciales_smb"]["usuario"],
-                backend.EXCEPCION_FILERS,
-                state["usar_privilegios"],
-            )
-            perfiles = backend.configurar_perfiles_smb_si_faltan(
-                shares,
-                state["credenciales_smb"],
-                backend.obtener_perfiles_rclone_config(),
-            )
-            state["shares_accesibles"]     = shares
-            state["perfiles_configurados"] = perfiles
-
-            def _show():
-                show_screen(_build_shares_content(
-                    page,
-                    shares=shares,
-                    usuario_actual=state["credenciales_smb"]["usuario"],
-                    mounts_activos=state["mounts_activos"],
-                    grupos_ldap=state["grupos_ldap"],
-                    credenciales_ldap=creds_ldap,
-                    on_back=go_copy,
-                    on_admin_activated=on_admin_activated,
-                ))
-            backend.ui_call(page, _show)
+                def _show():
+                    show_screen(_build_shares_content(
+                        page,
+                        shares=shares,
+                        usuario_actual=state["credenciales_smb"]["usuario"],
+                        mounts_activos=state["mounts_activos"],
+                        grupos_ldap=state["grupos_ldap"],
+                        credenciales_ldap=creds_ldap,
+                        on_back=go_copy,
+                        on_admin_activated=on_admin_activated,
+                    ))
+                backend.ui_call(page, _show)
+            finally:
+                state["_cifs_loading"] = False
 
         backend.safe_thread(page, _bg).start()
 
