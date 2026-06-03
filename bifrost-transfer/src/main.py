@@ -4241,7 +4241,7 @@ def main(page: ft.Page):
 # ============================================================================
 # WEB VERSION IN OOD
 # ============================================================================
-if IS_WEB:
+if os.environ.get("BIFROST_CLUSTER") == "1":
     from flet.fastapi import FletApp, app_manager
     from fastapi import FastAPI, WebSocket
     import asyncio
