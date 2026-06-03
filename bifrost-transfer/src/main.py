@@ -554,6 +554,66 @@ def _build_shares_content(
 
     rows = [_make_row(s["name"]) for s in shares]
 
+    es_admin_its = "its" in grupos_ldap
+
+    def _show_admin_cred_dialog(e):
+        admin_user = "admin_" + usuario_actual
+        pass_tf, pass_col = styled_field("Admin password", password=True)
+        err = ft.Text("", color=C_ERROR, size=12, visible=False)
+
+        def confirm(ev):
+            pwd = (pass_tf.value or "").strip()
+            if not pwd:
+                err.value   = "Password required."
+                err.visible = True
+                page.update()
+                return
+            creds = {"usuario": admin_user, "password": pwd}
+            ok, motivo = backend.validar_credenciales_ldap(creds)
+            if not ok:
+                err.value = (
+                    "⚠️ Cannot reach the IRB network. Are you connected to the VPN?"
+                    if motivo == "vpn"
+                    else "Invalid credentials."
+                )
+                err.visible = True
+                page.update()
+                return
+            page.pop_dialog()
+            on_admin_activated({"usuario": admin_user, "password": pwd})
+
+        def cancel(ev):
+            page.pop_dialog()
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Admin Credentials", color=C_TEXT, size=15,
+                          weight=ft.FontWeight.W_600),
+            content=ft.Column(
+                [
+                    ft.Text(f"Username: {admin_user}", color=C_TEXT_DIM, size=12),
+                    ft.Container(height=10),
+                    pass_col,
+                    err,
+                ],
+                spacing=6,
+                tight=True,
+                width=300,
+            ),
+            actions=[
+                btn_secondary("Cancel", on_click=cancel),
+                btn_primary("Confirm",  on_click=confirm),
+            ],
+            bgcolor=C_OVERLAY,
+            shape=ft.RoundedRectangleBorder(radius=10),
+        )
+        page.show_dialog(dlg)
+        page.update()
+
+    admin_btn = btn_secondary("🔑 Admin credentials",
+                              on_click=_show_admin_cred_dialog)
+    admin_btn.visible = es_admin_its
+
     back_btn_widget = btn_secondary("← Back", on_click=lambda e: on_back())
 
     def _update_smb_creds(e):
@@ -597,6 +657,7 @@ def _build_shares_content(
                             [
                                 btn_secondary("Update SMB credentials",
                                               on_click=_update_smb_creds),
+                                admin_btn,
                                 ft.Container(expand=True),
                                 back_btn_widget,
                             ],
