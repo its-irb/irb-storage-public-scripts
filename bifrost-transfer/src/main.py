@@ -426,6 +426,14 @@ def _build_shares_content(
             [
                 build_header(subtitle=f"CIFS Shares — {usuario_actual}", IS_WEB=IS_WEB),
                 ft.Container(
+                    content=ft.Row(
+                        [btn_secondary("← Back", on_click=lambda e: on_back())],
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    padding=ft.Padding.symmetric(horizontal=24, vertical=8),
+                    margin=ft.Margin.only(bottom=4),
+                ),
+                ft.Container(
                     content=ft.Column(
                         [
                             ft.Container(expand=True),
@@ -441,10 +449,6 @@ def _build_shares_content(
                                         size=12, color=C_TEXT_DIM,
                                         text_align=ft.TextAlign.CENTER,
                                     ),
-                                    ft.Container(height=24),
-                                    btn_primary("← Back",
-                                                on_click=lambda e: on_back(),
-                                                width=200),
                                 ],
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                                 spacing=12,
@@ -674,6 +678,14 @@ def _build_shares_content(
         [
             build_header(subtitle=f"CIFS Shares — {usuario_actual}", IS_WEB=IS_WEB),
             ft.Container(
+                content=ft.Row(
+                    [c for c in [back_btn_widget] if c is not None],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
+                margin=ft.Margin.only(bottom=4),
+            ),
+            ft.Container(
                 content=ft.Column(
                     [
                         section_title("MOUNT SHARES"),
@@ -687,11 +699,9 @@ def _build_shares_content(
                                 btn_secondary("Update SMB credentials",
                                               on_click=_update_smb_creds),
                                 admin_btn,
-                                ft.Container(expand=True),
-                                back_btn_widget,
                             ],
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            spacing=8,
                         ),
                         ft.Container(height=16),
                     ],
