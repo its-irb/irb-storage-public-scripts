@@ -3939,6 +3939,84 @@ def main(page: ft.Page):
             on_back=go_copy,
         ))
 
+    def _load_and_show_shares(skip_groups: bool = False) -> None:
+        """Carga grupos LDAP + credentials SMB + shares en background y muestra la vista."""
+        creds_ldap = state["credenciales_ldap"]
+
+        show_loading("Loading accessible shares...")
+
+        def _bg():
+            if not skip_groups:
+                grupos = backend.get_ldap_groups(creds_ldap["usuario"])
+                state["grupos_ldap"] = grupos
+
+            try:
+                state["credenciales_smb"] = backend.construir_credenciales_smb(
+                    creds_ldap,
+                    state["usar_privilegios"],
+                    state["credenciales_admin"],
+                )
+            except ValueError as ex:
+                backend.ui_call(page, lambda: show_dialog(page, "Error", str(ex), C_ERROR))
+                return
+
+            shares = backend.obtener_shares_accesibles(
+                state["grupos_ldap"],
+                creds_ldap["usuario"],
+                creds_ldap["password"],
+                state["credenciales_smb"]["usuario"],
+                backend.EXCEPCION_FILERS,
+                state["usar_privilegios"],
+            )
+            perfiles = backend.configurar_perfiles_smb_si_faltan(
+                shares,
+                state["credenciales_smb"],
+                backend.obtener_perfiles_rclone_config(),
+            )
+            state["shares_accesibles"]     = shares
+            state["perfiles_configurados"] = perfiles
+
+            def _show():
+                show_screen(_build_shares_content(
+                    page,
+                    shares=shares,
+                    usuario_actual=state["credenciales_smb"]["usuario"],
+                    mounts_activos=state["mounts_activos"],
+                    grupos_ldap=state["grupos_ldap"],
+                    credenciales_ldap=creds_ldap,
+                    on_back=go_copy,
+                    on_admin_activated=on_admin_activated,
+                ))
+            backend.ui_call(page, _show)
+
+        backend.safe_thread(page, _bg).start()
+
+
+    def go_cifs() -> None:
+        """Navega a la vista de CIFS shares. Carga lazy en el primer acceso."""
+        if state["credenciales_smb"] is not None:
+            creds_ldap = state["credenciales_ldap"]
+            show_screen(_build_shares_content(
+                page,
+                shares=state["shares_accesibles"],
+                usuario_actual=state["credenciales_smb"]["usuario"],
+                mounts_activos=state["mounts_activos"],
+                grupos_ldap=state["grupos_ldap"],
+                credenciales_ldap=creds_ldap,
+                on_back=go_copy,
+                on_admin_activated=on_admin_activated,
+            ))
+            return
+        _load_and_show_shares(skip_groups=False)
+
+
+    def on_admin_activated(credenciales_admin: dict) -> None:
+        """Callback llamado desde la vista CIFS al confirmar credenciales de admin ITS."""
+        state["usar_privilegios"]   = True
+        state["credenciales_admin"] = credenciales_admin
+        _load_and_show_shares(skip_groups=True)
+
+
     def go_copy():
         servidor     = state["servidor_minio"]
         extra_config = backend.MINIO_SERVERS.get(servidor, {}).get("IRB", {}).get("extra_rclone_config")
