@@ -413,9 +413,10 @@ def _build_shares_content(
     shares: list,
     usuario_actual: str,
     mounts_activos: list,
-    es_admin_its: bool,
+    grupos_ldap: list,
     credenciales_ldap: dict,
-    on_continue: Callable,
+    on_back: Callable,
+    on_admin_activated: Callable,
 ) -> ft.Control:
 
     recursos_cifs_dict = backend.construir_recursos_cifs_dict(shares, usuario_actual)
@@ -441,9 +442,9 @@ def _build_shares_content(
                                         text_align=ft.TextAlign.CENTER,
                                     ),
                                     ft.Container(height=24),
-                                    btn_primary("Continue without shares →",
-                                                on_click=lambda e: on_continue(),
-                                                width=260),
+                                    btn_primary("← Back",
+                                                on_click=lambda e: on_back(),
+                                                width=200),
                                 ],
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                                 spacing=12,
@@ -462,61 +463,123 @@ def _build_shares_content(
         )
         return content
 
-    checkboxes: dict[str, ft.Checkbox] = {}
-    checkbox_controls = []
-    for share in shares:
-        cb = ft.Checkbox(
-            label=share["name"],
-            value=False,
-            active_color=C_PRIMARY,
-            label_style=ft.TextStyle(color=C_TEXT, size=13),
-        )
-        checkboxes[share["name"]] = cb
-        checkbox_controls.append(cb)
+    _selected:         dict = {"name": None}
+    _row_containers:   dict[str, ft.Container] = {}
+    _status_spinners:  dict[str, ft.ProgressRing] = {}
+    _status_texts:     dict[str, ft.Text] = {}
+    _mounted_badges:   dict[str, ft.Container] = {}
 
-    col_size = 15
-    columns  = []
-    for i in range(0, len(checkbox_controls), col_size):
-        columns.append(ft.Column(checkbox_controls[i:i + col_size], spacing=4, tight=True))
-
-    loading_spin = ft.ProgressRing(width=16, height=16, stroke_width=2,
-                                    color=C_PRIMARY, visible=False)
-    loading_text = ft.Text("Mounting shares...", color=C_TEXT_DIM, size=12, visible=False)
-    error_text   = ft.Text("", color=C_ERROR, size=12, visible=False)
-    continue_btn = btn_primary("Continue →", width=200)
-
-    def do_continue(e):
-        seleccionados         = [n for n, cb in checkboxes.items() if cb.value]
-        continue_btn.disabled = True
-        loading_spin.visible  = True
-        loading_text.visible  = True
-        error_text.visible    = False
+    def _select_share(name: str) -> None:
+        if _selected["name"]:
+            prev = _row_containers.get(_selected["name"])
+            if prev:
+                prev.border = ft.Border.all(1, C_BORDER)
+        _selected["name"] = name
+        _row_containers[name].border = ft.Border.all(2, C_PRIMARY)
         page.update()
 
-        def _mount():
+    def _mount_share(name: str) -> None:
+        if _mounted_badges.get(name) and _mounted_badges[name].visible:
+            return  # ya montado
+        spinner    = _status_spinners[name]
+        status_txt = _status_texts[name]
+        badge      = _mounted_badges[name]
+        spinner.visible    = True
+        status_txt.value   = "Mounting..."
+        status_txt.color   = C_TEXT_DIM
+        status_txt.visible = True
+        page.update()
+
+        def _do():
             fallidos = backend.montar_shares_seleccionados(
-                seleccionados, recursos_cifs_dict, mounts_activos
+                [name], recursos_cifs_dict, mounts_activos
             )
-
             def _after():
-                loading_spin.visible  = False
-                loading_text.visible  = False
-                continue_btn.disabled = False
+                spinner.visible = False
                 if fallidos:
-                    error_text.value   = f"Could not mount: {', '.join(fallidos)}"
-                    error_text.visible = True
-                    page.update()
+                    status_txt.value = "Error"
+                    status_txt.color = C_ERROR
                 else:
-                    on_continue()
-
+                    status_txt.visible = False
+                    badge.visible      = True
+                page.update()
             backend.ui_call(page, _after)
 
-        backend.safe_thread(page, _mount).start()
+        backend.safe_thread(page, _do).start()
 
-    continue_btn.on_click = do_continue
+    def _make_row(share_name: str) -> ft.GestureDetector:
+        spinner = ft.ProgressRing(
+            width=14, height=14, stroke_width=2, color=C_PRIMARY, visible=False
+        )
+        status_txt = ft.Text("", size=11, color=C_TEXT_DIM, visible=False)
+        badge = ft.Container(
+            content=ft.Row(
+                [
+                    ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, color=C_ACCENT, size=14),
+                    ft.Text("Mounted", size=11, color=C_ACCENT,
+                            weight=ft.FontWeight.W_600),
+                ],
+                spacing=4,
+                tight=True,
+            ),
+            visible=False,
+        )
+        _status_spinners[share_name] = spinner
+        _status_texts[share_name]    = status_txt
+        _mounted_badges[share_name]  = badge
 
-    def update_smb_creds(e):
+        c = ft.Container(
+            content=ft.Row(
+                [
+                    ft.Icon(ft.Icons.FOLDER_OUTLINED, color=C_WARNING, size=16),
+                    ft.Text(share_name, size=13, color=C_TEXT, expand=True),
+                    spinner,
+                    status_txt,
+                    badge,
+                ],
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            bgcolor=C_SURFACE,
+            border=ft.Border.all(1, C_BORDER),
+            border_radius=6,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+        )
+        _row_containers[share_name] = c
+        return ft.GestureDetector(
+            content=c,
+            on_tap=lambda e, s=share_name: _select_share(s),
+            on_double_tap=lambda e, s=share_name: _mount_share(s),
+        )
+
+    rows = [_make_row(s["name"]) for s in shares]
+
+    back_btn_widget = btn_secondary("← Back", on_click=lambda e: on_back())
+
+    def _update_smb_creds(e):
+        es_admin_its = "its" in grupos_ldap
         _show_smb_cred_dialog(page, usuario_actual, es_admin_its, credenciales_ldap)
+
+    hint = ft.Text(
+        "Double-click a share to mount it.",
+        size=11,
+        color=C_TEXT_DIM,
+        italic=True,
+    )
+
+    shares_list = ft.Container(
+        content=ft.Column(
+            rows,
+            scroll=ft.ScrollMode.AUTO,
+            spacing=4,
+            tight=True,
+        ),
+        bgcolor=C_SURFACE,
+        border=ft.Border.all(1, C_BORDER),
+        border_radius=10,
+        padding=16,
+        height=min(400, max(120, len(rows) * 48)),
+    )
 
     content = ft.Column(
         [
@@ -524,35 +587,18 @@ def _build_shares_content(
             ft.Container(
                 content=ft.Column(
                     [
-                        section_title("SELECT SHARES TO MOUNT"),
-                        ft.Container(height=12),
-                        ft.Container(
-                            content=ft.Column(
-                                [ft.Row(columns, spacing=32, wrap=True)],
-                                spacing=0,
-                                tight=True,
-                            ),
-                            bgcolor=C_SURFACE,
-                            border=ft.Border.all(1, C_BORDER),
-                            border_radius=10,
-                            padding=16,
-                        ),
+                        section_title("MOUNT SHARES"),
+                        ft.Container(height=8),
+                        hint,
+                        ft.Container(height=10),
+                        shares_list,
                         ft.Container(height=16),
                         ft.Row(
                             [
                                 btn_secondary("Update SMB credentials",
-                                              on_click=update_smb_creds),
+                                              on_click=_update_smb_creds),
                                 ft.Container(expand=True),
-                                ft.Column(
-                                    [
-                                        error_text,
-                                        ft.Row([loading_spin, loading_text], spacing=8),
-                                        continue_btn,
-                                    ],
-                                    horizontal_alignment=ft.CrossAxisAlignment.END,
-                                    spacing=8,
-                                    tight=True,
-                                ),
+                                back_btn_widget,
                             ],
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
