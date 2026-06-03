@@ -468,6 +468,7 @@ def _build_shares_content(
     _status_spinners:  dict[str, ft.ProgressRing] = {}
     _status_texts:     dict[str, ft.Text] = {}
     _mounted_badges:   dict[str, ft.Container] = {}
+    _mounting:         set[str] = set()
 
     def _select_share(name: str) -> None:
         if _selected["name"]:
@@ -481,6 +482,9 @@ def _build_shares_content(
     def _mount_share(name: str) -> None:
         if _mounted_badges.get(name) and _mounted_badges[name].visible:
             return  # ya montado
+        if name in _mounting:
+            return  # ya montando
+        _mounting.add(name)
         spinner    = _status_spinners[name]
         status_txt = _status_texts[name]
         badge      = _mounted_badges[name]
@@ -495,6 +499,7 @@ def _build_shares_content(
                 [name], recursos_cifs_dict, mounts_activos
             )
             def _after():
+                _mounting.discard(name)
                 spinner.visible = False
                 if fallidos:
                     status_txt.value = "Error"
@@ -4138,7 +4143,7 @@ def main(page: ft.Page):
 
     def go_cifs() -> None:
         """Navega a la vista de CIFS shares. Carga lazy en el primer acceso."""
-        if state["credenciales_smb"] is not None:
+        if state["credenciales_smb"] is not None and not state.get("_cifs_loading"):
             creds_ldap = state["credenciales_ldap"]
             show_screen(_build_shares_content(
                 page,
@@ -4158,6 +4163,7 @@ def main(page: ft.Page):
         """Callback llamado desde la vista CIFS al confirmar credenciales de admin ITS."""
         state["usar_privilegios"]   = True
         state["credenciales_admin"] = credenciales_admin
+        state["credenciales_smb"]   = None   # forzar recarga, evitar fast-path con datos viejos
         _load_and_show_shares(skip_groups=True)
 
 
