@@ -570,9 +570,6 @@ def _build_shares_content(
         pass_tf, pass_col = styled_field("Admin password", password=True)
         err = ft.Text("", color=C_ERROR, size=12, visible=False)
 
-        loading_indicator = ft.ProgressRing(
-            width=16, height=16, stroke_width=2, color=C_PRIMARY, visible=False
-        )
         confirm_btn = btn_primary("Confirm")  # on_click se asigna después
 
         def confirm(ev):
@@ -582,35 +579,8 @@ def _build_shares_content(
                 err.visible = True
                 page.update()
                 return
-
-            confirm_btn.disabled = True
-            loading_indicator.visible = True
-            err.visible = False
-            page.update()
-
-            def _validate():
-                creds = {"usuario": admin_user, "password": pwd}
-                ok, motivo = backend.validar_credenciales_ldap(creds)
-                if ok:
-                    def _success():
-                        page.pop_dialog()
-                        on_admin_activated({"usuario": admin_user, "password": pwd})
-                    backend.ui_call(page, _success)
-                else:
-                    msg = (
-                        "⚠️ Cannot reach the IRB network. Are you connected to the VPN?"
-                        if motivo == "vpn"
-                        else "Invalid credentials."
-                    )
-                    def _fail():
-                        err.value                 = msg
-                        err.visible               = True
-                        confirm_btn.disabled      = False
-                        loading_indicator.visible = False
-                        page.update()
-                    backend.ui_call(page, _fail)
-
-            backend.safe_thread(page, _validate).start()
+            page.pop_dialog()
+            on_admin_activated({"usuario": admin_user, "password": pwd})
 
         confirm_btn.on_click = confirm
 
@@ -627,11 +597,6 @@ def _build_shares_content(
                     ft.Container(height=10),
                     pass_col,
                     err,
-                    ft.Container(height=4),
-                    ft.Row(
-                        [loading_indicator],
-                        alignment=ft.MainAxisAlignment.CENTER,
-                    ),
                 ],
                 spacing=6,
                 tight=True,
@@ -647,7 +612,7 @@ def _build_shares_content(
         page.show_dialog(dlg)
         page.update()
 
-    admin_btn = btn_secondary("🔑 Admin credentials",
+    admin_btn = btn_secondary("Admin credentials",
                               on_click=_show_admin_cred_dialog)
     admin_btn.visible = es_admin_its
 
