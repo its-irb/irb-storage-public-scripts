@@ -566,21 +566,57 @@ def _build_shares_content(
     es_admin_its = "its" in grupos_ldap
 
     def _show_admin_cred_dialog(e):
-        admin_user = "admin_" + usuario_actual
+        user_tf, user_col = styled_field("Admin username")
         pass_tf, pass_col = styled_field("Admin password", password=True)
         err = ft.Text("", color=C_ERROR, size=12, visible=False)
 
+        loading_indicator = ft.ProgressRing(
+            width=16, height=16, stroke_width=2, color=C_PRIMARY, visible=False
+        )
         confirm_btn = btn_primary("Confirm")  # on_click se asigna después
 
         def confirm(ev):
-            pwd = (pass_tf.value or "").strip()
+            admin_user = (user_tf.value or "").strip()
+            pwd        = (pass_tf.value or "").strip()
+            if not admin_user:
+                err.value   = "Username required."
+                err.visible = True
+                page.update()
+                return
             if not pwd:
                 err.value   = "Password required."
                 err.visible = True
                 page.update()
                 return
-            page.pop_dialog()
-            on_admin_activated({"usuario": admin_user, "password": pwd})
+
+            confirm_btn.disabled      = True
+            loading_indicator.visible = True
+            err.visible               = False
+            page.update()
+
+            def _validate():
+                creds = {"usuario": admin_user, "password": pwd}
+                ok, motivo = backend.validar_credenciales_ldap(creds)
+                if ok:
+                    def _success():
+                        page.pop_dialog()
+                        on_admin_activated({"usuario": admin_user, "password": pwd})
+                    backend.ui_call(page, _success)
+                else:
+                    msg = (
+                        "⚠️ Cannot reach the IRB network. Are you connected to the VPN?"
+                        if motivo == "vpn"
+                        else "Invalid credentials."
+                    )
+                    def _fail():
+                        err.value                 = msg
+                        err.visible               = True
+                        confirm_btn.disabled      = False
+                        loading_indicator.visible = False
+                        page.update()
+                    backend.ui_call(page, _fail)
+
+            backend.safe_thread(page, _validate).start()
 
         confirm_btn.on_click = confirm
 
@@ -593,10 +629,15 @@ def _build_shares_content(
                           weight=ft.FontWeight.W_600),
             content=ft.Column(
                 [
-                    ft.Text(f"Username: {admin_user}", color=C_TEXT_DIM, size=12),
-                    ft.Container(height=10),
+                    user_col,
+                    ft.Container(height=6),
                     pass_col,
                     err,
+                    ft.Container(height=4),
+                    ft.Row(
+                        [loading_indicator],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                    ),
                 ],
                 spacing=6,
                 tight=True,
@@ -612,15 +653,12 @@ def _build_shares_content(
         page.show_dialog(dlg)
         page.update()
 
-    admin_btn = btn_secondary("Admin credentials",
+    admin_btn = btn_secondary("🔑 Admin credentials",
                               on_click=_show_admin_cred_dialog)
-    admin_btn.visible = es_admin_its
+    #admin_btn.visible = es_admin_its
+    admin_btn.visible = False
 
     back_btn_widget = btn_secondary("← Back", on_click=lambda e: on_back())
-
-    def _update_smb_creds(e):
-        es_admin_its = "its" in grupos_ldap
-        _show_smb_cred_dialog(page, usuario_actual, es_admin_its, credenciales_ldap)
 
     hint = ft.Text(
         "Double-click a share to mount it.",
@@ -664,11 +702,7 @@ def _build_shares_content(
                         shares_list,
                         ft.Container(height=16),
                         ft.Row(
-                            [
-                                btn_secondary("Update SMB credentials",
-                                              on_click=_update_smb_creds),
-                                admin_btn,
-                            ],
+                            [admin_btn],
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             spacing=8,
                         ),
@@ -685,68 +719,6 @@ def _build_shares_content(
     )
 
     return content
-
-
-def _show_smb_cred_dialog(
-    page: ft.Page,
-    usuario_actual: str,
-    es_admin_its: bool,
-    credenciales_ldap: dict,
-) -> None:
-    pass_tf, pass_col = styled_field("New SMB Password", password=True)
-    err = ft.Text("", color=C_ERROR, size=12, visible=False)
-
-    def save(e):
-        pwd = (pass_tf.value or "").strip()
-        if not pwd:
-            err.value   = "Password required."
-            err.visible = True
-            page.update()
-            return
-        creds = {"usuario": usuario_actual, "password": pwd}
-        ok, motivo = backend.validar_credenciales_ldap(creds)
-        if not es_admin_its and not ok:
-            err.value   = "⚠️ Cannot reach the IRB network. Are you connected to the VPN?" if motivo == "vpn" else "Invalid credentials."
-            err.visible = True
-            page.update()
-            return
-        try:
-            backend.actualizar_password_perfiles_rclone(usuario_actual, pwd)
-            page.pop_dialog()
-            show_dialog(page, "Success",
-                        f"Credentials updated for all profiles of {usuario_actual}.",
-                        C_ACCENT)
-        except Exception as ex:
-            err.value   = str(ex)
-            err.visible = True
-            page.update()
-
-    def cancel(e):
-        page.pop_dialog()
-
-    dlg = ft.AlertDialog(
-        modal=True,
-        title=ft.Text("Update SMB Credentials", color=C_TEXT, size=15,
-                      weight=ft.FontWeight.W_600),
-        content=ft.Column(
-            [
-                ft.Text(f"User: {usuario_actual}", color=C_TEXT_DIM, size=12),
-                ft.Container(height=12),
-                pass_col,
-                err,
-            ],
-            spacing=6,
-            tight=True,
-            width=320,
-        ),
-        actions=[btn_secondary("Cancel", on_click=cancel), btn_primary("Save", on_click=save)],
-        bgcolor=C_OVERLAY,
-        shape=ft.RoundedRectangleBorder(radius=10),
-    )
-    #page.overlay.append(dlg)
-    #dlg.open = True
-    page.show_dialog(dlg)
-    page.update()
 
 
 # ============================================================================
@@ -4094,6 +4066,21 @@ def main(page: ft.Page):
                     backend.EXCEPCION_FILERS,
                     state["usar_privilegios"],
                 )
+
+                # Si estamos en modo admin y no hay shares, las credenciales
+                # admin son probablemente incorrectas — revertir y mostrar error.
+                if skip_groups and not shares:
+                    state["usar_privilegios"]   = False
+                    state["credenciales_admin"] = None
+                    state["credenciales_smb"]   = None
+                    backend.ui_call(page, lambda: show_dialog(
+                        page,
+                        "Admin credentials error",
+                        "No shares were found. Check your admin password and try again.",
+                        C_ERROR,
+                    ))
+                    return
+
                 perfiles = backend.configurar_perfiles_smb_si_faltan(
                     shares,
                     state["credenciales_smb"],
