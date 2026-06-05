@@ -27,10 +27,12 @@ dependencies = [
     "charset-normalizer==3.4.4",
     "cryptography>=46.0.7",
     "flet==0.84.0",
+    "flet-web==0.84.0", #cluster
     "h11==0.16.0",
     "httpcore==1.0.9",
     "httptools==0.7.1",
     "httpx==0.28.1",
+    "hypercorn==0.18.0", #custer
     "idna>=3.15",
     "jmespath==1.0.1",
     "ldap3==2.9.1",
@@ -52,7 +54,8 @@ dependencies = [
     "uvloop==0.22.1 ; sys_platform != 'win32'",
     "watchfiles==1.1.1",
     "websockets==15.0.1",
-    "bifrost-shared @ file:///__BUILDPATH__/shared"
+    # "bifrost-shared @ file:////data/its/operez/irb-storage-public-scripts/shared" # cluster
+    "bifrost-shared @ file:///__BUILDPATH__/shared" 
 ]
 
 [tool.flet.flutter.pubspec.dependency_overrides]
