@@ -1007,6 +1007,7 @@ def build_rclone_browser(
     page: ft.Page,
     perfil_rclone: str,
     on_select: Callable[[str], None],
+    initial_path: str = "",
 ) -> tuple[ft.Column, Callable]:
     """
     Navegador interactivo de carpetas rclone con breadcrumb.
@@ -1351,7 +1352,7 @@ def build_rclone_browser(
         tight=True,
     )
 
-    return browser_widget, lambda: _navigate("")
+    return browser_widget, lambda: _navigate(initial_path)
 
 
 # ============================================================================
@@ -2161,8 +2162,9 @@ def _build_copy_content(
 
     # build_rclone_browser devuelve (widget, refresh_fn)
     # refresh_fn se llama con Timer después de show_screen() para la carga inicial
+    _initial_dest = web_session.get("copy_destino", "") if (IS_WEB and web_session) else ""
     dest_browser, dest_browser_refresh = build_rclone_browser(
-        page, perfil_rclone, on_select=on_browser_select
+        page, perfil_rclone, on_select=on_browser_select, initial_path=_initial_dest
     )
     dest_browser_col = ft.Column(
         [field_label(f"Destination path (bucket in {perfil_rclone})"), dest_browser],
