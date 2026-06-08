@@ -82,7 +82,7 @@ instance/
 .scrapy
 
 # Sphinx documentation
-docs/_build/
+#docs/_build/
 
 # PyBuilder
 .pybuilder/
@@ -193,7 +193,14 @@ src/storage/data/
 
 .claude/
 
-# Wiki LLM — fuentes brutas locales (las páginas sintetizadas en docs/wiki/ sí se commitean)
-docs/wiki/raw/**
-!docs/wiki/raw/**/
-!docs/wiki/raw/**/.gitkeep
+# Wiki LLM y superpowers
+docs/
+
+#diff 
+historial*
+
+# development
+bifrost-mount/src/bifrost_backend/
+bifrost-mount/src/bifrost_frontend/
+bifrost-transfer/src/bifrost_backend/
+bifrost-transfer/src/bifrost_frontend/
