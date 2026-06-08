@@ -936,6 +936,7 @@ def get_s3_client_from_profile(profile_name: str, endpoint: str):
         aws_access_key_id=section["access_key_id"],
         aws_secret_access_key=section["secret_access_key"],
         aws_session_token=section.get("session_token") or None,
+        region_name=section.get("region") or "us-east-1",
     )
 
 
