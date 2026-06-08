@@ -127,6 +127,8 @@ MINIO_SERVERS = {
     }
 }
 
+DEFAULT_S3_REGION = "eu-south-2"
+
 REPO = "its-irb/irb-storage-public-scripts"
 
 try:
@@ -931,10 +933,9 @@ def get_s3_client_from_profile(profile_name: str, endpoint: str):
     config.read(config_path)
     section = config[profile_name]
     region_from_rclone = section.get("region")
-    region_from_env = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION")
-    region_name = region_from_rclone or "us-east-1"
+    region_name = region_from_rclone or DEFAULT_S3_REGION
     print(f"[s3-client] profile={profile_name} endpoint={endpoint}", flush=True)
-    print(f"[s3-client] region_from_rclone={region_from_rclone!r} region_from_env={region_from_env!r} -> using={region_name!r}", flush=True)
+    print(f"[s3-client] region_from_rclone={region_from_rclone!r} -> using={region_name!r}", flush=True)
     return boto3.client(
         "s3",
         endpoint_url=endpoint,
