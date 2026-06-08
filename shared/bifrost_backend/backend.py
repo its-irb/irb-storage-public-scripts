@@ -930,13 +930,18 @@ def get_s3_client_from_profile(profile_name: str, endpoint: str):
     config = configparser.ConfigParser()
     config.read(config_path)
     section = config[profile_name]
+    region_from_rclone = section.get("region")
+    region_from_env = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION")
+    region_name = region_from_rclone or "us-east-1"
+    print(f"[s3-client] profile={profile_name} endpoint={endpoint}", flush=True)
+    print(f"[s3-client] region_from_rclone={region_from_rclone!r} region_from_env={region_from_env!r} -> using={region_name!r}", flush=True)
     return boto3.client(
         "s3",
         endpoint_url=endpoint,
         aws_access_key_id=section["access_key_id"],
         aws_secret_access_key=section["secret_access_key"],
         aws_session_token=section.get("session_token") or None,
-        region_name=section.get("region") or "us-east-1",
+        region_name=region_name,
     )
 
 
