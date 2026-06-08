@@ -22,9 +22,9 @@ dependencies = [
     "anyio==4.12.1",
     "boto3==1.42.12",
     "botocore==1.42.12",
-    "certifi==2025.11.12",
+    "certifi>=2025.11.12",
     "cffi==2.0.0",
-    "charset-normalizer==3.4.4",
+    "charset-normalizer>=3.4.4",
     "cryptography>=46.0.7",
     "flet==0.84.0",
     "flet-web==0.84.0", #activar para venv custer
