@@ -1831,34 +1831,37 @@ def _build_copy_content(
         text_size=13,
         border_radius=6,
         content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-        expand=True,
+        width=220,
     )
 
     def _on_profile_change(e):
-        new_profile = profile_dd.value
+        new_profile = e.control.value
         if new_profile == active_copy_profile["name"]:
             return
 
-        def _do_switch():
-            _rebuild_meta(new_profile)
-            active_copy_profile["name"] = new_profile
-            if IS_WEB and web_session is not None:
-                web_session["copy_tag_profile"] = new_profile
-            page.update()
+        def _ask():
+            def _do_switch():
+                _rebuild_meta(new_profile)
+                active_copy_profile["name"] = new_profile
+                if IS_WEB and web_session is not None:
+                    web_session["copy_tag_profile"] = new_profile
+                page.update()
 
-        def _cancel():
-            profile_dd.value = active_copy_profile["name"]
-            page.update()
+            def _cancel():
+                profile_dd.value = active_copy_profile["name"]
+                page.update()
 
-        show_confirm(
-            page,
-            "Change profile",
-            "Changing the profile will clear all metadata. Continue?",
-            on_yes=_do_switch,
-            on_no=_cancel,
-        )
+            show_confirm(
+                page,
+                "Change profile",
+                "Changing the profile will clear all metadata. Continue?",
+                on_yes=_do_switch,
+                on_no=_cancel,
+            )
 
-    profile_dd.on_change = _on_profile_change
+        backend.ui_call(page, _ask)
+
+    profile_dd.on_select = _on_profile_change
 
     profile_row = ft.Row(
         [
