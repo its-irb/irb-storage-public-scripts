@@ -83,54 +83,7 @@ STS_RENEWAL_THRESHOLD_DAYS = 3
 # Duración (en días) de las credenciales STS renovadas automáticamente
 STS_AUTO_RENEWAL_DAYS = 7
 
-# ============================================================================
-# PERFILES DE TAGS DE METADATOS
-# ============================================================================
-
-from enum import Enum
-
-class FieldType(Enum):
-    TEXT       = "text"
-    DATE       = "date"
-    NUMBER     = "number"
-    UNISELECT  = "uniselect"
-    MULTISELECT = "multiselect"
-    MULTIFREETEXT = "multifreetext"
-
-# Estructura: (label, key, FieldType, allow_custom, options_list_or_None, help_text)
-TAG_PROFILES: dict[str, list[tuple]] = {
-    "IRB Standard": [
-        ("Project",          "project_name",    FieldType.TEXT,        False, None, None),
-        ("Host machine",     "compute_node",     FieldType.TEXT,        False, None, None),
-        ("Sample type",      "sample_type",      FieldType.TEXT,        False, None, None),
-        ("Input data type",  "input_data_type",  FieldType.TEXT,        False, None, None),
-        ("Output data type", "output_data_type", FieldType.TEXT,        False, None, None),
-        ("Requested by",     "requested_by",     FieldType.TEXT,        False, None, None),
-        ("Research group",   "research_group",   FieldType.TEXT,        False, None, None),
-    ],
-    "Histopathology": [
-        ("Owner",        "owner",        FieldType.UNISELECT,   False, [
-            "Eduard Batlle","Direna Alonso-Curbelo","Alexandra Avgustinova","Roger Gomis",
-            "Cayetano González","Nuria López-Bigas","Angel R. Nebreda","Antoni Riera",
-            "Fran Supek","Salvador Aznar Benitah","Xavier Salvatella",
-            "Ana Victoria Lechuga-Vieco","Manuel Palacín","Lluis Ribas",
-            "Alejo Rodríguez-Fraticelli","Stefanie Wculek","Antonio Zorzano",
-            "Marco Milán","Patrick Aloy","Toni Gabaldón","Jens Lüders",
-            "María Macías","Cristina Mayor-Ruiz","Raúl Méndez",
-            "Francesc Posas/ Eulalia de Nadal","Modesto Orozco","Ferran Azorin",
-            "Jordi Casanova","Miquel Coll"
-        ], None),
-        ("Users", "users", FieldType.MULTIFREETEXT, False, None, "Enter Linux usernames, add each one separately"),
-        ("Date",         "date",         FieldType.DATE,        False, None, None),
-        ("Provider",     "provider",     FieldType.UNISELECT,   False, ["Histopathology IRB Core Facility"], None),
-        ("Instrument",   "instrument",   FieldType.UNISELECT,   False, ["Phenoimager", "Nanozoomer"], None),
-        ("Species",      "species",      FieldType.UNISELECT,   False, ["mouse", "human", "rat", "pig", "cow"], None),
-        ("Sample Type",  "sample_type",  FieldType.UNISELECT,   False, ["tissue section", "organoid", "cell pellet"], None),
-        ("Sample Origin","sample_origin",FieldType.TEXT,        False, None, "Specify the biological source depending on the sample type:\n- For Tissue: enter tissue type (e.g., Lung, Colon)\n- For Organoid: enter organoid type/model (e.g., Colorectal Organoid)\n- For Cell Pellet: enter cell line origin (e.g., HeLa, HEK293)"),
-        ("Magnification","magnification",FieldType.UNISELECT,   False, ["20x", "40x"], None),
-        ("Channels",     "channels",     FieldType.UNISELECT, False,  ["Brightfield","DAPI","DAPI + 488","DAPI + 568","DAPI + 647","DAPI + 488 + 568","DAPI + 488 + 647","DAPI + 568 + 647","DAPI + 488 + 568 + 647", "4plex", "5plex","6plex"], None),
-    ],
-}
+from meta_fields import FieldType, TAG_PROFILES, build_meta_fields
 # ============================================================================
 # PARA EVITAR PROBLEMAS DE CODIFICACIÓN EN CONSOLA (ESPECIALMENTE EN WINDOWS)
 # ============================================================================
@@ -196,6 +149,7 @@ def _ws_save(usuario: str, state: dict) -> None:
         # The Popen wrapper dict — shared with the background thread so that
         # a new UI session can cancel a process that survived a tab close.
         "copy_proceso":        existing.get("copy_proceso", {"proc": None}),
+        "copy_tag_profile":   existing.get("copy_tag_profile", list(TAG_PROFILES.keys())[0]),
     }
     _LAST_WEB_USER[0] = usuario
     print(f"[session] Saved session for {usuario!r}")
