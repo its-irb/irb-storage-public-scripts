@@ -164,6 +164,7 @@ Cuando hay una release nueva en GitHub, la app pregunta al usuario si quiere act
 7. **No commitear `.venv/`, `dist/`, `build/`, `src/version.py` generado**. Ver `.gitignore`.
 8. **`TAG_PROFILES` es la fuente canónica de campos de metadatos en `bifrost-transfer`**: tanto el formulario de copia como el Tag Manager usan `TAG_PROFILES` y `build_meta_fields` de `meta_fields.py`. Si hay que añadir, renombrar o reordenar un campo o perfil, cambiarlo solo en `bifrost-transfer/src/meta_fields.py`.
 9. **Auto-instalación de WinFsp (solo `bifrost-mount`, Windows)**: si falta WinFsp al montar, el backend levanta `WinFspMissingError` (subclase de `EnvironmentError`) y la UI ofrece descargar e instalar la última release oficial desde `github.com/winfsp/winfsp` vía `backend.install_winfsp_windows()`. Requiere UAC; el MSI se cachea en `%TEMP%`. Los mensajes de este flujo están en **inglés** (excepción al punto 3) para alinearse con el resto de la UI de `bifrost-mount`. `bifrost-transfer` no tiene este flujo.
+10. **Visibilidad condicional en el formulario de copia**: las secciones METADATA, botones de acción y LOG OUTPUT de `_build_copy_content` están ocultas (`bottom_col.visible=False`) hasta que el usuario selecciona un bucket en el browser de destino. El toggle se gestiona en `on_browser_select`: si `path` es no-vacío → visible; si vuelve a vacío (root) → oculto.
 
 ---
 

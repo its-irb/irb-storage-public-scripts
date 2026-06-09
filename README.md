@@ -75,6 +75,8 @@ Metadata tags are organized in **profiles**. Both the copy form and the Tag Mana
 
 When uploading data, select a metadata profile from the dropdown at the top of the METADATA section. Fill in the fields and the tags will be applied automatically to the uploaded objects. Switching profiles clears the current fields (a confirmation dialog appears if any field has data).
 
+Los campos de metadatos, los botones de copia/verificación y el panel de log solo aparecen una vez que se ha seleccionado un bucket destino en el navegador.
+
 ### Tag Manager
 
 The Tag Manager lets you browse buckets, folders, and files in S3 and apply metadata tags in bulk — without re-uploading any data. Select a profile, fill in the fields, and apply the tagset to a file, a folder, or an entire bucket prefix.
