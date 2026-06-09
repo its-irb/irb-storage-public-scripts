@@ -2700,7 +2700,7 @@ def _build_tag_manager_content(
             )
 
         breadcrumb_row.controls.append(
-            _crumb("buckets", lambda e: _navigate(None, ""))
+            _crumb(perfil_rclone, lambda e: _navigate(None, ""))
         )
         if nav["bucket"]:
             breadcrumb_row.controls.append(ft.Text("/", color=C_TEXT_DIM, size=12))
@@ -2752,7 +2752,7 @@ def _build_tag_manager_content(
                 browser_col.controls.append(
                     ft.GestureDetector(
                         content=c,
-                        on_double_tap=lambda e, b=bname: _navigate(b, ""),
+                        on_tap=lambda e, b=bname: _navigate(b, ""),
                     )
                 )
         else:
@@ -2796,7 +2796,7 @@ def _build_tag_manager_content(
                 browser_col.controls.append(
                     ft.GestureDetector(
                         content=c,
-                        on_double_tap=lambda e, p=prefix: _navigate(nav["bucket"], p),
+                        on_tap=lambda e, p=prefix: _navigate(nav["bucket"], p),
                     )
                 )
 
@@ -3073,8 +3073,6 @@ def _build_tag_manager_content(
         #on_change=_on_profile_change,
     )
 
-    print(f"[DEBUG] profile_dd creado: {id(profile_dd)}")
-    
     # Contenedor raíz para los campos dinámicos
     card_container = ft.Container()
     target_label    = ft.Text("Select a folder or a file", size=12, color=C_TEXT_DIM, italic=True)
@@ -3092,11 +3090,32 @@ def _build_tag_manager_content(
         page.update()
 
     def _on_profile_change(e):
-        print(f"[DEBUG] _on_profile_change fired RAW, value: {e.control.value}")
-        name = e.control.value
-        print(f"[DEBUG] _on_profile_change fired, value: {name}")
-        backend.ui_call(page, lambda: _rebuild_tag_fields(name))
-        print(f"[DEBUG] ui_call scheduled")
+        new_profile = e.control.value
+        if new_profile == active_profile["name"]:
+            return
+
+        def _ask():
+            def _do_switch():
+                _rebuild_tag_fields(new_profile)
+                page.update()
+
+            def _cancel():
+                profile_dd.value = active_profile["name"]
+                page.update()
+
+            has_data = any((tf.value or "").strip() for tf in tag_fields.values())
+            if has_data:
+                show_confirm(
+                    page,
+                    "Change profile",
+                    "Changing the profile will clear all metadata. Continue?",
+                    on_yes=_do_switch,
+                    on_no=_cancel,
+                )
+            else:
+                _do_switch()
+
+        backend.ui_call(page, _ask)
     
     def _prefill_fields(tags: dict[str, str]) -> None:
         for key, tf in tag_fields.items():
@@ -3118,7 +3137,6 @@ def _build_tag_manager_content(
     )
 
     profile_dd.on_select = _on_profile_change
-    print(f"[DEBUG] profile_dd id: {id(profile_dd)}, on_select registrado: {profile_dd.on_select}")
     _rebuild_tag_fields(profile_names[0])
 
     def do_apply(e) -> None:
@@ -3398,7 +3416,7 @@ def _build_tag_manager_content(
         expand=True,
         content=ft.Column(
             [
-                ft.Text("EDIT FOLDER TAGS", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600),
+                ft.Text("APPLY TAGS TO ALL FILES IN FOLDER", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600),
                 ft.Container(height=8),
                 # El seleccionador de Perfil se encuentra FUERA del cuadro de metadatos
                 ft.Row(
@@ -3451,7 +3469,7 @@ def _build_tag_manager_content(
 
     content = ft.Column(
         [
-            build_header(subtitle="Tag Manager", IS_WEB=IS_WEB),
+            build_header(subtitle=f"Tag Manager — {perfil_rclone}", IS_WEB=IS_WEB),
             ft.Container(
                 content=ft.Row(
                     [back_btn, ft.Container(expand=True)],
