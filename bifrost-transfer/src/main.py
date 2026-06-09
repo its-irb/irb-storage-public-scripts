@@ -1074,7 +1074,11 @@ def build_rclone_browser(
                             row = ft.Container(
                                 content=ft.Row(
                                     [
-                                        ft.Icon(ft.Icons.FOLDER_OUTLINED, color=C_WARNING, size=16),
+                                        ft.Icon(
+                                        ft.Icons.STORAGE if not path else ft.Icons.FOLDER_OUTLINED,
+                                        color=C_PRIMARY if not path else C_WARNING,
+                                        size=16,
+                                    ),
                                         ft.Text(fname, size=12, color=C_TEXT, expand=True),
                                         ft.Icon(ft.Icons.CHEVRON_RIGHT, color=C_TEXT_DIM, size=14),
                                     ],
