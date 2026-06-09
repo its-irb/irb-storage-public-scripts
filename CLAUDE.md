@@ -34,6 +34,7 @@ bifrost-mount/            # App de montado (desktop)
 bifrost-transfer/         # App de transferencia (desktop + web)
   src/
     main.py               # GUI Flet
+    meta_fields.py        # FieldType, TAG_PROFILES, build_meta_fields (compartido por copia y Tag Manager)
     config.py             # APP_INFO = {"flavour": "transfer", ...}
     version.py
     assets/bin/
@@ -68,7 +69,8 @@ README.md                 # Doc canónica (en español)
 - `bifrost_frontend.frontend` — paleta de colores (`C_BG`, `C_PRIMARY`, …), botones (`btn_primary`, `btn_secondary`), helpers comunes. Cada app hace `from bifrost_frontend.frontend import *`.
 
 **Específico por app**:
-- `src/main.py` — flujo de vistas Flet (login → minio → credentials → mount/copy). Es donde está toda la UI específica. En `bifrost-transfer` incluye además `TAG_PROFILES` (constante que centraliza los campos de metadatos para el formulario de copia y el Tag Manager) y `_build_tag_manager_content` (vista Tag Manager).
+- `src/main.py` — flujo de vistas Flet (login → minio → credentials → mount/copy). Es donde está toda la UI específica. En `bifrost-transfer` incluye además `_build_tag_manager_content` (vista Tag Manager).
+- `src/meta_fields.py` — **solo en `bifrost-transfer`**. Define `FieldType`, `TAG_PROFILES` y `build_meta_fields`. Es la fuente canónica de perfiles y campos de metadatos, usada tanto por el formulario de copia como por el Tag Manager.
 - `src/config.py` — solo `APP_INFO = {"flavour": "mount"|"transfer", "name": ..., "description": ...}`. El backend lee `APP_INFO["flavour"]` para resolver rutas de assets en dev.
 - `src/version.py` — escrito por CI en cada build (`__version__ = "1.0.<run_number>"`).
 - `installer.iss`, `build-macos.sh`, `pyproject.toml` (con su lista de deps congelada por app).
@@ -160,7 +162,7 @@ Cuando hay una release nueva en GitHub, la app pregunta al usuario si quiere act
 5. **`config.py` debe ser importable como módulo top-level** en cada app — el backend hace `from config import APP_INFO`. Por eso cada app tiene su propio `config.py` aunque solo contenga `APP_INFO`.
 6. **Credenciales STS**: si quedan >3 días se reutilizan; <3 días se renuevan automáticamente por 7 días. Constantes `STS_RENEWAL_THRESHOLD_DAYS` / `STS_AUTO_RENEWAL_DAYS` en `main.py`.
 7. **No commitear `.venv/`, `dist/`, `build/`, `src/version.py` generado**. Ver `.gitignore`.
-8. **`TAG_PROFILES` es la fuente canónica de campos de metadatos en `bifrost-transfer`**: tanto el formulario de copia (`meta_labels`) como el editor del Tag Manager leen de `TAG_PROFILES` en `main.py`. Si hay que añadir o renombrar un campo, cambiarlo solo aquí.
+8. **`TAG_PROFILES` es la fuente canónica de campos de metadatos en `bifrost-transfer`**: tanto el formulario de copia como el Tag Manager usan `TAG_PROFILES` y `build_meta_fields` de `meta_fields.py`. Si hay que añadir, renombrar o reordenar un campo o perfil, cambiarlo solo en `bifrost-transfer/src/meta_fields.py`.
 9. **Auto-instalación de WinFsp (solo `bifrost-mount`, Windows)**: si falta WinFsp al montar, el backend levanta `WinFspMissingError` (subclase de `EnvironmentError`) y la UI ofrece descargar e instalar la última release oficial desde `github.com/winfsp/winfsp` vía `backend.install_winfsp_windows()`. Requiere UAC; el MSI se cachea en `%TEMP%`. Los mensajes de este flujo están en **inglés** (excepción al punto 3) para alinearse con el resto de la UI de `bifrost-mount`. `bifrost-transfer` no tiene este flujo.
 
 ---
