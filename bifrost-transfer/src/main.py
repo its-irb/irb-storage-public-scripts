@@ -1851,13 +1851,17 @@ def _build_copy_content(
                 profile_dd.value = active_copy_profile["name"]
                 page.update()
 
-            show_confirm(
-                page,
-                "Change profile",
-                "Changing the profile will clear all metadata. Continue?",
-                on_yes=_do_switch,
-                on_no=_cancel,
-            )
+            has_data = any((tf.value or "").strip() for tf in meta_fields.values())
+            if has_data:
+                show_confirm(
+                    page,
+                    "Change profile",
+                    "Changing the profile will clear all metadata. Continue?",
+                    on_yes=_do_switch,
+                    on_no=_cancel,
+                )
+            else:
+                _do_switch()
 
         backend.ui_call(page, _ask)
 
