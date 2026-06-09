@@ -2392,6 +2392,31 @@ def _build_copy_content(
     close_btn.on_click = do_close
     # cancel_btn.on_click already wired above
 
+    bottom_col = ft.Column(
+        [
+            ft.Container(height=16),
+            section_title("METADATA"),
+            ft.Container(height=6),
+            profile_row,
+            ft.Container(height=10),
+            card(meta_container),
+            ft.Container(height=16),
+            ft.Row(
+                [copy_btn, check_btn, cancel_btn, mount_btn, save_btn, close_btn],
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                wrap=True,
+            ),
+            ft.Container(height=12),
+            section_title("LOG OUTPUT"),
+            ft.Container(height=8),
+            log_container,
+            ft.Container(height=16),
+        ],
+        spacing=0,
+        visible=False,
+    )
+
     # ── Layout ────────────────────────────────────────────────────────────
     content = ft.Column(
         [
@@ -2425,24 +2450,7 @@ def _build_copy_content(
                                 spacing=0,
                             ),
                         ),
-                        ft.Container(height=16),
-                        section_title("METADATA"),
-                        ft.Container(height=6),
-                        profile_row,
-                        ft.Container(height=10),
-                        card(meta_container),
-                        ft.Container(height=16),
-                        ft.Row(
-                            [copy_btn, check_btn, cancel_btn, mount_btn, save_btn, close_btn],
-                            spacing=8,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            wrap=True,
-                        ),
-                        ft.Container(height=12),
-                        section_title("LOG OUTPUT"),
-                        ft.Container(height=8),
-                        log_container,
-                        ft.Container(height=16),
+                        bottom_col,
                     ],
                     spacing=0,
                 ),
