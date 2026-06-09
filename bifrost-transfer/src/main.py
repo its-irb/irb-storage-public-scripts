@@ -2170,6 +2170,10 @@ def _build_copy_content(
         # NO llamamos ruta_label.update() aquí porque este callback puede
         # ejecutarse antes de que el control esté en el árbol (carga inicial).
         # page.update() lo llama _navigate() justo después de on_select().
+        should_be_visible = bool(path)
+        if bottom_col.visible != should_be_visible:
+            bottom_col.visible = should_be_visible
+            # page.update() is called by _navigate() right after on_select()
 
     # build_rclone_browser devuelve (widget, refresh_fn)
     # refresh_fn se llama con Timer después de show_screen() para la carga inicial
