@@ -1807,17 +1807,67 @@ def _build_copy_content(
     )
 
     # ── Metadatos ──────────────────────────────────────────────────────────
-    meta_labels = TAG_PROFILES["IRB Standard"]
-    meta_fields: dict[str, ft.TextField] = {}
-    meta_controls = []
-    for label, key, field_type, allow_custom, options_list, helper in TAG_PROFILES["IRB Standard"]:
-        tf, col = styled_field(label)
-        meta_fields[key] = tf
-        meta_controls.append(col)
+    _initial_profile = (
+        web_session.get("copy_tag_profile") if (IS_WEB and web_session) else None
+    ) or list(TAG_PROFILES.keys())[0]
+    active_copy_profile = {"name": _initial_profile}
 
-    meta_left  = ft.Column(meta_controls[:4], spacing=10, expand=True)
-    meta_right = ft.Column(meta_controls[4:], spacing=10, expand=True)
-    meta_grid  = ft.Row([meta_left, meta_right], spacing=16, expand=True)
+    meta_fields: dict = {}
+    meta_container = ft.Container()
+
+    def _rebuild_meta(profile_name: str):
+        col = build_meta_fields(profile_name, page, meta_fields)
+        meta_container.content = col
+
+    _rebuild_meta(active_copy_profile["name"])
+
+    profile_dd = ft.Dropdown(
+        options=[ft.dropdown.Option(p) for p in TAG_PROFILES.keys()],
+        value=active_copy_profile["name"],
+        bgcolor=C_SURFACE2,
+        border_color=C_BORDER,
+        focused_border_color=C_PRIMARY,
+        color=C_TEXT,
+        text_size=13,
+        border_radius=6,
+        content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+        expand=True,
+    )
+
+    def _on_profile_change(e):
+        new_profile = profile_dd.value
+        if new_profile == active_copy_profile["name"]:
+            return
+
+        def _do_switch():
+            _rebuild_meta(new_profile)
+            active_copy_profile["name"] = new_profile
+            if IS_WEB and web_session is not None:
+                web_session["copy_tag_profile"] = new_profile
+            page.update()
+
+        def _cancel():
+            profile_dd.value = active_copy_profile["name"]
+            page.update()
+
+        show_confirm(
+            page,
+            "Change profile",
+            "Changing the profile will clear all metadata. Continue?",
+            on_yes=_do_switch,
+            on_no=_cancel,
+        )
+
+    profile_dd.on_change = _on_profile_change
+
+    profile_row = ft.Row(
+        [
+            ft.Text("Metadata profile", size=12, color=C_TEXT_DIM, width=130),
+            profile_dd,
+        ],
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        spacing=8,
+    )
 
     # ── Log ────────────────────────────────────────────────────────────────
     log_list = ft.ListView(
@@ -2370,8 +2420,10 @@ def _build_copy_content(
                         ),
                         ft.Container(height=16),
                         section_title("METADATA"),
+                        ft.Container(height=6),
+                        profile_row,
                         ft.Container(height=10),
-                        card(meta_grid),
+                        card(meta_container),
                         ft.Container(height=16),
                         ft.Row(
                             [copy_btn, check_btn, cancel_btn, mount_btn, save_btn, close_btn],
