@@ -95,6 +95,7 @@ def build_meta_fields(
     profile_name: str,
     page: ft.Page,
     fields_dict: dict,
+    prefill_values: dict[str, str] | None = None,
 ) -> ft.Column:
     """Builds Flet controls for TAG_PROFILES[profile_name].
 
@@ -102,6 +103,7 @@ def build_meta_fields(
     Returns a ft.Column ready to insert into the widget tree.
     Does NOT call page.update() — that is the caller's responsibility.
     """
+    _pre = prefill_values or {}
     fields_dict.clear()
     col = ft.Column(spacing=10)
 
@@ -170,6 +172,16 @@ def build_meta_fields(
                 expand=True,
             )
             make_uniselect(dd, custom_tf, hidden_tf)
+            if key in _pre:
+                v = _pre[key]
+                option_keys = {
+                    opt[0] if isinstance(opt, tuple) else opt
+                    for opt in options_list
+                }
+                if v not in option_keys:
+                    dd.options.append(ft.DropdownOption(key=v, text=f"{v} *"))
+                dd.value = v
+                hidden_tf.value = v
             fields_dict[key] = hidden_tf
             col.controls.append(ft.Column(
                 [ft.Text(label, size=12, color=C_TEXT_DIM), dd, custom_tf, hidden_tf],
@@ -237,8 +249,8 @@ def build_meta_fields(
                             ctf.value = ""
                             _sync()
                             page.update()
-                    return ctf, _add_custom
-                return None, None
+                    return ctf, _add_custom, _sync
+                return None, None, _sync
 
             options_dd = ft.Dropdown(
                 options=[ft.DropdownOption(key=opt, text=opt) for opt in options_list],
@@ -249,7 +261,7 @@ def build_meta_fields(
                 content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
                 expand=True,
             )
-            custom_tf2, add_custom_fn = make_multiselect(
+            custom_tf2, add_custom_fn, sync_fn = make_multiselect(
                 selected_vals, chips_row, options_dd, hidden_tf, options_list, allow_custom
             )
             col_controls = [ft.Text(label, size=12, color=C_TEXT_DIM), options_dd, chips_row]
@@ -261,6 +273,10 @@ def build_meta_fields(
                 ], spacing=4))
             col_controls.append(hidden_tf)
             col.controls.append(ft.Column(col_controls, spacing=6))
+            if key in _pre and _pre[key]:
+                for item in [x for x in _pre[key].split(":") if x]:
+                    selected_vals["s"].add(item)
+                sync_fn()
 
         elif field_type == FieldType.MULTIFREETEXT:
             selected_vals = {"s": set()}
@@ -304,9 +320,9 @@ def build_meta_fields(
                         page.update()
 
                 input_tf.on_submit = _add
-                return input_tf, _add
+                return input_tf, _add, _sync
 
-            input_tf, add_fn = make_multifreetext(selected_vals, chips_row, hidden_tf)
+            input_tf, add_fn, sync_fn = make_multifreetext(selected_vals, chips_row, hidden_tf)
             field_col = ft.Column([
                 ft.Text(label, size=12, color=C_TEXT_DIM),
                 ft.Row([
@@ -322,6 +338,10 @@ def build_meta_fields(
                     ft.Text(helper, size=11, color=C_TEXT_DIM, italic=True)
                 )
             col.controls.append(field_col)
+            if key in _pre and _pre[key]:
+                for item in [x for x in _pre[key].split(":") if x]:
+                    selected_vals["s"].add(item)
+                sync_fn()
 
         elif field_type == FieldType.DATE:
             def make_date_picker(tf):
@@ -356,6 +376,8 @@ def build_meta_fields(
                                   icon_size=18, on_click=open_fn),
                 ], spacing=4),
             ], spacing=4))
+            if key in _pre:
+                date_tf.value = _pre[key]
 
         else:  # TEXT (y NUMBER, actualmente sin usar)
             tf, c = styled_field(label)
@@ -366,6 +388,8 @@ def build_meta_fields(
                 c.controls.append(
                     ft.Text(helper, size=11, color=C_TEXT_DIM, italic=True)
                 )
+            if key in _pre:
+                tf.value = _pre[key]
 
     return col
 
