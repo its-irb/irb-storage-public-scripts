@@ -1,10 +1,21 @@
 from __future__ import annotations
+from collections.abc import Callable
 from enum import Enum
 import flet as ft
 from bifrost_frontend.frontend import (
-    C_SURFACE2, C_BORDER, C_PRIMARY, C_TEXT, C_TEXT_DIM, C_ACCENT,
+    C_SURFACE, C_SURFACE2, C_BORDER, C_PRIMARY, C_TEXT, C_TEXT_DIM, C_ACCENT,
     styled_field,
 )
+
+
+LAB_ACRONYMS: dict[str, str] = {
+    "adm":    "Administration",
+    "sbnb":   "Nuria López-Bigas",
+    "batlle": "Eduard Batlle",
+    # RELLENAR: añadir aquí el resto de labs con sus acrónimos reales
+    # Formato: "acronimo": "Nombre legible del PI / unidad"
+    # El acrónimo debe coincidir exactamente con el tag S3 `acronym` del bucket
+}
 
 
 class FieldType(Enum):
@@ -337,3 +348,127 @@ def build_meta_fields(
                 )
 
     return col
+
+
+def build_lab_filter_widget(
+    page: ft.Page,
+    on_select: Callable[[str | None], None],
+) -> tuple[ft.Control, Callable]:
+    """Widget de filtro de laboratorio con búsqueda en tiempo real.
+
+    Returns:
+        (widget, clear_fn) — el widget Flet y una función para resetear el filtro.
+    """
+    state = {"acronym": None}
+
+    suggestions_col = ft.Column(spacing=2, tight=True)
+    suggestions_container = ft.Container(
+        content=suggestions_col,
+        bgcolor=C_SURFACE,
+        border=ft.Border.all(1, C_BORDER),
+        border_radius=6,
+        padding=ft.Padding.all(4),
+        visible=False,
+        max_height=160,
+    )
+
+    def _matches(query: str) -> list[tuple[str, str]]:
+        q = query.lower()
+        return [
+            (acr, name) for acr, name in LAB_ACRONYMS.items()
+            if q in acr.lower() or q in name.lower()
+        ]
+
+    def _render_suggestions(matches: list[tuple[str, str]]) -> None:
+        suggestions_col.controls.clear()
+        if not matches:
+            suggestions_col.controls.append(
+                ft.Container(
+                    content=ft.Text("No results", size=12, color=C_TEXT_DIM, italic=True),
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+                )
+            )
+        else:
+            for acr, name in matches:
+                label = f"{name} ({acr})"
+                suggestions_col.controls.append(
+                    ft.Container(
+                        content=ft.Text(label, size=12, color=C_TEXT),
+                        bgcolor=C_SURFACE2,
+                        border_radius=4,
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+                        ink=True,
+                        on_click=lambda e, a=acr, l=label: _select(a, l),
+                    )
+                )
+        suggestions_container.visible = True
+        page.update()
+
+    def _select(acronym: str, label: str) -> None:
+        state["acronym"] = acronym
+        search_tf.value = label
+        suggestions_container.visible = False
+        clear_btn.visible = True
+        page.update()
+        on_select(acronym)
+
+    def _on_change(e) -> None:
+        query = (search_tf.value or "").strip()
+        if not query:
+            suggestions_container.visible = False
+            page.update()
+            return
+        _render_suggestions(_matches(query))
+
+    def _on_focus(e) -> None:
+        query = (search_tf.value or "").strip()
+        if query and state["acronym"] is None:
+            _render_suggestions(_matches(query))
+
+    def _clear(e=None) -> None:
+        state["acronym"] = None
+        search_tf.value = ""
+        suggestions_col.controls.clear()
+        suggestions_container.visible = False
+        clear_btn.visible = False
+        page.update()
+        on_select(None)
+
+    search_tf = ft.TextField(
+        hint_text="Filter by lab…",
+        bgcolor=C_SURFACE2,
+        border_color=C_BORDER,
+        focused_border_color=C_PRIMARY,
+        color=C_TEXT,
+        hint_style=ft.TextStyle(color=C_TEXT_DIM),
+        border_radius=6,
+        content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+        text_size=12,
+        expand=True,
+        on_change=_on_change,
+        on_focus=_on_focus,
+    )
+
+    clear_btn = ft.IconButton(
+        icon=ft.Icons.CLOSE,
+        icon_color=C_TEXT_DIM,
+        icon_size=16,
+        visible=False,
+        on_click=_clear,
+        tooltip="Clear filter",
+    )
+
+    widget = ft.Column(
+        [
+            ft.Row(
+                [search_tf, clear_btn],
+                spacing=4,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            suggestions_container,
+        ],
+        spacing=4,
+        tight=True,
+    )
+
+    return widget, _clear
