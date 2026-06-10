@@ -3459,6 +3459,16 @@ def _build_tag_manager_content(
 
         backend.safe_thread(page, _do).start()
 
+    def _on_show_raw(e) -> None:
+        _populate_raw_list(_current_file_tags["tags"])
+
+    view_raw_btn = ft.TextButton(
+        "Ver tags raw",
+        on_click=_on_show_raw,
+        style=ft.ButtonStyle(color=C_TEXT_DIM),
+        visible=False,
+    )
+
     add_tag_btn = btn_secondary("+ Add tag", on_click=_on_add_tag_row)
     _add_btn_ref["btn"] = add_tag_btn
 
@@ -3487,7 +3497,11 @@ def _build_tag_manager_content(
             [
                 ft.Text("FILE TAGS EDITOR", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600),
                 ft.Container(height=8),
-                _file_name_label,
+                ft.Row(
+                    [_file_name_label, view_raw_btn],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
                 ft.Container(height=8),
                 file_list_headers,
                 ft.Container(height=4),
