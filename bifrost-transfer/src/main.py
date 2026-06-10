@@ -51,6 +51,7 @@ import getpass
 import tempfile
 import subprocess
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import traceback
 import pathlib
 from datetime import datetime, timedelta
@@ -83,7 +84,7 @@ STS_RENEWAL_THRESHOLD_DAYS = 3
 # Duración (en días) de las credenciales STS renovadas automáticamente
 STS_AUTO_RENEWAL_DAYS = 7
 
-from meta_fields import FieldType, TAG_PROFILES, build_meta_fields
+from meta_fields import FieldType, TAG_PROFILES, build_meta_fields, LAB_ACRONYMS, build_lab_filter_widget
 # ============================================================================
 # PARA EVITAR PROBLEMAS DE CODIFICACIÓN EN CONSOLA (ESPECIALMENTE EN WINDOWS)
 # ============================================================================
@@ -962,6 +963,8 @@ def build_rclone_browser(
     perfil_rclone: str,
     on_select: Callable[[str], None],
     initial_path: str = "",
+    lab_filter_enabled: bool = False,
+    endpoint: str | None = None,
 ) -> tuple[ft.Column, Callable]:
     """
     Navegador interactivo de carpetas rclone con breadcrumb.
@@ -973,6 +976,21 @@ def build_rclone_browser(
         esté en la página para arrancar la carga inicial.
     """
     nav_state = {"current_path": "", "timeout": 15}
+    filter_state = {"acronym": None}
+
+    if lab_filter_enabled:
+        def _on_lab_select(acronym: str | None) -> None:
+            filter_state["acronym"] = acronym
+            _navigate("")
+
+        filter_widget, _filter_clear_fn = build_lab_filter_widget(page, _on_lab_select)
+        filter_row = ft.Container(
+            content=filter_widget,
+            visible=True,
+            padding=ft.Padding.only(bottom=4),
+        )
+    else:
+        filter_row = ft.Container(visible=False)
 
     breadcrumb_row = ft.Row(spacing=2, wrap=True,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER)
@@ -1050,6 +1068,7 @@ def build_rclone_browser(
         loading_row.visible  = True
         error_text.visible   = False
         folder_col.controls.clear()
+        filter_row.visible   = lab_filter_enabled and not path
         _rebuild_breadcrumb()
         page.update()
 
@@ -1057,6 +1076,21 @@ def build_rclone_browser(
             try:
                 folders = backend.rclone_lsd(perfil_rclone, path, timeout=nav_state["timeout"])
                 print(f"[browser] path={path!r} folders={folders}")
+
+                if lab_filter_enabled and filter_state["acronym"] and not path:
+                    s3 = backend.get_s3_client_from_profile(perfil_rclone, endpoint)
+                    with ThreadPoolExecutor(max_workers=8) as pool:
+                        futs = {pool.submit(backend.get_bucket_tags, s3, b): b for b in folders}
+                        bucket_acronyms: dict[str, str] = {}
+                        for fut in as_completed(futs):
+                            b = futs[fut]
+                            try:
+                                bucket_acronyms[b] = fut.result().get("acronym", "")
+                            except Exception:
+                                bucket_acronyms[b] = ""
+                    active = filter_state["acronym"]
+                    folders = [b for b in folders if bucket_acronyms.get(b) == active]
+                    print(f"[browser] lab filter={active!r} → {len(folders)} buckets")
 
                 def _show():
                     loading_row.visible = False
@@ -1255,6 +1289,7 @@ def build_rclone_browser(
     # ── Widget ────────────────────────────────────────────────────────────
     browser_widget = ft.Column(
         [
+            filter_row,
             ft.Container(
                 content=breadcrumb_row,
                 bgcolor=C_SURFACE2,
@@ -2183,7 +2218,11 @@ def _build_copy_content(
     # refresh_fn se llama con Timer después de show_screen() para la carga inicial
     _initial_dest = web_session.get("copy_destino", "") if (IS_WEB and web_session) else ""
     dest_browser, dest_browser_refresh = build_rclone_browser(
-        page, perfil_rclone, on_select=on_browser_select, initial_path=_initial_dest
+        page, perfil_rclone,
+        on_select=on_browser_select,
+        initial_path=_initial_dest,
+        lab_filter_enabled=True,
+        endpoint=endpoint,
     )
     dest_browser_col = ft.Column(
         [field_label(f"Destination path (bucket in {perfil_rclone})"), dest_browser],
@@ -2686,6 +2725,19 @@ def _build_tag_manager_content(
     )
     browser_error = ft.Text("", color=C_ERROR, size=11, visible=False)
 
+    tm_filter_state = {"acronym": None}
+
+    def _on_tm_lab_select(acronym: str | None) -> None:
+        tm_filter_state["acronym"] = acronym
+        _navigate(None, "")
+
+    tm_filter_widget, _tm_filter_clear_fn = build_lab_filter_widget(page, _on_tm_lab_select)
+    tm_filter_row = ft.Container(
+        content=tm_filter_widget,
+        visible=True,
+        padding=ft.Padding.only(bottom=4),
+    )
+
     def _rebuild_breadcrumb() -> None:
         breadcrumb_row.controls.clear()
 
@@ -2949,7 +3001,8 @@ def _build_tag_manager_content(
                 _profile_editor_section.visible = True
                 _file_save_status.visible = False
             _rebuild_breadcrumb()
-            
+            tm_filter_row.visible = (bucket is None)
+
         backend.ui_call(page, _reset_editor)
         backend.safe_thread(page, _load_browser).start()
 
@@ -2971,6 +3024,19 @@ def _build_tag_manager_content(
             client = _get_client()
             if nav["bucket"] is None:
                 buckets = backend.rclone_lsd(perfil=perfil_rclone, path="")
+                if tm_filter_state["acronym"]:
+                    with ThreadPoolExecutor(max_workers=8) as pool:
+                        futs = {pool.submit(backend.get_bucket_tags, client, b): b for b in buckets}
+                        bucket_acronyms: dict[str, str] = {}
+                        for fut in as_completed(futs):
+                            b = futs[fut]
+                            try:
+                                bucket_acronyms[b] = fut.result().get("acronym", "")
+                            except Exception:
+                                bucket_acronyms[b] = ""
+                    active = tm_filter_state["acronym"]
+                    buckets = [b for b in buckets if bucket_acronyms.get(b) == active]
+                    print(f"[tag-manager] lab filter={active!r} → {len(buckets)} buckets")
                 _current_items["folders"] = buckets
                 _current_items["files"]   = []
             else:
@@ -3488,6 +3554,7 @@ def _build_tag_manager_content(
                                     ft.Container(height=8),
                                     breadcrumb_row,
                                     ft.Container(height=6),
+                                    tm_filter_row,
                                     browser_loading,
                                     browser_error,
                                     ft.Container(
