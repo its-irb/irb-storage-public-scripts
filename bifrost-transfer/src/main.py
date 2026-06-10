@@ -977,6 +977,7 @@ def build_rclone_browser(
     """
     nav_state = {"current_path": "", "timeout": 15}
     filter_state = {"acronym": None}
+    bucket_cache: dict = {"list": None, "tags": None}
 
     if lab_filter_enabled:
         def _on_lab_select(acronym: str | None) -> None:
@@ -1074,22 +1075,32 @@ def build_rclone_browser(
 
         def _load():
             try:
-                folders = backend.rclone_lsd(perfil_rclone, path, timeout=nav_state["timeout"])
-                print(f"[browser] path={path!r} folders={folders}")
+                if not path and bucket_cache["list"] is not None:
+                    folders = list(bucket_cache["list"])
+                    print(f"[browser] path={path!r} folders={folders} (cached)")
+                else:
+                    folders = backend.rclone_lsd(perfil_rclone, path, timeout=nav_state["timeout"])
+                    print(f"[browser] path={path!r} folders={folders}")
+                    if not path:
+                        bucket_cache["list"] = list(folders)
+                        bucket_cache["tags"] = None
 
                 if lab_filter_enabled and filter_state["acronym"] and not path:
-                    s3 = backend.get_s3_client_from_profile(perfil_rclone, endpoint)
-                    with ThreadPoolExecutor(max_workers=8) as pool:
-                        futs = {pool.submit(backend.get_bucket_tags, s3, b): b for b in folders}
-                        bucket_acronyms: dict[str, str] = {}
-                        for fut in as_completed(futs):
-                            b = futs[fut]
-                            try:
-                                bucket_acronyms[b] = fut.result().get("acronym", "")
-                            except Exception:
-                                bucket_acronyms[b] = ""
+                    if bucket_cache["tags"] is None:
+                        s3 = backend.get_s3_client_from_profile(perfil_rclone, endpoint)
+                        with ThreadPoolExecutor(max_workers=8) as pool:
+                            futs = {pool.submit(backend.get_bucket_tags, s3, b): b for b in bucket_cache["list"]}
+                            tag_map: dict[str, str] = {}
+                            for fut in as_completed(futs):
+                                b = futs[fut]
+                                try:
+                                    tag_map[b] = fut.result().get("acronym", "")
+                                except Exception:
+                                    tag_map[b] = ""
+                        bucket_cache["tags"] = tag_map
+                        print(f"[browser] tag cache populated for {len(tag_map)} buckets")
                     active = filter_state["acronym"]
-                    folders = [b for b in folders if bucket_acronyms.get(b) == active]
+                    folders = [b for b in folders if bucket_cache["tags"].get(b) == active]
                     print(f"[browser] lab filter={active!r} → {len(folders)} buckets")
 
                 def _show():
@@ -1345,7 +1356,12 @@ def build_rclone_browser(
         tight=True,
     )
 
-    return browser_widget, lambda: _navigate(initial_path)
+    def _refresh():
+        bucket_cache["list"] = None
+        bucket_cache["tags"] = None
+        _navigate(initial_path)
+
+    return browser_widget, _refresh
 
 
 # ============================================================================
@@ -2726,6 +2742,7 @@ def _build_tag_manager_content(
     browser_error = ft.Text("", color=C_ERROR, size=11, visible=False)
 
     tm_filter_state = {"acronym": None}
+    tm_bucket_cache: dict = {"list": None, "tags": None}
 
     def _on_tm_lab_select(acronym: str | None) -> None:
         tm_filter_state["acronym"] = acronym
@@ -3023,19 +3040,29 @@ def _build_tag_manager_content(
         try:
             client = _get_client()
             if nav["bucket"] is None:
-                buckets = backend.rclone_lsd(perfil=perfil_rclone, path="")
+                if tm_bucket_cache["list"] is not None:
+                    buckets = list(tm_bucket_cache["list"])
+                    print(f"[tag-manager] bucket list (cached): {len(buckets)} buckets")
+                else:
+                    buckets = backend.rclone_lsd(perfil=perfil_rclone, path="")
+                    tm_bucket_cache["list"] = list(buckets)
+                    tm_bucket_cache["tags"] = None
+                    print(f"[tag-manager] bucket list fetched: {len(buckets)} buckets")
                 if tm_filter_state["acronym"]:
-                    with ThreadPoolExecutor(max_workers=8) as pool:
-                        futs = {pool.submit(backend.get_bucket_tags, client, b): b for b in buckets}
-                        bucket_acronyms: dict[str, str] = {}
-                        for fut in as_completed(futs):
-                            b = futs[fut]
-                            try:
-                                bucket_acronyms[b] = fut.result().get("acronym", "")
-                            except Exception:
-                                bucket_acronyms[b] = ""
+                    if tm_bucket_cache["tags"] is None:
+                        with ThreadPoolExecutor(max_workers=8) as pool:
+                            futs = {pool.submit(backend.get_bucket_tags, client, b): b for b in tm_bucket_cache["list"]}
+                            tm_tag_map: dict[str, str] = {}
+                            for fut in as_completed(futs):
+                                b = futs[fut]
+                                try:
+                                    tm_tag_map[b] = fut.result().get("acronym", "")
+                                except Exception:
+                                    tm_tag_map[b] = ""
+                        tm_bucket_cache["tags"] = tm_tag_map
+                        print(f"[tag-manager] tag cache populated for {len(tm_tag_map)} buckets")
                     active = tm_filter_state["acronym"]
-                    buckets = [b for b in buckets if bucket_acronyms.get(b) == active]
+                    buckets = [b for b in buckets if tm_bucket_cache["tags"].get(b) == active]
                     print(f"[tag-manager] lab filter={active!r} → {len(buckets)} buckets")
                 _current_items["folders"] = buckets
                 _current_items["files"]   = []
