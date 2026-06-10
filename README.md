@@ -83,6 +83,8 @@ The destination bucket browser includes a **"Filter by lab…"** field that lets
 
 The Tag Manager lets you browse buckets, folders, and files in S3 and apply metadata tags in bulk — without re-uploading any data. Select a profile, fill in the fields, and apply the tagset to a file, a folder, or an entire bucket prefix.
 
+When you select an individual file, if its existing tags match a known profile, the editor automatically switches to the profile view with the values pre-filled — so you can review and edit them using the same dropdowns, date pickers, and multi-value fields used during upload. A **"Ver tags raw"** button lets you switch back to the raw key/value list at any time.
+
 The Tag Manager bucket browser also includes the same **"Filter by lab…"** field, which works identically to the one in the copy form.
 
 ---
