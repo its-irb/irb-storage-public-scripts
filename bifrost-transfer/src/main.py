@@ -3118,12 +3118,15 @@ def _build_tag_manager_content(
                 tags = backend.get_object_tags(client, nav["bucket"], key)
             except Exception as ex:
                 tags = {}
-                ex_str = str(ex)
-                def _err():
-                    browser_error.value   = f"Error reading tags: {ex_str}"
-                    browser_error.visible = True
-                    page.update()
-                backend.ui_call(page, _err)
+                resp = getattr(ex, "response", None)
+                error_code = (resp or {}).get("Error", {}).get("Code", "") if isinstance(resp, dict) else ""
+                if error_code != "NoSuchKey":
+                    ex_str = str(ex)
+                    def _err():
+                        browser_error.value   = f"Error reading tags: {ex_str}"
+                        browser_error.visible = True
+                        page.update()
+                    backend.ui_call(page, _err)
 
             display = f"📄 {key}"
             tags_cp = dict(tags)
@@ -3391,6 +3394,7 @@ def _build_tag_manager_content(
     def _switch_to_profile_mode(profile_name: str, prefill_values: dict | None = None) -> None:
         active_profile["name"] = profile_name
         file_editor_mode["mode"] = "profile"
+        prefill_profile_dd.value    = profile_name
         _file_tags_col.visible      = False
         add_tag_btn.visible         = False
         file_list_headers.visible   = False

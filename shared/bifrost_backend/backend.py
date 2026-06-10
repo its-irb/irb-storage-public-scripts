@@ -1037,7 +1037,7 @@ def apply_tags_to_prefix(
         for obj in page.get("Contents") or []:
             keys.append(obj["Key"])
 
-    tag_list = [{"Key": k, "Value": v} for k, v in tagset.items() if v]
+    tag_list = [{"Key": k, "Value": v} for k, v in tagset.items()]
     total = len(keys)
     done = {"ok": 0, "err": 0}
 
@@ -1070,7 +1070,7 @@ def apply_tags_to_object(
     tagset: dict[str, str],
 ) -> None:
     """Aplica tagset (replace completo) a un único objeto S3."""
-    tag_list = [{"Key": k, "Value": v} for k, v in tagset.items() if v]
+    tag_list = [{"Key": k, "Value": v} for k, v in tagset.items()]
     s3_client.put_object_tagging(
         Bucket=bucket, Key=key,
         Tagging={"TagSet": tag_list},

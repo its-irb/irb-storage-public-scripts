@@ -486,9 +486,10 @@ def build_lab_filter_widget(
         _render_suggestions(_matches(query))
 
     def _on_focus(e) -> None:
+        if state["acronym"] is not None:
+            return
         query = (search_tf.value or "").strip()
-        if query and state["acronym"] is None:
-            _render_suggestions(_matches(query))
+        _render_suggestions(_matches(query) if query else list(LAB_ACRONYMS.items()))
 
     def _clear(e=None) -> None:
         state["acronym"] = None
