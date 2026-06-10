@@ -62,15 +62,7 @@ TAG_PROFILES: dict[str, list[tuple]] = {
     ],
     "Histopathology": [
         ("Owner", "owner", FieldType.UNISELECT, False, [
-            "Eduard Batlle", "Direna Alonso-Curbelo", "Alexandra Avgustinova", "Roger Gomis",
-            "Cayetano González", "Nuria López-Bigas", "Angel R. Nebreda", "Antoni Riera",
-            "Fran Supek", "Salvador Aznar Benitah", "Xavier Salvatella",
-            "Ana Victoria Lechuga-Vieco", "Manuel Palacín", "Lluis Ribas",
-            "Alejo Rodríguez-Fraticelli", "Stefanie Wculek", "Antonio Zorzano",
-            "Marco Milán", "Patrick Aloy", "Toni Gabaldón", "Jens Lüders",
-            "María Macías", "Cristina Mayor-Ruiz", "Raúl Méndez",
-            "Francesc Posas/ Eulalia de Nadal", "Modesto Orozco", "Ferran Azorin",
-            "Jordi Casanova", "Miquel Coll",
+            (acr, f"{name} ({acr})") for acr, name in sorted(LAB_ACRONYMS.items(), key=lambda x: x[1])
         ], None),
         ("Users",         "users",         FieldType.MULTIFREETEXT, False, None,
          "Enter Linux usernames, add each one separately"),
@@ -155,10 +147,15 @@ def build_meta_fields(
                 dd_ref.on_select   = _on_select
                 custom_ref.on_change = _on_custom_change
 
+            def _make_opt(opt):
+                if isinstance(opt, tuple):
+                    return ft.DropdownOption(key=opt[0], text=opt[1])
+                return ft.DropdownOption(key=opt, text=opt)
+
             dd = ft.Dropdown(
                 options=(
                     [ft.DropdownOption(key="", text="")] +
-                    [ft.DropdownOption(key=opt, text=opt) for opt in options_list] +
+                    [_make_opt(opt) for opt in options_list] +
                     ([ft.DropdownOption(key=CUSTOM_KEY, text="✏️ Custom value...")]
                      if allow_custom else [])
                 ),
@@ -371,6 +368,28 @@ def build_meta_fields(
                 )
 
     return col
+
+
+def detect_profile(tags: dict[str, str]) -> str | None:
+    """Devuelve el perfil cuyas keys son superconjunto de las keys de tags.
+
+    Criterio: set(tags.keys()) ⊆ profile_keys.
+    Si varios califican, devuelve el de mayor solapamiento.
+    Devuelve None si ninguno encaja o si tags está vacío.
+    """
+    if not tags:
+        return None
+    tag_keys = set(tags.keys())
+    best_name: str | None = None
+    best_score = -1
+    for profile_name, fields in TAG_PROFILES.items():
+        profile_keys = {item[1] for item in fields}
+        if tag_keys <= profile_keys:
+            score = len(tag_keys & profile_keys)
+            if score > best_score:
+                best_score = score
+                best_name = profile_name
+    return best_name
 
 
 def build_lab_filter_widget(
