@@ -9,12 +9,35 @@ from bifrost_frontend.frontend import (
 
 
 LAB_ACRONYMS: dict[str, str] = {
-    "adm":    "Administration",
-    "sbnb":   "Nuria López-Bigas",
-    "batlle": "Eduard Batlle",
-    # RELLENAR: añadir aquí el resto de labs con sus acrónimos reales
-    # Formato: "acronimo": "Nombre legible del PI / unidad"
-    # El acrónimo debe coincidir exactamente con el tag S3 `acronym` del bucket
+    "ccl": "Eduard Batlle",
+    "itpc": "Direna Alonso-Curbelo",
+    "pce": "Alexandra Avgustinova",
+    "gccm": "Roger Gomis",
+    "cdl": "Cayetano González",
+    "bbg": "Nuria López-Bigas",
+    "sccl": "Angel R. Nebreda",
+    "are": "Antoni Riera",
+    "gds": "Fran Supek",
+    "scc": "Salvador Aznar Benitah",
+    "lmb": "Xavier Salvatella",
+    "mtx": "Ana Victoria Lechuga-Vieco",
+    "aatd": "Manuel Palacín",
+    "gtl": "Lluis Ribas",
+    "qscd": "Alejo Rodríguez-Fraticelli",
+    "iibl": "Stefanie Wculek",
+    "mitmet": "Antonio Zorzano",
+    "dgcl": "Marco Milán",
+    "sbnb": "Patrick Aloy",
+    "lcg": "Toni Gabaldón",
+    "mocpd": "Jens Lüders",
+    "scma": "María Macías",
+    "tpddd": "Cristina Mayor-Ruiz",
+    "tcccd": "Raúl Méndez",
+    "csg": "Francesc Posas / Eulalia de Nadal",
+    "mmb": "Modesto Orozco",
+    "csf": "Ferran Azorin",
+    "dmd": "Jordi Casanova",
+    "pnacmm": "Miquel Coll"
 }
 
 
@@ -361,7 +384,7 @@ def build_lab_filter_widget(
     """
     state = {"acronym": None}
 
-    suggestions_col = ft.Column(spacing=2, tight=True)
+    suggestions_col = ft.Column(spacing=2, tight=True, scroll=ft.ScrollMode.AUTO, height=160)
     suggestions_container = ft.Container(
         content=suggestions_col,
         bgcolor=C_SURFACE,
@@ -369,7 +392,6 @@ def build_lab_filter_widget(
         border_radius=6,
         padding=ft.Padding.all(4),
         visible=False,
-        max_height=160,
     )
 
     def _matches(query: str) -> list[tuple[str, str]]:
