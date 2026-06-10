@@ -127,6 +127,8 @@ MINIO_SERVERS = {
     }
 }
 
+DEFAULT_S3_REGION = "eu-south-2"
+
 REPO = "its-irb/irb-storage-public-scripts"
 
 try:
@@ -930,12 +932,17 @@ def get_s3_client_from_profile(profile_name: str, endpoint: str):
     config = configparser.ConfigParser()
     config.read(config_path)
     section = config[profile_name]
+    region_from_rclone = section.get("region")
+    region_name = region_from_rclone or DEFAULT_S3_REGION
+    print(f"[s3-client] profile={profile_name} endpoint={endpoint}", flush=True)
+    print(f"[s3-client] region_from_rclone={region_from_rclone!r} -> using={region_name!r}", flush=True)
     return boto3.client(
         "s3",
         endpoint_url=endpoint,
         aws_access_key_id=section["access_key_id"],
         aws_secret_access_key=section["secret_access_key"],
         aws_session_token=section.get("session_token") or None,
+        region_name=region_name,
     )
 
 
@@ -1030,7 +1037,7 @@ def apply_tags_to_prefix(
         for obj in page.get("Contents") or []:
             keys.append(obj["Key"])
 
-    tag_list = [{"Key": k, "Value": v} for k, v in tagset.items() if v]
+    tag_list = [{"Key": k, "Value": v} for k, v in tagset.items()]
     total = len(keys)
     done = {"ok": 0, "err": 0}
 
@@ -1063,11 +1070,20 @@ def apply_tags_to_object(
     tagset: dict[str, str],
 ) -> None:
     """Aplica tagset (replace completo) a un único objeto S3."""
-    tag_list = [{"Key": k, "Value": v} for k, v in tagset.items() if v]
+    tag_list = [{"Key": k, "Value": v} for k, v in tagset.items()]
     s3_client.put_object_tagging(
         Bucket=bucket, Key=key,
         Tagging={"TagSet": tag_list},
     )
+
+
+def get_bucket_tags(s3_client, bucket: str) -> dict[str, str]:
+    """Devuelve los tags del bucket como dict key→value. Vacío si no hay tags."""
+    try:
+        resp = s3_client.get_bucket_tagging(Bucket=bucket)
+        return {t["Key"]: t["Value"] for t in resp.get("TagSet", [])}
+    except Exception:
+        return {}
 
 
 def crear_perfil_rclone_smb(
@@ -1735,6 +1751,12 @@ def ui_call(page: ft.Page, fn: Callable) -> None:
     # run_task schedules the coroutine on the same asyncio event loop; since
     # _compare_lists contains no `await`, no run_task coroutine can preempt it
     # mid-iteration, eliminating the race entirely.
+
+    # Guard: skip UI updates if WebSocket connection is closed (OOD reconnection scenario)
+    if not page.session or not page.session.connection:
+        print(f"[ui_call] Skipping UI update — session disconnected", flush=True)
+        return
+
     async def _wrapper():
         fn()
     page.run_task(_wrapper)

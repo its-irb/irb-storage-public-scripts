@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 """
 IRB MinIO Rclone Data Transfer Tool — FRONTEND (Flet)
@@ -51,6 +51,7 @@ import getpass
 import tempfile
 import subprocess
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import traceback
 import pathlib
 from datetime import datetime, timedelta
@@ -83,54 +84,7 @@ STS_RENEWAL_THRESHOLD_DAYS = 3
 # Duración (en días) de las credenciales STS renovadas automáticamente
 STS_AUTO_RENEWAL_DAYS = 7
 
-# ============================================================================
-# PERFILES DE TAGS DE METADATOS
-# ============================================================================
-
-from enum import Enum
-
-class FieldType(Enum):
-    TEXT       = "text"
-    DATE       = "date"
-    NUMBER     = "number"
-    UNISELECT  = "uniselect"
-    MULTISELECT = "multiselect"
-    MULTIFREETEXT = "multifreetext"
-
-# Estructura: (label, key, FieldType, allow_custom, options_list_or_None, help_text)
-TAG_PROFILES: dict[str, list[tuple]] = {
-    "IRB Standard": [
-        ("Project",          "project_name",    FieldType.TEXT,        False, None, None),
-        ("Host machine",     "compute_node",     FieldType.TEXT,        False, None, None),
-        ("Sample type",      "sample_type",      FieldType.TEXT,        False, None, None),
-        ("Input data type",  "input_data_type",  FieldType.TEXT,        False, None, None),
-        ("Output data type", "output_data_type", FieldType.TEXT,        False, None, None),
-        ("Requested by",     "requested_by",     FieldType.TEXT,        False, None, None),
-        ("Research group",   "research_group",   FieldType.TEXT,        False, None, None),
-    ],
-    "Histopathology": [
-        ("Owner",        "owner",        FieldType.UNISELECT,   False, [
-            "Eduard Batlle","Direna Alonso-Curbelo","Alexandra Avgustinova","Roger Gomis",
-            "Cayetano González","Nuria López-Bigas","Angel R. Nebreda","Antoni Riera",
-            "Fran Supek","Salvador Aznar Benitah","Xavier Salvatella",
-            "Ana Victoria Lechuga-Vieco","Manuel Palacín","Lluis Ribas",
-            "Alejo Rodríguez-Fraticelli","Stefanie Wculek","Antonio Zorzano",
-            "Marco Milán","Patrick Aloy","Toni Gabaldón","Jens Lüders",
-            "María Macías","Cristina Mayor-Ruiz","Raúl Méndez",
-            "Francesc Posas/ Eulalia de Nadal","Modesto Orozco","Ferran Azorin",
-            "Jordi Casanova","Miquel Coll"
-        ], None),
-        ("Users", "users", FieldType.MULTIFREETEXT, False, None, "Enter Linux usernames, add each one separately"),
-        ("Date",         "date",         FieldType.DATE,        False, None, None),
-        ("Provider",     "provider",     FieldType.UNISELECT,   False, ["Histopathology IRB Core Facility"], None),
-        ("Instrument",   "instrument",   FieldType.UNISELECT,   False, ["Phenoimager", "Nanozoomer"], None),
-        ("Species",      "species",      FieldType.UNISELECT,   False, ["mouse", "human", "rat", "pig", "cow"], None),
-        ("Sample Type",  "sample_type",  FieldType.UNISELECT,   False, ["tissue section", "organoid", "cell pellet"], None),
-        ("Sample Origin","sample_origin",FieldType.TEXT,        False, None, "Specify the biological source depending on the sample type:\n- For Tissue: enter tissue type (e.g., Lung, Colon)\n- For Organoid: enter organoid type/model (e.g., Colorectal Organoid)\n- For Cell Pellet: enter cell line origin (e.g., HeLa, HEK293)"),
-        ("Magnification","magnification",FieldType.UNISELECT,   False, ["20x", "40x"], None),
-        ("Channels",     "channels",     FieldType.UNISELECT, False,  ["Brightfield","DAPI","DAPI + 488","DAPI + 568","DAPI + 647","DAPI + 488 + 568","DAPI + 488 + 647","DAPI + 568 + 647","DAPI + 488 + 568 + 647", "4plex", "5plex","6plex"], None),
-    ],
-}
+from meta_fields import FieldType, TAG_PROFILES, build_meta_fields, detect_profile, LAB_ACRONYMS, build_lab_filter_widget
 # ============================================================================
 # PARA EVITAR PROBLEMAS DE CODIFICACIÓN EN CONSOLA (ESPECIALMENTE EN WINDOWS)
 # ============================================================================
@@ -196,6 +150,7 @@ def _ws_save(usuario: str, state: dict) -> None:
         # The Popen wrapper dict — shared with the background thread so that
         # a new UI session can cancel a process that survived a tab close.
         "copy_proceso":        existing.get("copy_proceso", {"proc": None}),
+        "copy_tag_profile":   existing.get("copy_tag_profile", list(TAG_PROFILES.keys())[0]),
     }
     _LAST_WEB_USER[0] = usuario
     print(f"[session] Saved session for {usuario!r}")
@@ -1008,6 +963,8 @@ def build_rclone_browser(
     perfil_rclone: str,
     on_select: Callable[[str], None],
     initial_path: str = "",
+    lab_filter_enabled: bool = False,
+    endpoint: str | None = None,
 ) -> tuple[ft.Column, Callable]:
     """
     Navegador interactivo de carpetas rclone con breadcrumb.
@@ -1019,6 +976,22 @@ def build_rclone_browser(
         esté en la página para arrancar la carga inicial.
     """
     nav_state = {"current_path": "", "timeout": 15}
+    filter_state = {"acronym": None}
+    bucket_cache: dict = {"list": None, "tags": None}
+
+    if lab_filter_enabled:
+        def _on_lab_select(acronym: str | None) -> None:
+            filter_state["acronym"] = acronym
+            _navigate("")
+
+        filter_widget, _filter_clear_fn = build_lab_filter_widget(page, _on_lab_select)
+        filter_row = ft.Container(
+            content=filter_widget,
+            visible=True,
+            padding=ft.Padding.only(bottom=4),
+        )
+    else:
+        filter_row = ft.Container(visible=False)
 
     breadcrumb_row = ft.Row(spacing=2, wrap=True,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER)
@@ -1096,13 +1069,39 @@ def build_rclone_browser(
         loading_row.visible  = True
         error_text.visible   = False
         folder_col.controls.clear()
+        filter_row.visible   = lab_filter_enabled and not path
         _rebuild_breadcrumb()
         page.update()
 
         def _load():
             try:
-                folders = backend.rclone_lsd(perfil_rclone, path, timeout=nav_state["timeout"])
-                print(f"[browser] path={path!r} folders={folders}")
+                if not path and bucket_cache["list"] is not None:
+                    folders = list(bucket_cache["list"])
+                    print(f"[browser] path={path!r} folders={folders} (cached)")
+                else:
+                    folders = backend.rclone_lsd(perfil_rclone, path, timeout=nav_state["timeout"])
+                    print(f"[browser] path={path!r} folders={folders}")
+                    if not path:
+                        bucket_cache["list"] = list(folders)
+                        bucket_cache["tags"] = None
+
+                if lab_filter_enabled and filter_state["acronym"] and not path:
+                    if bucket_cache["tags"] is None:
+                        s3 = backend.get_s3_client_from_profile(perfil_rclone, endpoint)
+                        with ThreadPoolExecutor(max_workers=8) as pool:
+                            futs = {pool.submit(backend.get_bucket_tags, s3, b): b for b in bucket_cache["list"]}
+                            tag_map: dict[str, str] = {}
+                            for fut in as_completed(futs):
+                                b = futs[fut]
+                                try:
+                                    tag_map[b] = fut.result().get("acronym", "")
+                                except Exception:
+                                    tag_map[b] = ""
+                        bucket_cache["tags"] = tag_map
+                        print(f"[browser] tag cache populated for {len(tag_map)} buckets")
+                    active = filter_state["acronym"]
+                    folders = [b for b in folders if bucket_cache["tags"].get(b) == active]
+                    print(f"[browser] lab filter={active!r} → {len(folders)} buckets")
 
                 def _show():
                     loading_row.visible = False
@@ -1120,7 +1119,11 @@ def build_rclone_browser(
                             row = ft.Container(
                                 content=ft.Row(
                                     [
-                                        ft.Icon(ft.Icons.FOLDER_OUTLINED, color=C_WARNING, size=16),
+                                        ft.Icon(
+                                        ft.Icons.STORAGE if not path else ft.Icons.FOLDER_OUTLINED,
+                                        color=C_PRIMARY if not path else C_WARNING,
+                                        size=16,
+                                    ),
                                         ft.Text(fname, size=12, color=C_TEXT, expand=True),
                                         ft.Icon(ft.Icons.CHEVRON_RIGHT, color=C_TEXT_DIM, size=14),
                                     ],
@@ -1297,6 +1300,7 @@ def build_rclone_browser(
     # ── Widget ────────────────────────────────────────────────────────────
     browser_widget = ft.Column(
         [
+            filter_row,
             ft.Container(
                 content=breadcrumb_row,
                 bgcolor=C_SURFACE2,
@@ -1352,7 +1356,12 @@ def build_rclone_browser(
         tight=True,
     )
 
-    return browser_widget, lambda: _navigate(initial_path)
+    def _refresh():
+        bucket_cache["list"] = None
+        bucket_cache["tags"] = None
+        _navigate(initial_path)
+
+    return browser_widget, _refresh
 
 
 # ============================================================================
@@ -1853,17 +1862,74 @@ def _build_copy_content(
     )
 
     # ── Metadatos ──────────────────────────────────────────────────────────
-    meta_labels = TAG_PROFILES["IRB Standard"]
-    meta_fields: dict[str, ft.TextField] = {}
-    meta_controls = []
-    for label, key, field_type, allow_custom, options_list, helper in TAG_PROFILES["IRB Standard"]:
-        tf, col = styled_field(label)
-        meta_fields[key] = tf
-        meta_controls.append(col)
+    _initial_profile = (
+        web_session.get("copy_tag_profile") if (IS_WEB and web_session) else None
+    ) or list(TAG_PROFILES.keys())[0]
+    active_copy_profile = {"name": _initial_profile}
 
-    meta_left  = ft.Column(meta_controls[:4], spacing=10, expand=True)
-    meta_right = ft.Column(meta_controls[4:], spacing=10, expand=True)
-    meta_grid  = ft.Row([meta_left, meta_right], spacing=16, expand=True)
+    meta_fields: dict = {}
+    meta_container = ft.Container()
+
+    def _rebuild_meta(profile_name: str):
+        col = build_meta_fields(profile_name, page, meta_fields)
+        meta_container.content = col
+
+    _rebuild_meta(active_copy_profile["name"])
+
+    profile_dd = ft.Dropdown(
+        options=[ft.dropdown.Option(p) for p in TAG_PROFILES.keys()],
+        value=active_copy_profile["name"],
+        bgcolor=C_SURFACE2,
+        border_color=C_BORDER,
+        focused_border_color=C_PRIMARY,
+        color=C_TEXT,
+        text_size=13,
+        border_radius=6,
+        content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+        width=220,
+    )
+
+    def _on_profile_change(e):
+        new_profile = e.control.value
+        if new_profile == active_copy_profile["name"]:
+            return
+
+        def _ask():
+            def _do_switch():
+                _rebuild_meta(new_profile)
+                active_copy_profile["name"] = new_profile
+                if IS_WEB and web_session is not None:
+                    web_session["copy_tag_profile"] = new_profile
+                page.update()
+
+            def _cancel():
+                profile_dd.value = active_copy_profile["name"]
+                page.update()
+
+            has_data = any((tf.value or "").strip() for tf in meta_fields.values())
+            if has_data:
+                show_confirm(
+                    page,
+                    "Change profile",
+                    "Changing the profile will clear all metadata. Continue?",
+                    on_yes=_do_switch,
+                    on_no=_cancel,
+                )
+            else:
+                _do_switch()
+
+        backend.ui_call(page, _ask)
+
+    profile_dd.on_select = _on_profile_change
+
+    profile_row = ft.Row(
+        [
+            ft.Text("Metadata profile", size=12, color=C_TEXT_DIM, width=130),
+            profile_dd,
+        ],
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        spacing=8,
+    )
 
     # ── Log ────────────────────────────────────────────────────────────────
     log_list = ft.ListView(
@@ -2159,12 +2225,20 @@ def _build_copy_content(
         # NO llamamos ruta_label.update() aquí porque este callback puede
         # ejecutarse antes de que el control esté en el árbol (carga inicial).
         # page.update() lo llama _navigate() justo después de on_select().
+        should_be_visible = bool(path)
+        if bottom_col.visible != should_be_visible:
+            bottom_col.visible = should_be_visible
+            # page.update() is called by _navigate() right after on_select()
 
     # build_rclone_browser devuelve (widget, refresh_fn)
     # refresh_fn se llama con Timer después de show_screen() para la carga inicial
     _initial_dest = web_session.get("copy_destino", "") if (IS_WEB and web_session) else ""
     dest_browser, dest_browser_refresh = build_rclone_browser(
-        page, perfil_rclone, on_select=on_browser_select, initial_path=_initial_dest
+        page, perfil_rclone,
+        on_select=on_browser_select,
+        initial_path=_initial_dest,
+        lab_filter_enabled=True,
+        endpoint=endpoint,
     )
     dest_browser_col = ft.Column(
         [field_label(f"Destination path (bucket in {perfil_rclone})"), dest_browser],
@@ -2313,6 +2387,25 @@ def _build_copy_content(
             fpath = log_dir / f"bifrost-{ts}.log"
             fpath.write_text(contenido, encoding="utf-8")
             _dispatch_log(f"\n📄 Log auto-saved to: {fpath}\n")
+
+            # Log rotation: keep only the most recent 50 files
+            try:
+                log_files = sorted(
+                    [f for f in log_dir.glob("bifrost-*.log")],
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True
+                )
+                MAX_LOG_FILES = 50
+                if len(log_files) > MAX_LOG_FILES:
+                    deleted_count = 0
+                    for old_log in log_files[MAX_LOG_FILES:]:
+                        old_log.unlink()
+                        deleted_count += 1
+                    if deleted_count > 0:
+                        _dispatch_log(f"    (cleaned up {deleted_count} old log file(s))\n")
+            except Exception as cleanup_ex:
+                print(f"[log-rotation] Cleanup warning: {cleanup_ex}", flush=True)
+
             return str(fpath)
         except Exception as ex:
             _dispatch_log(f"\n⚠️  Could not auto-save log: {ex}\n")
@@ -2362,6 +2455,31 @@ def _build_copy_content(
     close_btn.on_click = do_close
     # cancel_btn.on_click already wired above
 
+    bottom_col = ft.Column(
+        [
+            ft.Container(height=16),
+            section_title("METADATA"),
+            ft.Container(height=6),
+            profile_row,
+            ft.Container(height=10),
+            card(meta_container),
+            ft.Container(height=16),
+            ft.Row(
+                [copy_btn, check_btn, cancel_btn, mount_btn, save_btn, close_btn],
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                wrap=True,
+            ),
+            ft.Container(height=12),
+            section_title("LOG OUTPUT"),
+            ft.Container(height=8),
+            log_container,
+            ft.Container(height=16),
+        ],
+        spacing=0,
+        visible=False,
+    )
+
     # ── Layout ────────────────────────────────────────────────────────────
     content = ft.Column(
         [
@@ -2395,22 +2513,7 @@ def _build_copy_content(
                                 spacing=0,
                             ),
                         ),
-                        ft.Container(height=16),
-                        section_title("METADATA"),
-                        ft.Container(height=10),
-                        card(meta_grid),
-                        ft.Container(height=16),
-                        ft.Row(
-                            [copy_btn, check_btn, cancel_btn, mount_btn, save_btn, close_btn],
-                            spacing=8,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            wrap=True,
-                        ),
-                        ft.Container(height=12),
-                        section_title("LOG OUTPUT"),
-                        ft.Container(height=8),
-                        log_container,
-                        ft.Container(height=16),
+                        bottom_col,
                     ],
                     spacing=0,
                 ),
@@ -2573,6 +2676,7 @@ def _build_tag_manager_content(
     _log_buffer: list[str] = []
     _current_items = {"folders": [], "files": []}
     _file_tag_rows: list[dict] = []          # freeform editor rows
+    _current_file_tags: dict = {"tags": {}}
     _file_editor_section  = None             # assigned after building widgets
     _profile_editor_section = None           # assigned after building widgets
     right_panel = {"visible": False}
@@ -2638,6 +2742,20 @@ def _build_tag_manager_content(
     )
     browser_error = ft.Text("", color=C_ERROR, size=11, visible=False)
 
+    tm_filter_state = {"acronym": None}
+    tm_bucket_cache: dict = {"list": None, "tags": None}
+
+    def _on_tm_lab_select(acronym: str | None) -> None:
+        tm_filter_state["acronym"] = acronym
+        _navigate(None, "")
+
+    tm_filter_widget, _tm_filter_clear_fn = build_lab_filter_widget(page, _on_tm_lab_select)
+    tm_filter_row = ft.Container(
+        content=tm_filter_widget,
+        visible=True,
+        padding=ft.Padding.only(bottom=4),
+    )
+
     def _rebuild_breadcrumb() -> None:
         breadcrumb_row.controls.clear()
 
@@ -2652,7 +2770,7 @@ def _build_tag_manager_content(
             )
 
         breadcrumb_row.controls.append(
-            _crumb("buckets", lambda e: _navigate(None, ""))
+            _crumb(perfil_rclone, lambda e: _navigate(None, ""))
         )
         if nav["bucket"]:
             breadcrumb_row.controls.append(ft.Text("/", color=C_TEXT_DIM, size=12))
@@ -2704,7 +2822,7 @@ def _build_tag_manager_content(
                 browser_col.controls.append(
                     ft.GestureDetector(
                         content=c,
-                        on_double_tap=lambda e, b=bname: _navigate(b, ""),
+                        on_tap=lambda e, b=bname: _navigate(b, ""),
                     )
                 )
         else:
@@ -2748,7 +2866,7 @@ def _build_tag_manager_content(
                 browser_col.controls.append(
                     ft.GestureDetector(
                         content=c,
-                        on_double_tap=lambda e, p=prefix: _navigate(nav["bucket"], p),
+                        on_tap=lambda e, p=prefix: _navigate(nav["bucket"], p),
                     )
                 )
 
@@ -2901,7 +3019,8 @@ def _build_tag_manager_content(
                 _profile_editor_section.visible = True
                 _file_save_status.visible = False
             _rebuild_breadcrumb()
-            
+            tm_filter_row.visible = (bucket is None)
+
         backend.ui_call(page, _reset_editor)
         backend.safe_thread(page, _load_browser).start()
 
@@ -2922,7 +3041,30 @@ def _build_tag_manager_content(
         try:
             client = _get_client()
             if nav["bucket"] is None:
-                buckets = backend.rclone_lsd(perfil=perfil_rclone, path="")
+                if tm_bucket_cache["list"] is not None:
+                    buckets = list(tm_bucket_cache["list"])
+                    print(f"[tag-manager] bucket list (cached): {len(buckets)} buckets")
+                else:
+                    buckets = backend.rclone_lsd(perfil=perfil_rclone, path="")
+                    tm_bucket_cache["list"] = list(buckets)
+                    tm_bucket_cache["tags"] = None
+                    print(f"[tag-manager] bucket list fetched: {len(buckets)} buckets")
+                if tm_filter_state["acronym"]:
+                    if tm_bucket_cache["tags"] is None:
+                        with ThreadPoolExecutor(max_workers=8) as pool:
+                            futs = {pool.submit(backend.get_bucket_tags, client, b): b for b in tm_bucket_cache["list"]}
+                            tm_tag_map: dict[str, str] = {}
+                            for fut in as_completed(futs):
+                                b = futs[fut]
+                                try:
+                                    tm_tag_map[b] = fut.result().get("acronym", "")
+                                except Exception:
+                                    tm_tag_map[b] = ""
+                        tm_bucket_cache["tags"] = tm_tag_map
+                        print(f"[tag-manager] tag cache populated for {len(tm_tag_map)} buckets")
+                    active = tm_filter_state["acronym"]
+                    buckets = [b for b in buckets if tm_bucket_cache["tags"].get(b) == active]
+                    print(f"[tag-manager] lab filter={active!r} → {len(buckets)} buckets")
                 _current_items["folders"] = buckets
                 _current_items["files"]   = []
             else:
@@ -2976,12 +3118,15 @@ def _build_tag_manager_content(
                 tags = backend.get_object_tags(client, nav["bucket"], key)
             except Exception as ex:
                 tags = {}
-                ex_str = str(ex)
-                def _err():
-                    browser_error.value   = f"Error reading tags: {ex_str}"
-                    browser_error.visible = True
-                    page.update()
-                backend.ui_call(page, _err)
+                resp = getattr(ex, "response", None)
+                error_code = (resp or {}).get("Error", {}).get("Code", "") if isinstance(resp, dict) else ""
+                if error_code != "NoSuchKey":
+                    ex_str = str(ex)
+                    def _err():
+                        browser_error.value   = f"Error reading tags: {ex_str}"
+                        browser_error.visible = True
+                        page.update()
+                    backend.ui_call(page, _err)
 
             display = f"📄 {key}"
             tags_cp = dict(tags)
@@ -2997,11 +3142,6 @@ def _build_tag_manager_content(
                 #_prefill_fields(tags_cp)
                 _file_name_label.value = key
                 _populate_file_editor(tags_cp)
-                file_editor_mode["mode"] = "list"
-                file_card_container.visible = False
-                _file_tags_col.visible = True
-                add_tag_btn.visible = True
-                file_list_headers.visible = True
                 if _file_editor_section is not None:
                     _file_editor_section.visible  = True
                 _profile_editor_section.visible = False
@@ -3025,8 +3165,6 @@ def _build_tag_manager_content(
         #on_change=_on_profile_change,
     )
 
-    print(f"[DEBUG] profile_dd creado: {id(profile_dd)}")
-    
     # Contenedor raíz para los campos dinámicos
     card_container = ft.Container()
     target_label    = ft.Text("Select a folder or a file", size=12, color=C_TEXT_DIM, italic=True)
@@ -3035,353 +3173,41 @@ def _build_tag_manager_content(
     apply_btn.disabled = True
     apply_status    = ft.Text("", size=12, color=C_TEXT_DIM, visible=False)
         
-    def _rebuild_tag_fields(profile_name: str, target_container=None, target_fields=None) -> None:
-        print(f"[DEBUG] _rebuild_tag_fields called with profile: {profile_name}")
+    def _rebuild_tag_fields(profile_name: str, target_container=None, target_fields=None, prefill_values=None) -> None:
         container = target_container if target_container is not None else card_container
         fields    = target_fields    if target_fields    is not None else tag_fields
         active_profile["name"] = profile_name
-        fields.clear()
-        
-        tag_fields_col = ft.Column(spacing=10)
-        
-        for item in TAG_PROFILES[profile_name]:
-            label        = item[0]
-            key          = item[1]
-            field_type   = item[2]
-            allow_custom = item[3]
-            options_list = item[4]
-            helper       = item[5] if len(item) > 5 else None
-            
-            if field_type == FieldType.UNISELECT:
-                CUSTOM_KEY = "__custom__"
-                
-                custom_tf = ft.TextField(
-                    hint_text="Custom value...",
-                    bgcolor=C_SURFACE2,
-                    border_color=C_BORDER,
-                    focused_border_color=C_PRIMARY,
-                    color=C_TEXT,
-                    text_size=12,
-                    border_radius=6,
-                    content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
-                    expand=True,
-                    visible=False,
-                )
-
-                # Campo oculto que almacena el valor final
-                hidden_tf = ft.TextField(visible=False, value="")
-
-                def make_uniselect(dd_ref, custom_ref, hidden_ref):
-                    def _on_select(e):
-                        val = dd_ref.value
-                        if val == CUSTOM_KEY:
-                            custom_ref.visible = True
-                            hidden_ref.value = custom_ref.value or ""
-                        else:
-                            custom_ref.visible = False
-                            hidden_ref.value = val or ""
-                        page.update()
-
-                    def _on_custom_change(e):
-                        hidden_ref.value = custom_ref.value or ""
-
-                    dd_ref.on_select = _on_select
-                    custom_ref.on_change = _on_custom_change
-
-                dd = ft.Dropdown(
-                    options=[ft.DropdownOption(key="", text="")] +
-                            [ft.DropdownOption(key=opt, text=opt) for opt in options_list] +
-                            ([ft.DropdownOption(key=CUSTOM_KEY, text="✏️ Custom value...")] if allow_custom else []),
-                    value="",
-                    bgcolor=C_SURFACE2,
-                    border_color=C_BORDER,
-                    focused_border_color=C_PRIMARY,
-                    color=C_TEXT,
-                    text_size=13,
-                    border_radius=6,
-                    content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-                    expand=True,
-                )
-
-                make_uniselect(dd, custom_tf, hidden_tf)
-
-                col = ft.Column(
-                    [
-                        ft.Text(label, size=12, color=C_TEXT_DIM),
-                        dd,
-                        custom_tf,
-                        hidden_tf,
-                    ],
-                    spacing=4,
-                )
-                fields[key] = hidden_tf  # ← hidden_tf guarda siempre el valor final
-                tag_fields_col.controls.append(col)
-            elif field_type == FieldType.MULTISELECT:
-                selected_vals = {"s": set()}
-                chips_row = ft.Row(wrap=True, spacing=6, run_spacing=6)
-                hidden_tf = ft.TextField(visible=False, value="")
-                fields[key] = hidden_tf
-
-                def make_multiselect(sel, chips, dd_ref, hidden, k, opts, custom):
-                    def _sync():
-                        chips.controls.clear()
-                        for v in sorted(sel["s"]):
-                            v_copy = v
-                            def make_delete(val):
-                                def _del(e):
-                                    sel["s"].discard(val)
-                                    _sync()
-                                    page.update()
-                                return _del
-                            chips.controls.append(
-                                ft.Chip(
-                                    label=ft.Text(v_copy, size=12, color=C_TEXT),
-                                    bgcolor=f"{C_ACCENT}22",
-                                    on_delete=make_delete(v_copy),
-                                    delete_icon_color=C_TEXT_DIM,
-                                )
-                            )
-                        hidden.value = ":".join(sorted(sel["s"]))
-                        
-                        # Reconstruir opciones del dropdown con colores según selección
-                        dd_ref.options = [
-                            ft.DropdownOption(
-                                key=opt,
-                                text=opt,
-                                content=ft.Row([
-                                    ft.Icon(
-                                        ft.Icons.CHECK,
-                                        size=14,
-                                        color=C_ACCENT,
-                                        visible=opt in sel["s"],
-                                    ),
-                                    ft.Text(
-                                        opt,
-                                        size=12,
-                                        color=C_ACCENT if opt in sel["s"] else C_TEXT,
-                                    ),
-                                ], spacing=6),
-                            )
-                            for opt in opts
-                        ]
-
-                    def _on_select(e):
-                        val = dd_ref.value
-                        if not val:
-                            return
-                        if val in sel["s"]:
-                            sel["s"].discard(val)
-                        else:
-                            sel["s"].add(val)
-                        dd_ref.value = None
-                        _sync()
-                        page.update()
-
-                    dd_ref.on_select = _on_select
-
-                    if custom:
-                        custom_tf = ft.TextField(
-                            hint_text="Custom value...",
-                            bgcolor=C_SURFACE2,
-                            border_color=C_BORDER,
-                            focused_border_color=C_PRIMARY,
-                            color=C_TEXT,
-                            text_size=12,
-                            border_radius=6,
-                            content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
-                            expand=True,
-                        )
-                        def _add_custom(e):
-                            val = custom_tf.value.strip()
-                            if val and val not in sel["s"]:
-                                sel["s"].add(val)
-                                custom_tf.value = ""
-                                _sync()
-                                page.update()
-                        return custom_tf, _add_custom
-                    return None, None
-
-                options_dd = ft.Dropdown(
-                    options=[ft.DropdownOption(key=opt, text=opt) for opt in options_list],
-                    hint_text="Select...",
-                    bgcolor=C_SURFACE2,
-                    border_color=C_BORDER,
-                    focused_border_color=C_PRIMARY,
-                    color=C_TEXT,
-                    text_size=12,
-                    border_radius=6,
-                    content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
-                    expand=True,
-                )
-
-                custom_tf, add_custom_fn = make_multiselect(
-                    selected_vals, chips_row, options_dd, hidden_tf, key, options_list, allow_custom
-                )
-
-                col_controls = [
-                    ft.Text(label, size=12, color=C_TEXT_DIM),
-                    options_dd,
-                    chips_row,
-                ]
-                if allow_custom and custom_tf:
-                    col_controls.insert(2, ft.Row([
-                        custom_tf,
-                        ft.IconButton(
-                            icon=ft.Icons.ADD,
-                            icon_color=C_PRIMARY,
-                            icon_size=18,
-                            on_click=add_custom_fn,
-                        ),
-                    ], spacing=4))
-                col_controls.append(hidden_tf)
-
-                tag_fields_col.controls.append(ft.Column(col_controls, spacing=6))
-
-            elif field_type == FieldType.MULTIFREETEXT:
-                selected_vals = {"s": set()}
-                chips_row = ft.Row(wrap=True, spacing=6, run_spacing=6)
-                hidden_tf = ft.TextField(visible=False, value="")
-                fields[key] = hidden_tf
-
-                def make_multifreetext(sel, chips, hidden):
-                    def _sync():
-                        chips.controls.clear()
-                        for v in sorted(sel["s"]):
-                            def make_delete(val):
-                                def _del(e):
-                                    sel["s"].discard(val)
-                                    _sync()
-                                    page.update()
-                                return _del
-                            chips.controls.append(
-                                ft.Chip(
-                                    label=ft.Text(v, size=12, color=C_TEXT),
-                                    bgcolor=f"{C_ACCENT}22",
-                                    on_delete=make_delete(v),
-                                    delete_icon_color=C_TEXT_DIM,
-                                )
-                            )
-                        hidden.value = ":".join(sorted(sel["s"]))
-
-                    custom_tf = ft.TextField(
-                        hint_text="Add value...",
-                        bgcolor=C_SURFACE2,
-                        border_color=C_BORDER,
-                        focused_border_color=C_PRIMARY,
-                        color=C_TEXT,
-                        text_size=12,
-                        border_radius=6,
-                        content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
-                        expand=True,
-                    )
-
-                    def _add(e):
-                        val = custom_tf.value.strip()
-                        if val and val not in sel["s"]:
-                            sel["s"].add(val)
-                            custom_tf.value = ""
-                            _sync()
-                            page.update()
-
-                    custom_tf.on_submit = _add  # ← también al pulsar Enter
-
-                    return custom_tf, _add
-
-                custom_tf, add_fn = make_multifreetext(selected_vals, chips_row, hidden_tf)
-
-                col = ft.Column([
-                    ft.Text(label, size=12, color=C_TEXT_DIM),
-                    ft.Row([
-                        custom_tf,
-                        ft.IconButton(
-                            icon=ft.Icons.ADD,
-                            icon_color=C_PRIMARY,
-                            icon_size=18,
-                            on_click=add_fn,
-                        ),
-                    ], spacing=4),
-                    chips_row,
-                    hidden_tf,
-                ], spacing=6)
-
-                if helper:
-                    col.controls.append(ft.Text(helper, size=11, color=C_TEXT_DIM, italic=True))
-
-                tag_fields_col.controls.append(col)
-            elif field_type == FieldType.DATE:
-                def make_date_picker(tf):
-                    def _on_change(e):
-                        if e.control.value:
-                            print(f"[DEBUG] Date selected: {e.control.value} (type: {type(e.control.value)}) ")
-                            selected_date = e.control.value.astimezone()
-                            tf.value = f"{selected_date.year}-{selected_date.month:02d}-{selected_date.day:02d}"
-                            print(f"[DEBUG] TextField updated with value + hora local: {tf.value} (type: {type(tf.value)})")
-                            #tf.value = e.control.value.strftime("%Y-%m-%d")
-                            page.update()
-                    picker = ft.DatePicker(on_change=_on_change, locale=ft.Locale("en", "GB"))
-                    page.overlay.append(picker)
-                    def _open(e):
-                        picker.open = True
-                        page.update()
-                    return _open
-
-                date_tf = ft.TextField(
-                    read_only=True,
-                    #hint_text="YYYY-MM-DD",
-                    bgcolor=C_SURFACE2,
-                    border_color=C_BORDER,
-                    focused_border_color=C_PRIMARY,
-                    color=C_TEXT,
-                    text_size=13,
-                    border_radius=6,
-                    content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-                    expand=True,
-                )
-
-                open_fn = make_date_picker(date_tf)  # ← pasamos date_tf ya creado
-                date_tf.on_click = open_fn           # ← asignamos después
-
-                fields[key] = date_tf
-
-                col = ft.Column([
-                    ft.Text(label, size=12, color=C_TEXT_DIM),
-                    ft.Row([
-                        date_tf,
-                        ft.IconButton(
-                            icon=ft.Icons.CALENDAR_MONTH,
-                            icon_color=C_PRIMARY,
-                            icon_size=18,
-                            on_click=open_fn,
-                        ),
-                    ], spacing=4),
-                ], spacing=4)
-                tag_fields_col.controls.append(col)
-
-            elif field_type == FieldType.NUMBER:   
-                pass  # Implement number field logic
-            else:
-                tf, col = styled_field(label)
-                fields[key] = tf
-                tf.expand = True
-                tag_fields_col.controls.append(col)
-                helper = item[5]
-                if helper:
-                    col.controls.append(
-                        ft.Text(helper, size=11, color=C_TEXT_DIM, italic=True)
-                    )
-
-        # Un único update al final, con el contenido ya construido
-        container.content = card(tag_fields_col, padding=16)
+        col = build_meta_fields(profile_name, page, fields, prefill_values=prefill_values)
+        container.content = card(col, padding=16)
         page.update()
-        print(f"[DEBUG] page.update() done")
-
 
     def _on_profile_change(e):
-        print(f"[DEBUG] _on_profile_change fired RAW, value: {e.control.value}")
-        name = e.control.value
-        print(f"[DEBUG] _on_profile_change fired, value: {name}")
-        backend.ui_call(page, lambda: _rebuild_tag_fields(name))
-        print(f"[DEBUG] ui_call scheduled")
+        new_profile = e.control.value
+        if new_profile == active_profile["name"]:
+            return
+
+        def _ask():
+            def _do_switch():
+                _rebuild_tag_fields(new_profile)
+                page.update()
+
+            def _cancel():
+                profile_dd.value = active_profile["name"]
+                page.update()
+
+            has_data = any((tf.value or "").strip() for tf in tag_fields.values())
+            if has_data:
+                show_confirm(
+                    page,
+                    "Change profile",
+                    "Changing the profile will clear all metadata. Continue?",
+                    on_yes=_do_switch,
+                    on_no=_cancel,
+                )
+            else:
+                _do_switch()
+
+        backend.ui_call(page, _ask)
     
     def _prefill_fields(tags: dict[str, str]) -> None:
         for key, tf in tag_fields.items():
@@ -3403,7 +3229,6 @@ def _build_tag_manager_content(
     )
 
     profile_dd.on_select = _on_profile_change
-    print(f"[DEBUG] profile_dd id: {id(profile_dd)}, on_select registrado: {profile_dd.on_select}")
     _rebuild_tag_fields(profile_names[0])
 
     def do_apply(e) -> None:
@@ -3550,15 +3375,12 @@ def _build_tag_manager_content(
         return row_dict
 
     def _populate_file_editor(tags: dict[str, str]) -> None:
-        _file_tag_rows.clear()
-        _file_tags_col.controls = []
-        _file_save_status.visible = False
-        for k, v in tags.items():
-            rd = _build_file_editor_row(k, v)
-            _file_tag_rows.append(rd)
-            _file_tags_col.controls.append(rd["row"])
-        _refresh_add_btn_state()
-        page.update()
+        _current_file_tags["tags"] = dict(tags)
+        detected = detect_profile(tags)
+        if detected:
+            _switch_to_profile_mode(detected, prefill_values=tags)
+            return
+        _populate_raw_list(tags)
 
     def _on_add_tag_row(e) -> None:
         if len(_file_tag_rows) >= 10:
@@ -3569,17 +3391,37 @@ def _build_tag_manager_content(
         _refresh_add_btn_state()
         page.update()
 
-    def _on_prefill_from_profile(e) -> None:
-        profile_name = prefill_profile_dd.value
+    def _switch_to_profile_mode(profile_name: str, prefill_values: dict | None = None) -> None:
         active_profile["name"] = profile_name
         file_editor_mode["mode"] = "profile"
-        
+        prefill_profile_dd.value    = profile_name
         _file_tags_col.visible      = False
         add_tag_btn.visible         = False
         file_list_headers.visible   = False
         file_card_container.visible = True
-        
-        _rebuild_tag_fields(profile_name, target_container=file_card_container, target_fields=file_tag_fields)
+        view_raw_btn.visible        = True
+        _rebuild_tag_fields(profile_name, target_container=file_card_container,
+                            target_fields=file_tag_fields, prefill_values=prefill_values)
+
+    def _populate_raw_list(tags: dict[str, str]) -> None:
+        _file_tag_rows.clear()
+        _file_tags_col.controls = []
+        _file_save_status.visible = False
+        for k, v in tags.items():
+            rd = _build_file_editor_row(k, v)
+            _file_tag_rows.append(rd)
+            _file_tags_col.controls.append(rd["row"])
+        _refresh_add_btn_state()
+        file_editor_mode["mode"] = "list"
+        file_card_container.visible = False
+        _file_tags_col.visible      = True
+        add_tag_btn.visible         = True
+        file_list_headers.visible   = True
+        view_raw_btn.visible        = False
+        page.update()
+
+    def _on_prefill_from_profile(e) -> None:
+        _switch_to_profile_mode(prefill_profile_dd.value)
 
     def _on_save_file_tags(e) -> None:
         if file_editor_mode["mode"] == "profile":
@@ -3621,6 +3463,16 @@ def _build_tag_manager_content(
 
         backend.safe_thread(page, _do).start()
 
+    def _on_show_raw(e) -> None:
+        _populate_raw_list(_current_file_tags["tags"])
+
+    view_raw_btn = ft.TextButton(
+        "Ver tags raw",
+        on_click=_on_show_raw,
+        style=ft.ButtonStyle(color=C_TEXT_DIM),
+        visible=False,
+    )
+
     add_tag_btn = btn_secondary("+ Add tag", on_click=_on_add_tag_row)
     _add_btn_ref["btn"] = add_tag_btn
 
@@ -3649,7 +3501,11 @@ def _build_tag_manager_content(
             [
                 ft.Text("FILE TAGS EDITOR", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600),
                 ft.Container(height=8),
-                _file_name_label,
+                ft.Row(
+                    [_file_name_label, view_raw_btn],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
                 ft.Container(height=8),
                 file_list_headers,
                 ft.Container(height=4),
@@ -3683,7 +3539,7 @@ def _build_tag_manager_content(
         expand=True,
         content=ft.Column(
             [
-                ft.Text("EDIT FOLDER TAGS", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600),
+                ft.Text("APPLY TAGS TO ALL FILES IN FOLDER", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600),
                 ft.Container(height=8),
                 # El seleccionador de Perfil se encuentra FUERA del cuadro de metadatos
                 ft.Row(
@@ -3736,7 +3592,7 @@ def _build_tag_manager_content(
 
     content = ft.Column(
         [
-            build_header(subtitle="Tag Manager", IS_WEB=IS_WEB),
+            build_header(subtitle=f"Tag Manager — {perfil_rclone}", IS_WEB=IS_WEB),
             ft.Container(
                 content=ft.Row(
                     [back_btn, ft.Container(expand=True)],
@@ -3755,6 +3611,7 @@ def _build_tag_manager_content(
                                     ft.Container(height=8),
                                     breadcrumb_row,
                                     ft.Container(height=6),
+                                    tm_filter_row,
                                     browser_loading,
                                     browser_error,
                                     ft.Container(

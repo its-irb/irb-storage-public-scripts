@@ -5,7 +5,7 @@ This repository contains two desktop apps (Flet/Python) for interacting with IRB
 
 | App | Folder | Description |
 |---|---|---|
-| **bifrost-transfer** | `bifrost-transfer/` | Upload data from network shares (SMB/CIFS) or local folders to MinIO S3 buckets, with integrity verification and automatic metadata tagging. Includes a **Tag Manager** to browse and edit S3 object tags without re-uploading. |
+| **bifrost-transfer** | `bifrost-transfer/` | Upload data from network shares (SMB/CIFS) or local folders to MinIO S3 buckets, with integrity verification and metadata tagging by profile. Includes a **Tag Manager** to browse and edit S3 object tags without re-uploading. |
 | **bifrost-mount** | `bifrost-mount/` | Mount MinIO S3 folders as a local drive. |
 
 Both apps share the backend defined in `shared/bifrost_backend` (LDAP, rclone, SMB, S3). They also share part of the frontend in `shared/bifrost_frontend`, both imported as packages in each app's `main.py`.
@@ -64,16 +64,28 @@ build-local.ps1      # Local Windows development build (flet build)
 
 ---
 
-## Tag Manager (bifrost-transfer)
+## Metadata profiles (bifrost-transfer)
 
-The Tag Manager lets you browse buckets, folders, and files in S3 and apply metadata tags in bulk — without re-uploading any data.
-
-Tags are organized in **profiles**:
+Metadata tags are organized in **profiles**. Both the copy form and the Tag Manager use the same profiles:
 
 - **IRB Standard** — general metadata fields: project, host machine, sample type, data types, requester, research group.
 - **Histopathology** — specialized fields for histopathology data: owner, users, date, provider, instrument, species, sample type, magnification, channels.
 
-Select a profile, fill in the fields, and apply the tagset to a file, a folder, or an entire bucket prefix.
+### Copy form
+
+When uploading data, select a metadata profile from the dropdown at the top of the METADATA section. Fill in the fields and the tags will be applied automatically to the uploaded objects. Switching profiles clears the current fields (a confirmation dialog appears if any field has data).
+
+Los campos de metadatos, los botones de copia/verificación y el panel de log solo aparecen una vez que se ha seleccionado un bucket destino en el navegador.
+
+The destination bucket browser includes a **"Filter by lab…"** field that lets you filter the bucket list by laboratory acronym. Start typing a lab name or acronym to see suggestions; select one to show only that lab's buckets. The filter disappears when navigating inside a bucket and reappears when returning to the root.
+
+### Tag Manager
+
+The Tag Manager lets you browse buckets, folders, and files in S3 and apply metadata tags in bulk — without re-uploading any data. Select a profile, fill in the fields, and apply the tagset to a file, a folder, or an entire bucket prefix.
+
+When you select an individual file, if its existing tags match a known profile, the editor automatically switches to the profile view with the values pre-filled — so you can review and edit them using the same dropdowns, date pickers, and multi-value fields used during upload. A **"Ver tags raw"** button lets you switch back to the raw key/value list at any time.
+
+The Tag Manager bucket browser also includes the same **"Filter by lab…"** field, which works identically to the one in the copy form.
 
 ---
 
