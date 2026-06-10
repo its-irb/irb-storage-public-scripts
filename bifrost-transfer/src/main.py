@@ -84,7 +84,7 @@ STS_RENEWAL_THRESHOLD_DAYS = 3
 # Duración (en días) de las credenciales STS renovadas automáticamente
 STS_AUTO_RENEWAL_DAYS = 7
 
-from meta_fields import FieldType, TAG_PROFILES, build_meta_fields, LAB_ACRONYMS, build_lab_filter_widget
+from meta_fields import FieldType, TAG_PROFILES, build_meta_fields, detect_profile, LAB_ACRONYMS, build_lab_filter_widget
 # ============================================================================
 # PARA EVITAR PROBLEMAS DE CODIFICACIÓN EN CONSOLA (ESPECIALMENTE EN WINDOWS)
 # ============================================================================
@@ -2676,6 +2676,7 @@ def _build_tag_manager_content(
     _log_buffer: list[str] = []
     _current_items = {"folders": [], "files": []}
     _file_tag_rows: list[dict] = []          # freeform editor rows
+    _current_file_tags: dict = {"tags": {}}
     _file_editor_section  = None             # assigned after building widgets
     _profile_editor_section = None           # assigned after building widgets
     right_panel = {"visible": False}
@@ -3138,11 +3139,6 @@ def _build_tag_manager_content(
                 #_prefill_fields(tags_cp)
                 _file_name_label.value = key
                 _populate_file_editor(tags_cp)
-                file_editor_mode["mode"] = "list"
-                file_card_container.visible = False
-                _file_tags_col.visible = True
-                add_tag_btn.visible = True
-                file_list_headers.visible = True
                 if _file_editor_section is not None:
                     _file_editor_section.visible  = True
                 _profile_editor_section.visible = False
@@ -3174,11 +3170,11 @@ def _build_tag_manager_content(
     apply_btn.disabled = True
     apply_status    = ft.Text("", size=12, color=C_TEXT_DIM, visible=False)
         
-    def _rebuild_tag_fields(profile_name: str, target_container=None, target_fields=None) -> None:
+    def _rebuild_tag_fields(profile_name: str, target_container=None, target_fields=None, prefill_values=None) -> None:
         container = target_container if target_container is not None else card_container
         fields    = target_fields    if target_fields    is not None else tag_fields
         active_profile["name"] = profile_name
-        col = build_meta_fields(profile_name, page, fields)
+        col = build_meta_fields(profile_name, page, fields, prefill_values=prefill_values)
         container.content = card(col, padding=16)
         page.update()
 
@@ -3376,15 +3372,12 @@ def _build_tag_manager_content(
         return row_dict
 
     def _populate_file_editor(tags: dict[str, str]) -> None:
-        _file_tag_rows.clear()
-        _file_tags_col.controls = []
-        _file_save_status.visible = False
-        for k, v in tags.items():
-            rd = _build_file_editor_row(k, v)
-            _file_tag_rows.append(rd)
-            _file_tags_col.controls.append(rd["row"])
-        _refresh_add_btn_state()
-        page.update()
+        _current_file_tags["tags"] = dict(tags)
+        detected = detect_profile(tags)
+        if detected:
+            _switch_to_profile_mode(detected, prefill_values=tags)
+            return
+        _populate_raw_list(tags)
 
     def _on_add_tag_row(e) -> None:
         if len(_file_tag_rows) >= 10:
@@ -3395,17 +3388,36 @@ def _build_tag_manager_content(
         _refresh_add_btn_state()
         page.update()
 
-    def _on_prefill_from_profile(e) -> None:
-        profile_name = prefill_profile_dd.value
+    def _switch_to_profile_mode(profile_name: str, prefill_values: dict | None = None) -> None:
         active_profile["name"] = profile_name
         file_editor_mode["mode"] = "profile"
-        
         _file_tags_col.visible      = False
         add_tag_btn.visible         = False
         file_list_headers.visible   = False
         file_card_container.visible = True
-        
-        _rebuild_tag_fields(profile_name, target_container=file_card_container, target_fields=file_tag_fields)
+        view_raw_btn.visible        = True
+        _rebuild_tag_fields(profile_name, target_container=file_card_container,
+                            target_fields=file_tag_fields, prefill_values=prefill_values)
+
+    def _populate_raw_list(tags: dict[str, str]) -> None:
+        _file_tag_rows.clear()
+        _file_tags_col.controls = []
+        _file_save_status.visible = False
+        for k, v in tags.items():
+            rd = _build_file_editor_row(k, v)
+            _file_tag_rows.append(rd)
+            _file_tags_col.controls.append(rd["row"])
+        _refresh_add_btn_state()
+        file_editor_mode["mode"] = "list"
+        file_card_container.visible = False
+        _file_tags_col.visible      = True
+        add_tag_btn.visible         = True
+        file_list_headers.visible   = True
+        view_raw_btn.visible        = False
+        page.update()
+
+    def _on_prefill_from_profile(e) -> None:
+        _switch_to_profile_mode(prefill_profile_dd.value)
 
     def _on_save_file_tags(e) -> None:
         if file_editor_mode["mode"] == "profile":
