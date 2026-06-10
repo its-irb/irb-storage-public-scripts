@@ -77,9 +77,13 @@ When uploading data, select a metadata profile from the dropdown at the top of t
 
 Los campos de metadatos, los botones de copia/verificación y el panel de log solo aparecen una vez que se ha seleccionado un bucket destino en el navegador.
 
+The destination bucket browser includes a **"Filter by lab…"** field that lets you filter the bucket list by laboratory acronym. Start typing a lab name or acronym to see suggestions; select one to show only that lab's buckets. The filter disappears when navigating inside a bucket and reappears when returning to the root.
+
 ### Tag Manager
 
 The Tag Manager lets you browse buckets, folders, and files in S3 and apply metadata tags in bulk — without re-uploading any data. Select a profile, fill in the fields, and apply the tagset to a file, a folder, or an entire bucket prefix.
+
+The Tag Manager bucket browser also includes the same **"Filter by lab…"** field, which works identically to the one in the copy form.
 
 ---
 

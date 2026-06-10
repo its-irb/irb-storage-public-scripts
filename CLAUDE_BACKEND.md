@@ -50,6 +50,7 @@ El módulo está organizado por bloques delimitados con `# ====` y agrupa toda l
 | **Mount/unmount** | `obtener_letra_unidad_disponible()` (Windows), `generar_punto_montaje()`, `montar_share_rclone()`, `desmontar_todos_los_shares()`, `desmontar_punto_montaje()`. |
 | **Copy/check** | `ejecutar_rclone_copy()`, `ejecutar_rclone_check()`, `resolver_mount_point_destino()`, `construir_tag_string()`, `es_directorio_rclone()`, `traducir_a_ruta_local_montada()`, `preparar_origen_para_check()`. |
 | **Rclone listing** | `verificar_ruta_rclone_accesible()`, `rclone_lsd()`, `rclone_lsf()`. |
+| **boto3 / S3 tagging** | `get_s3_client_from_profile(profile_name, endpoint)`, `list_prefix_contents(perfil, bucket, prefix)`, `get_object_tags(s3_client, bucket, key)`, `apply_tags_to_object(s3_client, bucket, key, tagset)`, `apply_tags_to_prefix(s3_client, bucket, prefix, tagset)`, `get_bucket_tags(s3_client, bucket)` — devuelve los tags del bucket como `dict[str, str]`; vacío si no hay tags o hay error. |
 | **Helpers Flet ⇄ threading** | `ui_call(page, fn)`, `safe_thread(page, target)`. |
 
 ### `ui_call(page, fn)` — la regla más importante
