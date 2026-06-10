@@ -1077,6 +1077,15 @@ def apply_tags_to_object(
     )
 
 
+def get_bucket_tags(s3_client, bucket: str) -> dict[str, str]:
+    """Devuelve los tags del bucket como dict key→value. Vacío si no hay tags."""
+    try:
+        resp = s3_client.get_bucket_tagging(Bucket=bucket)
+        return {t["Key"]: t["Value"] for t in resp.get("TagSet", [])}
+    except Exception:
+        return {}
+
+
 def crear_perfil_rclone_smb(
     nombre_perfil: str,
     host: str,
