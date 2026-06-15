@@ -35,6 +35,21 @@ jobs:
         with:
           python-version: "3.12"
 
+            - name: Escribir versión
+        run: echo "__version__ = '1.0.${{ github.run_number }}'" > ${{ matrix.app }}/src/version.py
+
+      - name: Escribir versión en pyproject.toml
+        run: |
+          sed -i '' 's/^version = .*/version = "1.0.${{ github.run_number }}"/' \
+            ${{ matrix.app }}/pyproject.toml
+
+      - name: Añadir ruta al paquete de backend pyproject.toml
+        shell: bash
+        run: |
+          WORKSPACE="${GITHUB_WORKSPACE//\\//}"
+          sed -i '' "s|__BUILDPATH__|${WORKSPACE}|g" \
+            ${{ matrix.app }}/pyproject.toml
+
       - name: Instalar dependencias Python
         run: |
           pip install --upgrade pip
@@ -55,21 +70,6 @@ jobs:
         run: |
           clean=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
           echo "name=$clean" >> $GITHUB_OUTPUT
-
-      - name: Escribir versión
-        run: echo "__version__ = '1.0.${{ github.run_number }}'" > ${{ matrix.app }}/src/version.py
-
-      - name: Escribir versión en pyproject.toml
-        run: |
-          sed -i '' 's/^version = .*/version = "1.0.${{ github.run_number }}"/' \
-            ${{ matrix.app }}/pyproject.toml
-
-      - name: Añadir ruta al paquete de backend pyproject.toml
-        shell: bash
-        run: |
-          WORKSPACE="${GITHUB_WORKSPACE//\\//}"
-          sed -i '' "s|__BUILDPATH__|${WORKSPACE}|g" \
-            ${{ matrix.app }}/pyproject.toml
 
       - name: Build macOS
         run: |
