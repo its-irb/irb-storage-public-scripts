@@ -55,7 +55,7 @@ jobs:
           pip install --upgrade pip
           pip install uv
           uv sync --project ${{ matrix.app }}
-          echo "${{ matrix.app }}/.venv/bin" >> $GITHUB_PATH
+          echo "$GITHUB_WORKSPACE/${{ matrix.app }}/.venv/bin" >> $GITHUB_PATH
 
       - name: Descargar rclone y fuse-t para macOS
         run: |
