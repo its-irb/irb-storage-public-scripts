@@ -380,6 +380,7 @@ def _build_credentials_content(
     on_continue: Callable,
     extra_config: dict | None = None,
     duracion_dias: int | None = None,
+    on_back: Callable | None = None,
 ) -> ft.Control:
     log_list = ft.ListView(
         expand=True,
@@ -396,6 +397,9 @@ def _build_credentials_content(
     )
 
     progress    = ft.ProgressBar(color=C_PRIMARY, bgcolor=C_SURFACE2)
+    back_btn    = btn_secondary("← Back to login", width=200)
+    back_btn.visible   = False
+    back_btn.on_click  = lambda e: on_back() if on_back else None
     status_text = ft.Text("Renewing credentials...", size=13, color=C_TEXT_DIM,
                            font_family=FONT_MONO)
 
@@ -431,19 +435,37 @@ def _build_credentials_content(
         log(f"   Endpoint : {endpoint}", C_TEXT_DIM)
         log(f"   User     : {credenciales_ldap['usuario']}", C_TEXT_DIM)
 
-        creds = backend.get_credentials(
-            endpoint,
-            credenciales_ldap["usuario"],
-            credenciales_ldap["password"],
-            duracion_segundos,
-        )
+        try:
+            creds = backend.get_credentials(
+                endpoint,
+                credenciales_ldap["usuario"],
+                credenciales_ldap["password"],
+                duracion_segundos,
+            )
+        except Exception as exc:
+            log(f"\n❌ Cannot connect to MinIO: {exc}", C_ERROR)
+            def _show_net_err():
+                progress.visible  = False
+                status_text.value = "❌ Connection error."
+                status_text.color = C_ERROR
+                if on_back:
+                    back_btn.visible = True
+                page.update()
+            backend.ui_call(page, _show_net_err)
+            return
 
         if creds is None:
-            log("\n❌ Failed to obtain credentials. Check your password or contact ITS.", C_ERROR)
+            if on_back:
+                log("\n❌ Wrong username or password. Please try again.", C_ERROR)
+            else:
+                log("\n❌ Failed to obtain credentials. Check your password or contact ITS.", C_ERROR)
             def _show_err():
                 progress.visible  = False
-                status_text.value = "❌ Renewal failed."
+                status_text.value = "❌ Wrong username or password." if on_back else "❌ Renewal failed."
                 status_text.color = C_ERROR
+                if on_back:
+                    back_btn.visible = True
+                page.update()
             backend.ui_call(page, _show_err)
             return
 
@@ -502,6 +524,8 @@ def _build_credentials_content(
                                     progress,
                                     ft.Container(height=8),
                                     status_text,
+                                    ft.Container(height=8),
+                                    back_btn,
                                 ],
                                 spacing=0,
                             ),
@@ -1334,6 +1358,7 @@ def main(page: ft.Page):
                 credenciales_ldap=state["credenciales_ldap"],
                 on_continue=go_mount,
                 extra_config=extra_config,
+                on_back=go_login if NO_LDAP else None,
             ))
         else:
             go_mount()

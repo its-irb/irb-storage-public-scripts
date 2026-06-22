@@ -810,6 +810,7 @@ def _build_credentials_content(
     on_continue: Callable,
     extra_config: dict | None = None,
     duracion_dias: int | None = None,
+    on_back: Callable | None = None,
 ) -> ft.Control:
     log_list = ft.ListView(
         expand=True,
@@ -828,6 +829,9 @@ def _build_credentials_content(
     progress    = ft.ProgressBar(color=C_PRIMARY, bgcolor=C_SURFACE2)
     status_text = ft.Text("Renewing credentials...", size=13, color=C_TEXT_DIM,
                            font_family=FONT_MONO)
+    back_btn    = btn_secondary("← Back to login", width=200)
+    back_btn.visible   = False
+    back_btn.on_click  = lambda e: on_back() if on_back else None
 
     def log(msg: str, color: str = C_TEXT):
         print(msg.rstrip())
@@ -860,19 +864,37 @@ def _build_credentials_content(
         log(f"   Endpoint : {endpoint}", C_TEXT_DIM)
         log(f"   User     : {credenciales_ldap['usuario']}", C_TEXT_DIM)
 
-        creds = backend.get_credentials(
-            endpoint,
-            credenciales_ldap["usuario"],
-            credenciales_ldap["password"],
-            duracion_segundos,
-        )
+        try:
+            creds = backend.get_credentials(
+                endpoint,
+                credenciales_ldap["usuario"],
+                credenciales_ldap["password"],
+                duracion_segundos,
+            )
+        except Exception as exc:
+            log(f"\n❌ Cannot connect to MinIO: {exc}", C_ERROR)
+            def _show_net_err():
+                progress.visible  = False
+                status_text.value = "❌ Connection error."
+                status_text.color = C_ERROR
+                if on_back:
+                    back_btn.visible = True
+                page.update()
+            backend.ui_call(page, _show_net_err)
+            return
 
         if creds is None:
-            log("\n❌ Failed to obtain credentials. Check your password or contact ITS.", C_ERROR)
+            if on_back:
+                log("\n❌ Wrong username or password. Please try again.", C_ERROR)
+            else:
+                log("\n❌ Failed to obtain credentials. Check your password or contact ITS.", C_ERROR)
             def _show_err():
                 progress.visible  = False
-                status_text.value = "❌ Renewal failed."
+                status_text.value = "❌ Wrong username or password." if on_back else "❌ Renewal failed."
                 status_text.color = C_ERROR
+                if on_back:
+                    back_btn.visible = True
+                page.update()
             backend.ui_call(page, _show_err)
             return
 
@@ -931,6 +953,8 @@ def _build_credentials_content(
                                     progress,
                                     ft.Container(height=8),
                                     status_text,
+                                    ft.Container(height=8),
+                                    back_btn,
                                 ],
                                 spacing=0,
                             ),
@@ -1737,6 +1761,7 @@ def _build_copy_content(
     on_back: Callable | None = None,
     on_tags: Callable | None = None,
     on_cifs: Callable | None = None,
+    on_login: Callable | None = None,
 ) -> ft.Control:
     usuario_actual = credenciales_ldap["usuario"]
 
@@ -1802,6 +1827,7 @@ def _build_copy_content(
                 on_continue=on_renew_complete,
                 extra_config=extra_config,
                 duracion_dias=dias_int,
+                on_back=on_login if NO_LDAP else None,
             ))
 
         def cancel(ev):
@@ -3886,6 +3912,7 @@ def main(page: ft.Page):
                 credenciales_ldap=state["credenciales_ldap"],
                 on_continue=go_copy,
                 extra_config=extra_config,
+                on_back=go_login if NO_LDAP else None,
             ))
         else:
             go_copy()
@@ -4020,6 +4047,7 @@ def main(page: ft.Page):
             on_back=go_minio,
             on_tags=go_tags,
             on_cifs=go_cifs,          # ← nuevo
+            on_login=go_login,
         ))
 
     def do_close():
