@@ -51,6 +51,10 @@ from version import __version__
 # MODO DE EJECUCIÓN
 # ============================================================================
 
+# Máquinas sin acceso a LDAP pero con acceso a MinIO (ej. IVIS).
+# Setear BIFROST_NO_LDAP=1 como variable de sistema para saltarse la validación LDAP.
+NO_LDAP = os.environ.get("BIFROST_NO_LDAP") == "1"
+
 # Umbral (en días) por debajo del cual se renuevan las credenciales STS automáticamente
 STS_RENEWAL_THRESHOLD_DAYS = 3
 # Duración (en días) de las credenciales STS renovadas automáticamente
@@ -176,6 +180,10 @@ def _build_login_content(
         def _auth():
             creds = {"usuario": user, "password": pwd}
             _log_event(f"LOGIN attempt — user: {user}")
+            if NO_LDAP:
+                _log_event(f"LOGIN bypass LDAP — user: {user}")
+                backend.ui_call(page, lambda: on_success(creds))
+                return
             ok, motivo = backend.validar_credenciales_ldap(creds)
             if ok:
                 _log_event(f"LOGIN success — user: {user}")
@@ -203,7 +211,7 @@ def _build_login_content(
 
     content = ft.Column(
         [
-            build_header("Authentication"),
+            build_header(no_ldap=NO_LDAP, subtitle="Authentication"),
             ft.Container(expand=True),
             ft.Row(
                 [
@@ -334,7 +342,7 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
 
     content = ft.Column(
         [
-            build_header("MinIO Server"),
+            build_header(no_ldap=NO_LDAP, subtitle="MinIO Server"),
             ft.Container(
                 content=ft.Column(
                     [
@@ -471,7 +479,7 @@ def _build_credentials_content(
 
     content = ft.Column(
         [
-            build_header("S3 Credentials — Auto Renewal"),
+            build_header(no_ldap=NO_LDAP, subtitle="S3 Credentials — Auto Renewal"),
             ft.Container(
                 content=ft.Column(
                     [
@@ -1120,7 +1128,7 @@ def _build_mount_bucket(
     # ── Layout ────────────────────────────────────────────────────────────
     content = ft.Column(
         [
-            build_header(f"Mount — {perfil_rclone}"),
+            build_header(no_ldap=NO_LDAP, subtitle=f"Mount — {perfil_rclone}"),
             ft.Container(
                 content=ft.Row(
                     [back_btn, expiry_badge, ft.Container(expand=True), renew_btn],
