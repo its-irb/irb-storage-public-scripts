@@ -315,6 +315,7 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                         f'rm -rf {shlex.quote(app_dst)} && '
                         f'ditto {shlex.quote(app_src)} {shlex.quote(app_dst)} && '
                         f'hdiutil detach {shlex.quote(mount_point)} && '
+                        f'find {shlex.quote(app_dst)} -not -type l -exec xattr -d com.apple.quarantine {{}} + 2>/dev/null; true; '
                         f'open {shlex.quote(app_dst)}'
                     )
                     with tempfile.NamedTemporaryFile(
