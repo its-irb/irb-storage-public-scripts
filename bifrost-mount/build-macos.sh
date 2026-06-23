@@ -8,7 +8,7 @@ mkdir -p dist
 rm -rf ./build
 rm -rf ./dist
 cd ..
-python -m pip install upgrade pip
+python -m pip install --upgrade pip
 python -m pip install uv
 python -m uv sync --project bifrost-mount
 source bifrost-mount/.venv/bin/activate
