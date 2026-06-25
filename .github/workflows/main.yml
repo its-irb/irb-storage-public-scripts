@@ -35,34 +35,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Instalar dependencias Python
-        run: |
-          pip install --upgrade pip
-          pip install -e ./shared
-          pip install -r shared/requirements.txt
-
-      - name: Copiar macos-assets-downloader.sh dentro de src/
-        run: |
-          if [ "${{ matrix.app }}" = "bifrost-mount" ]; then
-            cp shared/macos-assets-downloader.sh ${{ matrix.app }}/src/macos-assets-downloader.sh
-          else
-            cp shared/macos-rclone-downloader.sh ${{ matrix.app }}/src/macos-rclone-downloader.sh
-          fi
-
-      - name: Descargar rclone y fuse-t para macOS
-        run: |
-          if [ "${{ matrix.app }}" = "bifrost-mount" ]; then
-            cd ${{ matrix.app }}/src && bash macos-assets-downloader.sh
-          else
-            cd ${{ matrix.app }}/src && bash macos-rclone-downloader.sh
-          fi
-
-      - name: Limpiar nombre de rama
-        id: clean_branch
-        run: |
-          clean=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
-          echo "name=$clean" >> $GITHUB_OUTPUT
-
       - name: Escribir versión
         run: echo "__version__ = '1.0.${{ github.run_number }}'" > ${{ matrix.app }}/src/version.py
 
@@ -78,32 +50,26 @@ jobs:
           sed -i '' "s|__BUILDPATH__|${WORKSPACE}|g" \
             ${{ matrix.app }}/pyproject.toml
 
-      - name: Build bifrost-shared wheel
+      - name: Instalar dependencias Python
         run: |
-          pip install build
-          python -m build shared/ --outdir ${{ matrix.app }}/src/
+          pip install --upgrade pip
+          pip install uv
+          uv sync --project ${{ matrix.app }}
+          echo "$GITHUB_WORKSPACE/${{ matrix.app }}/.venv/bin" >> $GITHUB_PATH
 
-          python <<'PY'
-          from pathlib import Path
-          import glob
+      - name: Descargar rclone y fuse-t para macOS
+        run: |
+          if [ "${{ matrix.app }}" = "bifrost-mount" ]; then
+            cd ${{ matrix.app }}/src && bash ../../shared/macos-assets-downloader.sh
+          else
+            cd ${{ matrix.app }}/src && bash ../../shared/macos-rclone-downloader.sh
+          fi
 
-          app = "${{ matrix.app }}"
-          pyproject = Path(app) / "pyproject.toml"
-
-          wheels = glob.glob(f"{app}/src/bifrost_shared-*.whl")
-          if not wheels:
-              raise SystemExit("No se encontró bifrost_shared-*.whl")
-
-          wheel_uri = Path(wheels[0]).resolve().as_uri()
-
-          content = pyproject.read_text()
-          content = content.replace(
-              '"bifrost-shared",',
-              f'"bifrost-shared @ {wheel_uri}",'
-          )
-          pyproject.write_text(content)
-          print("OK:", wheel_uri)
-          PY
+      - name: Limpiar nombre de rama
+        id: clean_branch
+        run: |
+          clean=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
+          echo "name=$clean" >> $GITHUB_OUTPUT
 
       - name: Build macOS
         run: |
@@ -135,16 +101,6 @@ jobs:
           cp -R ${{ matrix.app }}/frameworks/fuse_t.framework \
             "${APP_BUNDLE}/Contents/Frameworks/"
 
-      # - name: Renombrar .app
-      #   env:
-      #     BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
-      #     APP: ${{ matrix.app }}
-      #   run: |
-      #     cd ${APP}/dist
-      #     BUNDLE=$(find . -maxdepth 1 -name "*.app" | head -1 | sed 's|./||')
-      #     echo "App bundle encontrado: $BUNDLE"
-      #     mv "$BUNDLE" "${APP}-macos.app"
-      #     ls -lah .
 
       - name: Crear DMG
         uses: L-Super/create-dmg-actions@v1.0.3
