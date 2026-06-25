@@ -1,0 +1,38 @@
+{
+  "name": "irb-storage-public-scripts",
+  "version": "1.0.0",
+  "description": "**MinIO S3 storage tools — IRB Barcelona**",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"No hay tests configurados todavía\"",
+    "prepare": "husky",
+    "commit": "cz"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/its-irb/irb-storage-public-scripts.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/its-irb/irb-storage-public-scripts/issues"
+  },
+  "homepage": "https://github.com/its-irb/irb-storage-public-scripts#readme",
+  "devDependencies": {
+    "@commitlint/cli": "^21.1.0",
+    "@commitlint/config-conventional": "^21.1.0",
+    "commitizen": "^4.3.2",
+    "cz-conventional-changelog": "^3.3.0",
+    "husky": "^9.1.7"
+  },
+  "config": {
+    "commitizen": {
+      "path": "cz-conventional-changelog"
+    }
+  }
+}
