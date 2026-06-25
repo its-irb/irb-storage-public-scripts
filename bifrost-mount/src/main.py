@@ -51,6 +51,10 @@ from version import __version__
 # MODO DE EJECUCIÓN
 # ============================================================================
 
+# Máquinas sin acceso a LDAP pero con acceso a MinIO (ej. IVIS).
+# Setear BIFROST_NO_LDAP=1 como variable de sistema para saltarse la validación LDAP.
+NO_LDAP = os.environ.get("BIFROST_NO_LDAP") == "1"
+
 # Umbral (en días) por debajo del cual se renuevan las credenciales STS automáticamente
 STS_RENEWAL_THRESHOLD_DAYS = 3
 # Duración (en días) de las credenciales STS renovadas automáticamente
@@ -176,6 +180,10 @@ def _build_login_content(
         def _auth():
             creds = {"usuario": user, "password": pwd}
             _log_event(f"LOGIN attempt — user: {user}")
+            if NO_LDAP:
+                _log_event(f"LOGIN bypass LDAP — user: {user}")
+                backend.ui_call(page, lambda: on_success(creds))
+                return
             ok, motivo = backend.validar_credenciales_ldap(creds)
             if ok:
                 _log_event(f"LOGIN success — user: {user}")
@@ -203,7 +211,7 @@ def _build_login_content(
 
     content = ft.Column(
         [
-            build_header("Authentication"),
+            build_header(no_ldap=NO_LDAP, subtitle="Authentication"),
             ft.Container(expand=True),
             ft.Row(
                 [
@@ -334,7 +342,7 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
 
     content = ft.Column(
         [
-            build_header("MinIO Server"),
+            build_header(no_ldap=NO_LDAP, subtitle="MinIO Server"),
             ft.Container(
                 content=ft.Column(
                     [
@@ -372,6 +380,7 @@ def _build_credentials_content(
     on_continue: Callable,
     extra_config: dict | None = None,
     duracion_dias: int | None = None,
+    on_back: Callable | None = None,
 ) -> ft.Control:
     log_list = ft.ListView(
         expand=True,
@@ -388,6 +397,9 @@ def _build_credentials_content(
     )
 
     progress    = ft.ProgressBar(color=C_PRIMARY, bgcolor=C_SURFACE2)
+    back_btn    = btn_secondary("← Back to login", width=200)
+    back_btn.visible   = False
+    back_btn.on_click  = lambda e: on_back() if on_back else None
     status_text = ft.Text("Renewing credentials...", size=13, color=C_TEXT_DIM,
                            font_family=FONT_MONO)
 
@@ -423,19 +435,37 @@ def _build_credentials_content(
         log(f"   Endpoint : {endpoint}", C_TEXT_DIM)
         log(f"   User     : {credenciales_ldap['usuario']}", C_TEXT_DIM)
 
-        creds = backend.get_credentials(
-            endpoint,
-            credenciales_ldap["usuario"],
-            credenciales_ldap["password"],
-            duracion_segundos,
-        )
+        try:
+            creds = backend.get_credentials(
+                endpoint,
+                credenciales_ldap["usuario"],
+                credenciales_ldap["password"],
+                duracion_segundos,
+            )
+        except Exception as exc:
+            log(f"\n❌ Cannot connect to MinIO: {exc}", C_ERROR)
+            def _show_net_err():
+                progress.visible  = False
+                status_text.value = "❌ Connection error."
+                status_text.color = C_ERROR
+                if on_back:
+                    back_btn.visible = True
+                page.update()
+            backend.ui_call(page, _show_net_err)
+            return
 
         if creds is None:
-            log("\n❌ Failed to obtain credentials. Check your password or contact ITS.", C_ERROR)
+            if on_back:
+                log("\n❌ Wrong username or password. Please try again.", C_ERROR)
+            else:
+                log("\n❌ Failed to obtain credentials. Check your password or contact ITS.", C_ERROR)
             def _show_err():
                 progress.visible  = False
-                status_text.value = "❌ Renewal failed."
+                status_text.value = "❌ Wrong username or password." if on_back else "❌ Renewal failed."
                 status_text.color = C_ERROR
+                if on_back:
+                    back_btn.visible = True
+                page.update()
             backend.ui_call(page, _show_err)
             return
 
@@ -471,7 +501,7 @@ def _build_credentials_content(
 
     content = ft.Column(
         [
-            build_header("S3 Credentials — Auto Renewal"),
+            build_header(no_ldap=NO_LDAP, subtitle="S3 Credentials — Auto Renewal"),
             ft.Container(
                 content=ft.Column(
                     [
@@ -494,6 +524,8 @@ def _build_credentials_content(
                                     progress,
                                     ft.Container(height=8),
                                     status_text,
+                                    ft.Container(height=8),
+                                    back_btn,
                                 ],
                                 spacing=0,
                             ),
@@ -1120,7 +1152,7 @@ def _build_mount_bucket(
     # ── Layout ────────────────────────────────────────────────────────────
     content = ft.Column(
         [
-            build_header(f"Mount — {perfil_rclone}"),
+            build_header(no_ldap=NO_LDAP, subtitle=f"Mount — {perfil_rclone}"),
             ft.Container(
                 content=ft.Row(
                     [back_btn, expiry_badge, ft.Container(expand=True), renew_btn],
@@ -1326,6 +1358,7 @@ def main(page: ft.Page):
                 credenciales_ldap=state["credenciales_ldap"],
                 on_continue=go_mount,
                 extra_config=extra_config,
+                on_back=go_login if NO_LDAP else None,
             ))
         else:
             go_mount()

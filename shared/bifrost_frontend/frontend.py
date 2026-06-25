@@ -177,7 +177,7 @@ def show_dialog(
 # HEADER COMÚN
 # ============================================================================
 
-def build_header(subtitle: str = "", IS_WEB: bool = False) -> ft.Container:
+def build_header(subtitle: str = "", IS_WEB: bool = False, no_ldap: bool = False) -> ft.Container:
     version_str = f"v{backend.__version__}" if hasattr(backend, "__version__") else ""
     return ft.Container(
         content=ft.Row(
@@ -194,7 +194,7 @@ def build_header(subtitle: str = "", IS_WEB: bool = False) -> ft.Container:
                                     font_family=FONT_MONO,
                                 ),
                                 ft.Container(width=8),
-                                status_badge("WEB" if IS_WEB else "DESKTOP", C_WARNING),
+                                status_badge("WEB" if IS_WEB else ("DESKTOP (NO LDAP)" if no_ldap else "DESKTOP"), C_WARNING),
                             ],
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),

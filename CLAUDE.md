@@ -148,6 +148,7 @@ Cuando hay una release nueva en GitHub, la app pregunta al usuario si quiere act
 | Variable | Aplica a | Efecto |
 |---|---|---|
 | `BIFROST_CLUSTER=1` | transfer | Activa `IS_WEB` (modo web completo; señal de producción OOD) |
+| `BIFROST_NO_LDAP=1` | ambas | Salta la validación LDAP en el login. Para máquinas sin acceso a LDAP pero con acceso a MinIO (ej. IVIS). El usuario igualmente introduce usuario+contraseña (necesarios para STS). El badge del header muestra `DESKTOP (NO LDAP)`. Definir como variable de sistema Windows (`setx BIFROST_NO_LDAP 1 /M`) para que aplique a todos los usuarios. |
 | `FLET_ASSETS_DIR` | ambas | Lo setea Flet en runtime; el backend lo usa para localizar el `rclone` empaquetado |
 | `FLET_APP_STORAGE_TEMP` | ambas | Setado por Flet; usado para debug de localización de binarios |
 

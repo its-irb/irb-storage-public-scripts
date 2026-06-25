@@ -205,3 +205,5 @@ bifrost-mount/src/bifrost_backend/
 bifrost-mount/src/bifrost_frontend/
 bifrost-transfer/src/bifrost_backend/
 bifrost-transfer/src/bifrost_frontend/
+
+node_modules/
