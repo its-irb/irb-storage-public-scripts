@@ -50,6 +50,34 @@ from config import APP_INFO
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+_rclone_version_cache: str | None = None
+
+
+def _get_rclone_version() -> str:
+    global _rclone_version_cache
+    if _rclone_version_cache is not None:
+        return _rclone_version_cache
+    try:
+        out = subprocess.check_output(
+            [get_rclone_executable(), "--version"],
+            encoding="utf-8",
+            errors="replace",
+            **_subprocess_kwargs(),
+        )
+        # Primera línea: "rclone v1.72.1"
+        _rclone_version_cache = out.splitlines()[0].split()[1].lstrip("v")
+    except Exception:
+        _rclone_version_cache = "unknown"
+    return _rclone_version_cache
+
+
+def _get_user_agent() -> str:
+    try:
+        from version import __version__ as app_version
+    except Exception:
+        app_version = "dev"
+    return f"bifrost-transfer/{app_version} rclone/{_get_rclone_version()}"
+
 _s3_mount_processes: list[subprocess.Popen] = []
 
 
@@ -1417,6 +1445,7 @@ def ejecutar_rclone_copy(
         "--progress",
         "--stats=1s",
         "--header-upload", header_value,
+        "--user-agent", _get_user_agent(),
     ]
     comando.extend(flags_adicionales)
 
@@ -1567,6 +1596,7 @@ def ejecutar_rclone_check(
         "--config", rclone_config_path,
         "--progress",
         "--stats=1s",
+        "--user-agent", _get_user_agent(),
     ]
     if fichero:
         comando += ["--one-way", "--copy-links"]
