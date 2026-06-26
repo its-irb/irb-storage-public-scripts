@@ -1575,12 +1575,13 @@ def ejecutar_rclone_check(
             "--one-way",
             "--combined", str(combined_path),
             "--copy-links",
-            "--exclude", "/.DS_Store",
             "--exclude", "**/.DS_Store",
-            "--exclude", "/Thumbs.db",
-            "--exclude", "**/Thumbs.db",
-            "--exclude", ".snapshots/**",
-            "--exclude", "**/.snapshots/**",
+            "--exclude", "**/*.Thumbs.db",
+            "--exclude", ".snapshot/**",
+            "--exclude", "**/.snapshot/**",
+            "--exclude", ".snapshot/",
+            "--exclude", "**/.Trash*/**",
+            "--exclude", "**/.cache/**"
         ]
     comando.extend(flags_adicionales)
 
