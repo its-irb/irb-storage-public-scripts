@@ -1596,7 +1596,6 @@ def ejecutar_rclone_check(
         "--config", rclone_config_path,
         "--progress",
         "--stats=1s",
-        "--user-agent", _get_user_agent(),
     ]
     if fichero:
         comando += ["--one-way", "--copy-links"]
