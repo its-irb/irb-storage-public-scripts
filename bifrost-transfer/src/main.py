@@ -1097,10 +1097,11 @@ def build_rclone_browser(
         nav_state["current_path"] = path
         on_select(path)
 
-        loading_row.visible  = True
-        error_text.visible   = False
+        loading_row.visible    = True
+        error_text.visible     = False
         folder_col.controls.clear()
-        filter_row.visible   = lab_filter_enabled and not path
+        filter_row.visible     = lab_filter_enabled and not path
+        mkdir_section.visible  = bool(path)
         _rebuild_breadcrumb()
         page.update()
 
@@ -1284,6 +1285,13 @@ def build_rclone_browser(
         Crea una carpeta VIRTUAL: solo actualiza el path de destino en la UI.
         No llama a rclone — S3 creará el prefijo automáticamente al copiar.
         """
+        if not nav_state["current_path"]:
+            mkdir_status.value   = "⚠ Select a bucket first before adding a subfolder."
+            mkdir_status.color   = C_WARNING
+            mkdir_status.visible = True
+            page.update()
+            return
+
         name = (new_folder_tf.value or "").strip()
         if not name:
             mkdir_status.value   = "⚠ Enter a folder name first."
@@ -1327,6 +1335,34 @@ def build_rclone_browser(
     mkdir_btn.on_click      = _do_mkdir
     new_folder_tf.on_submit = _do_mkdir  # Enter también funciona
 
+    mkdir_section = ft.Container(
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Icon(ft.Icons.CREATE_NEW_FOLDER_OUTLINED,
+                                color=C_TEXT_DIM, size=14),
+                        ft.Text("Add subfolder to destination:",
+                                size=11, color=C_TEXT_DIM),
+                    ],
+                    spacing=6,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Row(
+                    [new_folder_tf, mkdir_btn],
+                    spacing=6,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            ],
+            spacing=6,
+            tight=True,
+        ),
+        bgcolor=C_SURFACE2,
+        border=ft.Border.all(1, C_BORDER),
+        border_radius=6,
+        padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+        visible=False,
+    )
 
     # ── Widget ────────────────────────────────────────────────────────────
     browser_widget = ft.Column(
@@ -1354,34 +1390,7 @@ def build_rclone_browser(
                 padding=ft.Padding.all(8),
             ),
             # ── Fila "Create folder" ──────────────────────────────────────
-            ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Row(
-                            [
-                                ft.Icon(ft.Icons.CREATE_NEW_FOLDER_OUTLINED,
-                                        color=C_TEXT_DIM, size=14),
-                                ft.Text("Add subfolder to destination:",
-                                        size=11, color=C_TEXT_DIM),
-                            ],
-                            spacing=6,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                        ft.Row(
-                            [new_folder_tf, mkdir_btn],
-                            spacing=6,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                        #mkdir_status,
-                    ],
-                    spacing=6,
-                    tight=True,
-                ),
-                bgcolor=C_SURFACE2,
-                border=ft.Border.all(1, C_BORDER),
-                border_radius=6,
-                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-            ),
+            mkdir_section,
         ],
         spacing=6,
         tight=True,
