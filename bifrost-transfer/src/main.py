@@ -88,7 +88,7 @@ STS_RENEWAL_THRESHOLD_DAYS = 3
 # Duración (en días) de las credenciales STS renovadas automáticamente
 STS_AUTO_RENEWAL_DAYS = 7
 
-from meta_fields import FieldType, TAG_PROFILES, build_meta_fields, detect_profile, LAB_ACRONYMS, build_lab_filter_widget
+from meta_fields import FieldType, TAG_PROFILES, build_meta_fields, detect_profile, LAB_ACRONYMS, build_lab_filter_widget, validate_tagset, check_tag_value
 # ============================================================================
 # PARA EVITAR PROBLEMAS DE CODIFICACIÓN EN CONSOLA (ESPECIALMENTE EN WINDOWS)
 # ============================================================================
@@ -2290,6 +2290,12 @@ def _build_copy_content(
         metadatos = {k: (tf.value or "").strip() for k, tf in meta_fields.items()}
         flags     = (flags_tf.value or "").strip().split()
 
+        tag_errors = validate_tagset(metadatos)
+        if tag_errors:
+            show_dialog(page, "Invalid characters in tags",
+                        "\n".join(tag_errors), C_ERROR)
+            return
+
         _set_running(True)
 
         ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -3266,6 +3272,13 @@ def _build_tag_manager_content(
 
     def do_apply(e) -> None:
         tagset = {k: (tf.value or "").strip() for k, tf in tag_fields.items()}
+
+        tag_errors = validate_tagset(tagset)
+        if tag_errors:
+            show_dialog(page, "Caracteres no permitidos en los tags",
+                        "\n".join(tag_errors), C_ERROR)
+            return
+
         apply_btn.disabled  = True
         apply_status.value  = "Applying tags..."
         apply_status.color  = C_TEXT_DIM
@@ -3361,6 +3374,8 @@ def _build_tag_manager_content(
         )
         
         val_container = ft.Container(expand=2)
+        key_err = ft.Text("", size=11, color=C_ERROR, visible=False, expand=1)
+        val_err = ft.Text("", size=11, color=C_ERROR, visible=False, expand=2)
         row_dict: dict = {"key_tf": key_tf, "val_tf": None, "row": None, "val_container": val_container}
 
         def update_value_field_type(current_key: str, current_val: str):
@@ -3373,16 +3388,27 @@ def _build_tag_manager_content(
                 content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
                 text_size=12, max_length=256, expand=True
             )
+            def _on_val_change(e):
+                err = check_tag_value(row_dict["val_tf"].value or "")
+                row_dict["val_tf"].border_color = C_ERROR if err else C_BORDER
+                val_err.value = err or ""
+                val_err.visible = bool(err)
+                page.update()
+            field_tf.on_change = _on_val_change
             row_dict["val_tf"] = field_tf
             val_container.content = field_tf  # siempre simple, sin dropdown
 
         update_value_field_type(key, value)
 
         def on_key_change(e):
+            err = check_tag_value(key_tf.value or "")
+            key_tf.border_color = C_ERROR if err else C_BORDER
+            key_err.value = err or ""
+            key_err.visible = bool(err)
             old_val = row_dict["val_tf"].value or ""
             update_value_field_type(key_tf.value, old_val)
             page.update()
-            
+
         key_tf.on_change = on_key_change
 
         def _delete(e, rd=row_dict):
@@ -3393,7 +3419,7 @@ def _build_tag_manager_content(
             _refresh_add_btn_state()
             page.update()
 
-        row = ft.Row(
+        inner_row = ft.Row(
             [
                 key_tf, val_container,
                 ft.IconButton(
@@ -3403,6 +3429,10 @@ def _build_tag_manager_content(
             ],
             spacing=6,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+        row = ft.Column(
+            [inner_row, ft.Row([key_err, val_err], spacing=6)],
+            spacing=2,
         )
         row_dict["row"] = row
         return row_dict
@@ -3465,6 +3495,12 @@ def _build_tag_manager_content(
                 for rd in _file_tag_rows
                 if rd["key_tf"].value.strip()
             }
+
+        tag_errors = validate_tagset(tagset)
+        if tag_errors:
+            show_dialog(page, "Caracteres no permitidos en los tags",
+                        "\n".join(tag_errors), C_ERROR)
+            return
 
         if _save_btn_ref["btn"] is not None:
             _save_btn_ref["btn"].disabled = True

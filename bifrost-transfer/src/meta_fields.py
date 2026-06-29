@@ -1,11 +1,59 @@
 from __future__ import annotations
 from collections.abc import Callable
 from enum import Enum
+import re
 import flet as ft
 from bifrost_frontend.frontend import (
-    C_SURFACE, C_SURFACE2, C_BORDER, C_PRIMARY, C_TEXT, C_TEXT_DIM, C_ACCENT,
+    C_SURFACE, C_SURFACE2, C_BORDER, C_PRIMARY, C_TEXT, C_TEXT_DIM, C_ACCENT, C_ERROR,
     styled_field,
 )
+
+# S3 solo permite letras (unicode), dígitos, espacios y: _ . : / = + - @
+# Comas, comillas, corchetes, etc. son rechazados por boto3.
+_TAG_VALUE_RE = re.compile(r'^[\w\s.:/=+\-@]*$', re.UNICODE)
+_TAG_VALUE_ERROR = "Only the following characters are allowed: letters, numbers, spaces, and _ . : / = + - @"
+
+
+def _validate_tag_value(tf: ft.TextField, page: ft.Page) -> bool:
+    """Valida el valor de un TextField como tag S3. Muestra error inline si no es válido.
+    Devuelve True si es válido (o vacío), False si contiene caracteres prohibidos.
+    """
+    val = tf.value or ""
+    err_ctrl: ft.Text | None = getattr(tf, "_error_ctrl", None)
+    if val and not _TAG_VALUE_RE.match(val):
+        tf.border_color = C_ERROR
+        if err_ctrl:
+            err_ctrl.value = _TAG_VALUE_ERROR
+            err_ctrl.visible = True
+        page.update()
+        return False
+    tf.border_color = C_BORDER
+    if err_ctrl and err_ctrl.visible:
+        err_ctrl.visible = False
+        err_ctrl.value = ""
+    page.update()
+    return True
+
+
+def check_tag_value(val: str) -> str | None:
+    """Devuelve mensaje de error si val contiene caracteres prohibidos en S3, o None si es válido."""
+    if val and not _TAG_VALUE_RE.match(val):
+        return _TAG_VALUE_ERROR
+    return None
+
+
+def validate_tagset(tags: dict[str, str]) -> list[str]:
+    """Comprueba que todas las keys y values de un tagset sean válidas para S3/boto3.
+
+    Devuelve lista de mensajes de error (vacía si todo es correcto).
+    """
+    errors: list[str] = []
+    for k, v in tags.items():
+        if k and not _TAG_VALUE_RE.match(k):
+            errors.append(f"Key «{k}»: {_TAG_VALUE_ERROR}")
+        if v and not _TAG_VALUE_RE.match(v):
+            errors.append(f"Field «{k}»: the value «{v}» contains invalid characters")
+    return errors
 
 
 LAB_ACRONYMS: dict[str, str] = {
@@ -144,6 +192,9 @@ def build_meta_fields(
                     page.update()
 
                 def _on_custom_change(e):
+                    if not _validate_tag_value(custom_ref, page):
+                        hidden_ref.value = ""
+                        return
                     hidden_ref.value = custom_ref.value or ""
 
                 dd_ref.on_select   = _on_select
@@ -242,15 +293,27 @@ def build_meta_fields(
                         content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
                         expand=True,
                     )
+                    ctf_err = ft.Text("", size=11, color=C_ERROR, visible=False)
+                    ctf._error_ctrl = ctf_err
                     def _add_custom(e):
                         val = ctf.value.strip()
-                        if val and val not in sel["s"]:
+                        if not val:
+                            return
+                        if not _TAG_VALUE_RE.match(val):
+                            ctf.border_color = C_ERROR
+                            ctf_err.value = _TAG_VALUE_ERROR
+                            ctf_err.visible = True
+                            page.update()
+                            return
+                        ctf.border_color = C_BORDER
+                        ctf_err.visible = False
+                        if val not in sel["s"]:
                             sel["s"].add(val)
                             ctf.value = ""
                             _sync()
                             page.update()
-                    return ctf, _add_custom, _sync
-                return None, None, _sync
+                    return ctf, ctf_err, _add_custom, _sync
+                return None, None, None, _sync
 
             options_dd = ft.Dropdown(
                 options=[ft.DropdownOption(key=opt, text=opt) for opt in options_list],
@@ -261,7 +324,7 @@ def build_meta_fields(
                 content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
                 expand=True,
             )
-            custom_tf2, add_custom_fn, sync_fn = make_multiselect(
+            custom_tf2, custom_tf2_err, add_custom_fn, sync_fn = make_multiselect(
                 selected_vals, chips_row, options_dd, hidden_tf, options_list, allow_custom
             )
             col_controls = [ft.Text(label, size=12, color=C_TEXT_DIM), options_dd, chips_row]
@@ -271,6 +334,8 @@ def build_meta_fields(
                     ft.IconButton(icon=ft.Icons.ADD, icon_color=C_PRIMARY,
                                   icon_size=18, on_click=add_custom_fn),
                 ], spacing=4))
+                if custom_tf2_err:
+                    col_controls.insert(3, custom_tf2_err)
             col_controls.append(hidden_tf)
             col.controls.append(ft.Column(col_controls, spacing=6))
             if key in _pre and _pre[key]:
@@ -310,19 +375,30 @@ def build_meta_fields(
                     content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
                     expand=True,
                 )
+                err_txt = ft.Text("", size=11, color=C_ERROR, visible=False)
 
                 def _add(e):
                     val = input_tf.value.strip()
-                    if val and val not in sel["s"]:
+                    if not val:
+                        return
+                    if not _TAG_VALUE_RE.match(val):
+                        input_tf.border_color = C_ERROR
+                        err_txt.value = _TAG_VALUE_ERROR
+                        err_txt.visible = True
+                        page.update()
+                        return
+                    input_tf.border_color = C_BORDER
+                    err_txt.visible = False
+                    if val not in sel["s"]:
                         sel["s"].add(val)
                         input_tf.value = ""
                         _sync()
                         page.update()
 
                 input_tf.on_submit = _add
-                return input_tf, _add, _sync
+                return input_tf, _add, _sync, err_txt
 
-            input_tf, add_fn, sync_fn = make_multifreetext(selected_vals, chips_row, hidden_tf)
+            input_tf, add_fn, sync_fn, err_txt = make_multifreetext(selected_vals, chips_row, hidden_tf)
             field_col = ft.Column([
                 ft.Text(label, size=12, color=C_TEXT_DIM),
                 ft.Row([
@@ -330,6 +406,7 @@ def build_meta_fields(
                     ft.IconButton(icon=ft.Icons.ADD, icon_color=C_PRIMARY,
                                   icon_size=18, on_click=add_fn),
                 ], spacing=4),
+                err_txt,
                 chips_row,
                 hidden_tf,
             ], spacing=6)
@@ -383,7 +460,11 @@ def build_meta_fields(
             tf, c = styled_field(label)
             fields_dict[key] = tf
             tf.expand = True
+            err_txt = ft.Text("", size=11, color=C_ERROR, visible=False)
+            tf._error_ctrl = err_txt
+            tf.on_change = lambda e, _tf=tf: _validate_tag_value(_tf, page)
             col.controls.append(c)
+            c.controls.append(err_txt)
             if helper:
                 c.controls.append(
                     ft.Text(helper, size=11, color=C_TEXT_DIM, italic=True)
