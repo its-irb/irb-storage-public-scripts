@@ -14,13 +14,42 @@ on:
       - feature/**
   workflow_dispatch:
 
+run-name: "${{ github.ref_name }} · #${{ github.run_number }} · ${{ github.event.commits && format('{0} commit(s)', github.event.commits[0] != null && 1 || 0) }}"
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 # ─────────────────────────────────────────────────────────────────────────────
-# macOS — flet build macos → .app
+# jobs
 # ─────────────────────────────────────────────────────────────────────────────
 jobs:
+  summary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Listar commits incluidos en este push
+        run: |
+          echo "## 📦 Commits incluidos en este build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Rama:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Versión:** \`1.0.${{ github.run_number }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Evento:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            git log --pretty=format:"- \`%h\` %s _(%an)_" ${{ github.event.before }}..${{ github.sha }} >> $GITHUB_STEP_SUMMARY
+          else
+            echo "_(Ejecución manual o primer push de la rama — mostrando últimos 10 commits)_" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            git log -10 --pretty=format:"- \`%h\` %s _(%an)_" >> $GITHUB_STEP_SUMMARY
+          fi
+  # ─────────────────────────────────────────────────────────────────────────────
+  # macOS — flet build macos → .app
+  # ─────────────────────────────────────────────────────────────────────────────
   build-macos:
     runs-on: macos-latest
     strategy:
