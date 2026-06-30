@@ -205,14 +205,20 @@ def build_meta_fields(
                     return ft.DropdownOption(key=opt[0], text=opt[1])
                 return ft.DropdownOption(key=opt, text=opt)
 
+            _single = len(options_list) == 1 and not allow_custom
+            _auto_key = (
+                (options_list[0][0] if isinstance(options_list[0], tuple) else options_list[0])
+                if _single else ""
+            )
+
             dd = ft.Dropdown(
                 options=(
-                    [ft.DropdownOption(key="", text="")] +
+                    ([] if _single else [ft.DropdownOption(key="", text="")]) +
                     [_make_opt(opt) for opt in options_list] +
                     ([ft.DropdownOption(key=CUSTOM_KEY, text="✏️ Custom value...")]
                      if allow_custom else [])
                 ),
-                value="",
+                value=_auto_key,
                 bgcolor=C_SURFACE2,
                 border_color=C_BORDER,
                 focused_border_color=C_PRIMARY,
@@ -223,6 +229,8 @@ def build_meta_fields(
                 expand=True,
             )
             make_uniselect(dd, custom_tf, hidden_tf)
+            if _single and key not in _pre:
+                hidden_tf.value = _auto_key
             if key in _pre:
                 v = _pre[key]
                 option_keys = {
