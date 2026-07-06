@@ -349,3 +349,4 @@ This is especially important in web mode because:
 | Variable | Value | Effect |
 |---|---|---|
 | `BIFROST_CLUSTER` | `1` | Enables `IS_WEB` (full web mode; OOD production signal) |
+| `BIFROST_NO_LDAP` | `1` | Skips LDAP validation at login. Applies to both apps. For machines without LDAP access but with MinIO access (e.g. IVIS). The user still enters username + password (required for STS). The header badge shows `DESKTOP (NO LDAP)`. Set as a Windows system variable (`setx BIFROST_NO_LDAP 1 /M`) so it applies to all users. |
