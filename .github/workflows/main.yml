@@ -241,93 +241,14 @@ jobs:
           name: ${{ matrix.app }}-windows
           path: ${{ matrix.app }}/installer/*.exe
 
-  # ─────────────────────────────────────────────────────────────────────────────
-  # Rocky Linux — PyInstaller onefile para las dos apps
-  # flet build linux no soporta onefile
-  # flet solo soporta devian y ubuntu, y como tenemos Rocky Linux 9, flet no es compatible.
-  # https://flet.dev/docs/getting-started/installation/ : Flet supports Debian 10, 11 and 12 and Ubuntu 20.04, 22.04 and 24.04 LTS.
-  # ─────────────────────────────────────────────────────────────────────────────
-  build-rocky:
-    runs-on: ubuntu-latest
-    container:
-      image: rockylinux:9
-    strategy:
-      matrix:
-        app: [bifrost-transfer, bifrost-mount]
-    steps:
-      - name: Instalar dependencias sistema
-        run: |
-          dnf install -y --allowerasing python3.11 python3.11-pip python3.11-devel gcc make \
-            glibc-devel unzip zip curl
-          python3.11 -m pip install --upgrade pip setuptools wheel
-
-      - name: Checkout código
-        uses: actions/checkout@v6.0.2
-
-      - name: Instalar dependencias Python
-        run: |
-          python3.11 -m pip install -e ./shared
-          python3.11 -m pip install -r shared/requirements.txt
-          python3.11 -m pip install pyinstaller
-
-      - name: Copiar linux-assets-downloader.sh dentro de src/
-        run: cp shared/linux-assets-downloader.sh ${{ matrix.app }}/src/linux-assets-downloader.sh
-
-      - name: Descargar rclone para Linux
-        run: cd ${{ matrix.app }}/src && bash linux-assets-downloader.sh
-
-      - name: Limpiar nombre de rama
-        id: clean_branch
-        run: |
-          clean=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
-          echo "name=$clean" >> $GITHUB_OUTPUT
-
-      - name: Escribir versión
-        run: echo "__version__ = '1.0.${{ github.run_number }}'" > ${{ matrix.app }}/src/version.py
-
-      - name: Build bifrost-shared wheel
-        run: |
-          python3.11 -m pip install build
-          python3.11 -m build shared/ --outdir ${{ matrix.app }}/src/
-          WHEEL=$(ls $(pwd)/${{ matrix.app }}/src/bifrost_shared-*.whl)
-          sed -i 's|"bifrost-shared",|"bifrost-shared @ file://'"${WHEEL}"'",|' ${{ matrix.app }}/pyproject.toml
-
-      - name: Build Rocky Linux (PyInstaller onefile)
-        env:
-          #BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
-          APP: ${{ matrix.app }}
-        run: |
-          mkdir -p dist
-          cd ${APP}/src
-          python3.11 -m PyInstaller --onefile main.py \
-            --add-data "assets/bin/rclone:." \
-            --collect-all flet \
-            --collect-all flet_core \
-            --hidden-import flet.fastapi \
-            --hidden-import uvicorn \
-            --hidden-import uvicorn.lifespan.on \
-            --hidden-import uvicorn.protocols.http.auto \
-            --hidden-import uvicorn.protocols.websockets.auto \
-            --hidden-import uvicorn.logging \
-            --hidden-import uvicorn.loops.auto \
-            --distpath ../../dist
-          mv ../../dist/main "../../dist/${APP}-linux"
-
-      # - name: Verificar artefacto generado
-      #   run: ls -lah dist/
-
-      - name: Subir artefacto
-        uses: actions/upload-artifact@v7.0.0
-        with:
-          name: ${{ matrix.app }}-linux
-          path: dist/${{ matrix.app }}-linux
+  
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Release — solo en main y release
   # Recoge los artefactos de los tres jobs y crea una GitHub Release
   # ─────────────────────────────────────────────────────────────────────────────
   release:
-    needs: [build-macos, build-windows, build-rocky]
+    needs: [build-macos, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
