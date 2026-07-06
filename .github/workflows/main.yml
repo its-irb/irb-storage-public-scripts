@@ -137,12 +137,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      # - name: Instalar Flutter
-      #   uses: subosito/flutter-action@v2
-      #   with:
-      #     flutter-version: "3.41.4"
-      #     channel: stable
-
       - name: Instalar dependencias Python
         run: |
           pip install -e ./shared 
@@ -234,6 +228,40 @@ jobs:
             /DAppName="$env:APP" `
             "$env:APP\installer.iss"
 
+      - name: Sign Windows installer
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.IRBCODESIGNING }}
+          PFX_PASSWORD: ${{ secrets.IRBCODESIGNING_PASSWORD }}
+        run: |
+          # Decode PFX from base64
+          $pfxPath = "$env:RUNNER_TEMP\codeSigning.pfx"
+          [System.Convert]::FromBase64String($env:PFX_B64) | Set-Content $pfxPath -AsByteStream
+      
+          # Find signtool: highest version folder that actually contains signtool.exe
+          $kitsBase = "C:\Program Files (x86)\Windows Kits\10\bin"
+          $signtool = Get-ChildItem $kitsBase -Directory |
+            Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
+            Sort-Object { [version]$_.Name } |
+            ForEach-Object { "$($_.FullName)\x64\signtool.exe" } |
+            Where-Object { Test-Path $_ } |
+            Select-Object -Last 1
+      
+          if (-not $signtool) { throw "signtool.exe not found" }
+          Write-Host "Using signtool: $signtool"
+      
+          $installer = "${{ matrix.app }}\installer\${{ matrix.app }}-${{ steps.clean_branch.outputs.name }}-windows.exe"
+      
+          & $signtool sign `
+            /fd sha256 `
+            /f $pfxPath `
+            /p $env:PFX_PASSWORD `
+            /t http://timestamp.digicert.com `
+            /v `
+            $installer
+      
+          Remove-Item $pfxPath -Force
+      
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
         with:
