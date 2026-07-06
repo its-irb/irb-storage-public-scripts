@@ -137,10 +137,23 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Añadir ruta al paquete de bifrost-shared (backend and frontend) pyproject.toml
+        shell: bash
+        run: |
+          sed -i "s|__BUILDPATH__|${GITHUB_WORKSPACE//\\//}|g" \
+            ${{ matrix.app }}/pyproject.toml
+
+      - name: Escribir versión en pyproject.toml
+        shell: bash
+        run: |
+          sed -i 's/^version = .*/version = "1.0.${{ github.run_number }}"/' \
+            ${{ matrix.app }}/pyproject.toml
+
       - name: Instalar dependencias Python
         run: |
-          pip install -e ./shared 
-          pip install -r shared/requirements.txt
+          pip install --upgrade pip
+          pip install uv
+          uv sync --project ${{ matrix.app }}
 
       - name: Copiar windows-assets-downloader.sh dentro de src/
         shell: bash
@@ -161,53 +174,13 @@ jobs:
         shell: bash
         run: echo "__version__ = '1.0.${{ github.run_number }}'" > ${{ matrix.app }}/src/version.py
 
-      - name: Escribir versión en pyproject.toml
-        shell: bash
-        run: |
-          sed -i 's/^version = .*/version = "1.0.${{ github.run_number }}"/' \
-            ${{ matrix.app }}/pyproject.toml
-
-      - name: Añadir ruta al paquete de bifrost-shared (backend and frontend) pyproject.toml
-        shell: bash
-        run: |
-          sed -i "s|__BUILDPATH__|${GITHUB_WORKSPACE//\\//}|g" \
-            ${{ matrix.app }}/pyproject.toml
-
-      - name: Build bifrost-shared wheel
-        shell: pwsh
-        run: |
-          pip install build
-          python -m build shared/ --outdir "${{ matrix.app }}/src/"
-
-          @'
-          from pathlib import Path
-          import glob
-
-          app = "${{ matrix.app }}"
-          pyproject = Path(app) / "pyproject.toml"
-
-          wheels = glob.glob(f"{app}/src/bifrost_shared-*.whl")
-          if not wheels:
-              raise SystemExit("No se encontró bifrost_shared-*.whl")
-
-          wheel_uri = Path(wheels[0]).resolve().as_uri()
-
-          content = pyproject.read_text()
-          content = content.replace(
-              '"bifrost-shared",',
-              f'"bifrost-shared @ {wheel_uri}",'
-          )
-          pyproject.write_text(content)
-          print("OK:", wheel_uri)
-          '@ | python
-
       - name: Build Windows
         shell: bash
         env:
           PYTHONUTF8: "1"
         run: |
           cd ${{ matrix.app }}
-          echo "y" | flet build windows --output dist --no-rich-output -v
+          echo "y" | uv run --project ${{ matrix.app }} flet build windows --output dist --no-rich-output -v
 
       - name: Crear directorio installer
         shell: pwsh
