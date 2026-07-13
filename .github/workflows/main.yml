@@ -14,7 +14,7 @@ on:
       - feature/**
   workflow_dispatch:
 
-run-name: "${{ github.ref_name }} · #${{ github.run_number }} · ${{ github.event.commits && format('{0} commit(s)', github.event.commits[0] != null && 1 || 0) }}"
+run-name: "${{ github.ref_name }} · #${{ github.run_number }}"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
