@@ -2055,9 +2055,15 @@ def _build_copy_content(
     )
 
     # ── Log ────────────────────────────────────────────────────────────────
+    # NOTA: en Flet 0.84.0, auto_scroll en ListView no hace nada si no se
+    # define también `scroll` explícitamente — bug conocido
+    # (github.com/flet-dev/flet/issues/6397), arreglado en 0.85.0 pero aún
+    # no lo usamos. `scroll=ALWAYS` es el workaround oficial del propio
+    # equipo de Flet mientras tanto.
     log_list = ft.ListView(
         expand=True,
         auto_scroll=True,
+        scroll=ft.ScrollMode.ALWAYS,
         spacing=0,
         padding=ft.Padding.all(12),
     )
@@ -2821,8 +2827,12 @@ def _build_tag_manager_content(
     right_panel = {"visible": False}
 
     # ── Log ───────────────────────────────────────────────────────────────
+    # NOTA: en Flet, adjuntar on_scroll a un ListView rompe su auto_scroll
+    # interno por completo (deja de autoseguir incluso sin tocar el scroll).
+    # Además, en Flet 0.84.0 auto_scroll no hace nada si no se define
+    # también `scroll` explícitamente (github.com/flet-dev/flet/issues/6397).
     log_list = ft.ListView(
-        expand=True, auto_scroll=True, spacing=0,
+        expand=True, auto_scroll=True, scroll=ft.ScrollMode.ALWAYS, spacing=0,
         padding=ft.Padding.all(12),
     )
     log_section = ft.Container(
