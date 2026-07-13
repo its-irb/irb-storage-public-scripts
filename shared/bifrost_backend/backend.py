@@ -962,8 +962,7 @@ def get_s3_client_from_profile(profile_name: str, endpoint: str):
     section = config[profile_name]
     region_from_rclone = section.get("region")
     region_name = region_from_rclone or DEFAULT_S3_REGION
-    print(f"[s3-client] profile={profile_name} endpoint={endpoint}", flush=True)
-    print(f"[s3-client] region_from_rclone={region_from_rclone!r} -> using={region_name!r}", flush=True)
+    print(f"[s3-client] {profile_name} → {endpoint} (region={region_name!r})", flush=True)
     return boto3.client(
         "s3",
         endpoint_url=endpoint,
@@ -995,7 +994,7 @@ def list_prefix_contents(perfil_rclone: str, bucket: str, prefix: str) -> tuple[
                 folders.append(f"{f}/")
                 
     except Exception as e:
-        print(f"Error listing prefix contents with rclone: {e}")
+        print(f"[backend] ERROR list_prefix_contents bucket={bucket!r} prefix={prefix!r}: {e}")
         folders = []
     return folders, []
 
@@ -1023,8 +1022,9 @@ def rclone_list_files_only(perfil_rclone: str, bucket: str, prefix: str) -> list
             **_subprocess_kwargs(), # Usa tus kwargs existentes
         )
         if result.returncode != 0:
+            print(f"[backend] ERROR rclone_list_files_only bucket={bucket!r} prefix={prefix!r}: {result.stderr.strip()}")
             return []
-            
+
         files = []
         for line in result.stdout.splitlines():
             name = line.strip()
@@ -1035,7 +1035,8 @@ def rclone_list_files_only(perfil_rclone: str, bucket: str, prefix: str) -> list
                 else:
                     files.append(name)
         return files
-    except Exception:
+    except Exception as e:
+        print(f"[backend] ERROR rclone_list_files_only bucket={bucket!r} prefix={prefix!r}: {e}")
         return []
 
 def get_object_tags(s3_client, bucket: str, key: str) -> dict[str, str]:
@@ -1425,7 +1426,7 @@ def ejecutar_rclone_copy(
     rclone = get_rclone_executable()
     tag_string   = construir_tag_string(metadatos_dict)
     header_value = f"x-amz-tagging:{tag_string}"
-
+    print(f"[copy] tags applied → {tag_string or '(none)'}")
 
     comando = [
         rclone, "copy",
@@ -1475,12 +1476,15 @@ def ejecutar_rclone_copy(
             log_fn(linea)
         proceso.wait()
         if proceso.returncode == 0:
+            print(f"[copy] finished OK → {origen} → {destino_perfil}:/{destino_path} (tags: {tag_string or '(none)'})")
             log_fn("\n✅ Copy completed successfully.\n")
             if on_success:
                 on_success()
         else:
+            print(f"[copy] FAILED (rc={proceso.returncode}) → {origen} → {destino_perfil}:/{destino_path}")
             log_fn(f"\n❌ Copy error. Code: {proceso.returncode}")
     except Exception as e:
+        print(f"[copy] EXCEPTION → {origen} → {destino_perfil}:/{destino_path}: {e}")
         log_fn(f"\n❌ Exception while executing rclone: {str(e)}")
     finally:
         # Guarantee the subprocess is not left running if the stdout loop raised.

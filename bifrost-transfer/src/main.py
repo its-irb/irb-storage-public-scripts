@@ -100,6 +100,55 @@ try:
 except Exception:
     pass
 
+# ============================================================================
+# TEE DE CONSOLA A FICHERO — persiste todo lo que se hace print() (navegación,
+# filtros, copy, tags, selección de cluster, etc.) en ~/bifrost-logs/, igual
+# que ya se hace con los logs de copy/tags. Así el histórico de debug no
+# depende de que haya una consola visible (apps empaquetadas con flet build
+# no muestran una).
+# ============================================================================
+class _TeeStream:
+    def __init__(self, *streams):
+        self._streams = streams
+
+    def write(self, data):
+        for s in self._streams:
+            try:
+                s.write(data)
+            except Exception:
+                pass
+
+    def flush(self):
+        for s in self._streams:
+            try:
+                s.flush()
+            except Exception:
+                pass
+
+
+try:
+    _console_log_dir = pathlib.Path.home() / "bifrost-logs"
+    _console_log_dir.mkdir(parents=True, exist_ok=True)
+    _console_log_path = _console_log_dir / f"bifrost-console-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+    _console_log_file = open(_console_log_path, "a", encoding="utf-8", errors="replace", buffering=1)
+    sys.stdout = _TeeStream(sys.stdout, _console_log_file)
+    sys.stderr = _TeeStream(sys.stderr, _console_log_file)
+    print(f"[startup] console log → {_console_log_path}")
+
+    # Rotación: conservar solo los 50 ficheros de consola más recientes.
+    _console_logs = sorted(
+        _console_log_dir.glob("bifrost-console-*.log"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for _old_console_log in _console_logs[50:]:
+        try:
+            _old_console_log.unlink()
+        except Exception:
+            pass
+except Exception as _console_log_ex:
+    print(f"[startup] Could not set up console log file: {_console_log_ex}")
+
 
 
 
@@ -1012,6 +1061,11 @@ def build_rclone_browser(
 
     if lab_filter_enabled:
         def _on_lab_select(acronym: str | None) -> None:
+            previous = filter_state["acronym"]
+            if acronym is None:
+                print(f"[browser] lab filter cleared (was {previous!r}) → showing all buckets")
+            else:
+                print(f"[browser] lab filter → {acronym!r} (was {previous!r})")
             filter_state["acronym"] = acronym
             _navigate("")
 
@@ -1094,6 +1148,7 @@ def build_rclone_browser(
                 )
 
     def _navigate(path: str):
+        print(f"[browser] navigate → perfil={perfil_rclone!r} path={path!r}")
         nav_state["current_path"] = path
         on_select(path)
 
@@ -1109,16 +1164,18 @@ def build_rclone_browser(
             try:
                 if not path and bucket_cache["list"] is not None:
                     folders = list(bucket_cache["list"])
-                    print(f"[browser] path={path!r} folders={folders} (cached)")
                 else:
                     folders = backend.rclone_lsd(perfil_rclone, path, timeout=nav_state["timeout"])
-                    print(f"[browser] path={path!r} folders={folders}")
+                    print(f"[browser] rclone lsd path={path!r} → {len(folders)} folders: {folders}")
                     if not path:
                         bucket_cache["list"] = list(folders)
                         bucket_cache["tags"] = None
 
                 if lab_filter_enabled and filter_state["acronym"] and not path:
+                    active = filter_state["acronym"]
+                    total = len(bucket_cache["list"])
                     if bucket_cache["tags"] is None:
+                        print(f"[browser] lab filter {active!r}: scanning S3 'acronym' tag for {total} buckets (one-time per session)...")
                         s3 = backend.get_s3_client_from_profile(perfil_rclone, endpoint)
                         with ThreadPoolExecutor(max_workers=8) as pool:
                             futs = {pool.submit(backend.get_bucket_tags, s3, b): b for b in bucket_cache["list"]}
@@ -1130,10 +1187,10 @@ def build_rclone_browser(
                                 except Exception:
                                     tag_map[b] = ""
                         bucket_cache["tags"] = tag_map
-                        print(f"[browser] tag cache populated for {len(tag_map)} buckets")
-                    active = filter_state["acronym"]
+                        n_tagged = sum(1 for v in tag_map.values() if v)
+                        print(f"[browser] lab filter: tag scan done → {n_tagged}/{total} buckets have an 'acronym' tag (cached for this session)")
                     folders = [b for b in folders if bucket_cache["tags"].get(b) == active]
-                    print(f"[browser] lab filter={active!r} → {len(folders)} buckets")
+                    print(f"[browser] lab filter {active!r} → {len(folders)}/{total} buckets match: {folders}")
 
                 def _show():
                     loading_row.visible = False
@@ -1176,6 +1233,7 @@ def build_rclone_browser(
                 backend.ui_call(page, _show)
 
             except subprocess.TimeoutExpired:
+                print(f"[browser] TIMEOUT path={path!r} after {nav_state['timeout']}s")
                 def _timeout_ui():
                     loading_row.visible = False
                     folder_col.controls.clear()
@@ -1195,6 +1253,7 @@ def build_rclone_browser(
                     )
                     def confirm_manual(e):
                         new_path = manual_tf.value.strip()
+                        print(f"[browser] manual path confirmed → {new_path!r}")
                         nav_state["current_path"] = new_path
                         on_select(new_path)
                         _rebuild_breadcrumb()
@@ -1223,6 +1282,7 @@ def build_rclone_browser(
                         page.update()
 
                     def retry_60(e):
+                        print(f"[browser] retry path={path!r} with timeout=60s")
                         nav_state["timeout"] = 60
                         _navigate(path)
 
@@ -1271,6 +1331,7 @@ def build_rclone_browser(
 
                 backend.ui_call(page, _timeout_ui)
             except Exception as ex:
+                print(f"[browser] ERROR path={path!r}: {ex}")
                 def _err(ex_val=ex):
                     loading_row.visible = False
                     error_text.value    = f"Error: {ex_val}"
@@ -1309,6 +1370,7 @@ def build_rclone_browser(
 
         base     = nav_state["current_path"]
         new_path = f"{base}/{name}" if base else name
+        print(f"[browser] virtual mkdir → {new_path!r} (not created in rclone until copy)")
 
         new_folder_tf.value = ""
 
@@ -1397,6 +1459,7 @@ def build_rclone_browser(
     )
 
     def _refresh():
+        print(f"[browser] refresh() → cache invalidated, initial_path={initial_path!r}")
         bucket_cache["list"] = None
         bucket_cache["tags"] = None
         _navigate(initial_path)
@@ -1477,10 +1540,12 @@ def build_local_fs_browser(
                 )
 
     def _navigate(path: pathlib.Path):
+        print(f"[local-fs] navigate → {path}")
         nav_state["current"] = path
         # Auto-select the current folder when browsing in folder/both mode,
         # so the user can just navigate and press Confirm without needing the ✓ icon.
         if select_mode in ("folder", "both"):
+            print(f"[local-fs] auto-select folder (mode={select_mode!r}) → {path}")
             on_select(str(path))
         loading_row.visible  = True
         error_text.visible   = False
@@ -1492,6 +1557,7 @@ def build_local_fs_browser(
             try:
                 raw = sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
             except PermissionError:
+                print(f"[local-fs] PERMISSION DENIED: {path}")
                 def _perm():
                     loading_row.visible = False
                     error_text.value    = f"Permission denied: {path}"
@@ -1499,9 +1565,19 @@ def build_local_fs_browser(
                     page.update()
                 backend.ui_call(page, _perm)
                 return
+            except Exception as ex:
+                print(f"[local-fs] ERROR listing {path}: {ex}")
+                def _err(ex_val=ex):
+                    loading_row.visible = False
+                    error_text.value    = f"Error: {ex_val}"
+                    error_text.visible  = True
+                    page.update()
+                backend.ui_call(page, _err)
+                return
 
             dirs  = [p for p in raw if p.is_dir()  and not p.name.startswith(".")]
             files = [p for p in raw if p.is_file() and not p.name.startswith(".")]
+            print(f"[local-fs] listed {path} → {len(dirs)} dirs, {len(files)} files")
 
             def _show():
                 loading_row.visible = False
@@ -1552,8 +1628,13 @@ def build_local_fs_browser(
                             if nav:
                                 _navigate(ep)
                             if sel and not nav:
+                                print(f"[local-fs] selected (click) → {ep}")
                                 on_select(str(ep))
                         return _click
+
+                    def _select_via_icon(e, ep=ep_snap):
+                        print(f"[local-fs] selected (✓ button) → {ep}")
+                        on_select(str(ep))
 
                     # Botón "Select" solo si es seleccionable Y no vamos a navegar
                     select_icon = ft.IconButton(
@@ -1561,7 +1642,7 @@ def build_local_fs_browser(
                         icon_color=C_ACCENT,
                         icon_size=16,
                         tooltip="Select this folder" if is_dir else "Select this file",
-                        on_click=lambda e, ep=ep_snap: on_select(str(ep)),
+                        on_click=_select_via_icon,
                         visible=selectable,
                     ) if selectable else ft.Container(width=24)
 
@@ -1594,7 +1675,7 @@ def build_local_fs_browser(
                         border_radius=6,
                         padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                         on_click=_make_click() if navigable else (
-                            (lambda e, ep=ep_snap: on_select(str(ep))) if selectable else None
+                            _select_via_icon if selectable else None
                         ),
                         ink=navigable or selectable,
                     )
@@ -2181,15 +2262,21 @@ def _build_copy_content(
             result = await file_picker.pick_files()
             if result:
                 ruta = backend.traducir_ruta_a_remote(result[0].path, mounts_activos)
+                print(f"[file-picker] file picked → raw={result[0].path!r} translated={ruta!r}")
                 origen_tf.value = ruta
                 page.update()
+            else:
+                print("[file-picker] file pick cancelled")
 
         async def _pick_folder(e):
             result = await folder_picker.get_directory_path()
             if result:
                 ruta = backend.traducir_ruta_a_remote(result, mounts_activos)
+                print(f"[file-picker] folder picked → raw={result!r} translated={ruta!r}")
                 origen_tf.value = ruta
                 page.update()
+            else:
+                print("[file-picker] folder pick cancelled")
 
         async def _save_log_picker(file_name: str):
             result = await save_picker.save_file(file_name=file_name)
@@ -2218,12 +2305,14 @@ def _build_copy_content(
         # Modo WEB: browsers propios que leen el filesystem del servidor
         def _open_folder_browser(e):
             def _picked(path: str):
+                print(f"[file-picker] web folder picked → {path}")
                 origen_tf.value = path
                 page.update()
             show_local_fs_modal(page, on_select=_picked, select_mode="folder")
 
         def _open_file_browser(e):
             def _picked(path: str):
+                print(f"[file-picker] web file picked → {path}")
                 origen_tf.value = path
                 page.update()
             show_local_fs_modal(page, on_select=_picked, select_mode="file")
@@ -2250,6 +2339,8 @@ def _build_copy_content(
     )
 
     def on_browser_select(path: str):
+        print(f"[copy] destination selected → {perfil_rclone}:{path}" if path
+              else "[copy] destination cleared (root)")
         _dest_path["value"] = path
         # Persist non-empty selections to session.
         # Do NOT wipe copy_destino on empty path: the browser refresh timer
@@ -2794,6 +2885,11 @@ def _build_tag_manager_content(
     tm_bucket_cache: dict = {"list": None, "tags": None}
 
     def _on_tm_lab_select(acronym: str | None) -> None:
+        previous = tm_filter_state["acronym"]
+        if acronym is None:
+            print(f"[tag-manager] lab filter cleared (was {previous!r}) → showing all buckets")
+        else:
+            print(f"[tag-manager] lab filter → {acronym!r} (was {previous!r})")
         tm_filter_state["acronym"] = acronym
         _navigate(None, "")
 
@@ -2928,6 +3024,8 @@ def _build_tag_manager_content(
                 )
 
                 def _on_view_files(e):
+                    bucket_snap, prefix_snap = nav["bucket"], nav["prefix"]
+                    print(f"[tag-manager] view files → {bucket_snap}/{prefix_snap}")
                     view_files_btn.disabled = True
                     view_files_btn.text = "Loading files..."
                     browser_loading.visible = True
@@ -2937,6 +3035,7 @@ def _build_tag_manager_content(
                         real_files = backend.rclone_list_files_only(
                             perfil_rclone, nav["bucket"], nav["prefix"]
                         )
+                        print(f"[tag-manager] view files → {bucket_snap}/{prefix_snap} → {len(real_files)} files")
                         _current_items["files"] = real_files
                         nav["show_files"] = True
                         browser_loading.visible = False
@@ -3044,6 +3143,7 @@ def _build_tag_manager_content(
         nav["prefix"] = old_prefix
 
     def _navigate(bucket: str | None, prefix: str) -> None:
+        print(f"[tag-manager] navigate → bucket={bucket!r} prefix={prefix!r}")
         nav["bucket"]     = bucket
         nav["prefix"]     = prefix
         nav["show_files"] = False
@@ -3091,14 +3191,16 @@ def _build_tag_manager_content(
             if nav["bucket"] is None:
                 if tm_bucket_cache["list"] is not None:
                     buckets = list(tm_bucket_cache["list"])
-                    print(f"[tag-manager] bucket list (cached): {len(buckets)} buckets")
                 else:
                     buckets = backend.rclone_lsd(perfil=perfil_rclone, path="")
                     tm_bucket_cache["list"] = list(buckets)
                     tm_bucket_cache["tags"] = None
                     print(f"[tag-manager] bucket list fetched: {len(buckets)} buckets")
                 if tm_filter_state["acronym"]:
+                    active = tm_filter_state["acronym"]
+                    total = len(tm_bucket_cache["list"])
                     if tm_bucket_cache["tags"] is None:
+                        print(f"[tag-manager] lab filter {active!r}: scanning S3 'acronym' tag for {total} buckets (one-time per session)...")
                         with ThreadPoolExecutor(max_workers=8) as pool:
                             futs = {pool.submit(backend.get_bucket_tags, client, b): b for b in tm_bucket_cache["list"]}
                             tm_tag_map: dict[str, str] = {}
@@ -3109,15 +3211,19 @@ def _build_tag_manager_content(
                                 except Exception:
                                     tm_tag_map[b] = ""
                         tm_bucket_cache["tags"] = tm_tag_map
-                        print(f"[tag-manager] tag cache populated for {len(tm_tag_map)} buckets")
-                    active = tm_filter_state["acronym"]
+                        n_tagged = sum(1 for v in tm_tag_map.values() if v)
+                        print(f"[tag-manager] lab filter: tag scan done → {n_tagged}/{total} buckets have an 'acronym' tag (cached for this session)")
                     buckets = [b for b in buckets if tm_bucket_cache["tags"].get(b) == active]
-                    print(f"[tag-manager] lab filter={active!r} → {len(buckets)} buckets")
+                    print(f"[tag-manager] lab filter {active!r} → {len(buckets)}/{total} buckets match: {buckets}")
                 _current_items["folders"] = buckets
                 _current_items["files"]   = []
             else:
                 folders, files = backend.list_prefix_contents(
                     perfil_rclone, nav["bucket"], nav["prefix"]
+                )
+                print(
+                    f"[tag-manager] listed bucket={nav['bucket']!r} prefix={nav['prefix']!r} "
+                    f"→ {len(folders)} subfolders"
                 )
                 _current_items["folders"] = folders
                 _current_items["files"]   = files
@@ -3128,6 +3234,7 @@ def _build_tag_manager_content(
             backend.ui_call(page, _show)
 
         except Exception as ex:
+            print(f"[tag-manager] ERROR bucket={nav['bucket']!r} prefix={nav['prefix']!r}: {ex}")
             def _err(ex_val=ex):
                 browser_loading.visible = False
                 browser_error.value     = f"Error: {ex_val}"
@@ -3140,7 +3247,8 @@ def _build_tag_manager_content(
         prefix = nav["prefix"]
         if not bucket:
             return
-        
+        print(f"[tag-manager] select prefix → {bucket}/{prefix}")
+
         label   = f"📁 {prefix or (bucket + '/')}"
         note    = "(Tag scanning and counting disabled for speed)"
         tags_cp = {}
@@ -3158,6 +3266,7 @@ def _build_tag_manager_content(
         backend.ui_call(page, _upd)
 
     def _select_file(key: str) -> None:
+        print(f"[tag-manager] select file → {nav['bucket']}/{key}")
         def _do():
             client = _get_client()
             right_panel["visible"] = True
@@ -3170,6 +3279,7 @@ def _build_tag_manager_content(
                 error_code = (resp or {}).get("Error", {}).get("Code", "") if isinstance(resp, dict) else ""
                 if error_code != "NoSuchKey":
                     ex_str = str(ex)
+                    print(f"[tag-manager] ERROR reading tags for {nav['bucket']}/{key}: {ex_str}")
                     def _err():
                         browser_error.value   = f"Error reading tags: {ex_str}"
                         browser_error.visible = True
@@ -3298,6 +3408,9 @@ def _build_tag_manager_content(
         def _do():
             client = _get_client()
             bucket = nav["bucket"]
+            target = sel["key"] if sel["type"] == "file" else f"{sel['key'] or ''} (prefix, recursive)"
+            non_empty_tags = {k: v for k, v in tagset.items() if v}
+            print(f"[tag-manager] applying tags to {bucket}/{target} → {non_empty_tags}")
             ts     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             _log(f"### Tags applied — {ts} ###\n")
             _log(f"Profile: {active_profile['name']}\n", C_TEXT_DIM)
@@ -3321,6 +3434,7 @@ def _build_tag_manager_content(
                         log_fn=lambda msg: _log(msg),
                     )
 
+                print(f"[tag-manager] tags applied OK → {n_ok} object(s) updated in {bucket}/{target}")
                 _log(f"\n✅ {n_ok} object(s) tagged successfully.\n", C_ACCENT)
 
                 def _ok():
@@ -3332,6 +3446,7 @@ def _build_tag_manager_content(
 
             except Exception as ex:
                 err_str = str(ex)
+                print(f"[tag-manager] tags apply FAILED for {bucket}/{target}: {err_str}")
                 _log(f"\n❌ Error: {err_str}\n", C_ERROR)
                 def _err():
                     apply_btn.disabled   = False
@@ -3893,7 +4008,7 @@ def main(page: ft.Page):
             on_login_success(creds)
             return
 
-        print(f"[session] Restoring session for {usuario!r}")
+        print(f"[session] Restoring session for {usuario!r} → cluster={session['servidor_minio']!r} ({session['endpoint']})")
         state["credenciales_ldap"] = creds
         state["servidor_minio"]    = session["servidor_minio"]
         state["perfil_rclone"]     = session["perfil_rclone"]
@@ -3911,6 +4026,7 @@ def main(page: ft.Page):
         show_screen(_build_minio_content(page, on_continue=on_minio_selected))
 
     def on_minio_selected(eleccion: dict):
+        print(f"[minio] cluster selected → {eleccion['servidor']} ({eleccion['endpoint']})")
         state["servidor_minio"] = eleccion["servidor"]
         state["perfil_rclone"]  = eleccion["perfil"]
         state["endpoint"]       = eleccion["endpoint"]
