@@ -51,7 +51,6 @@ shared/                   # Paquete bifrost-shared (wheel local)
     frontend.py           # Paleta de colores + componentes Flet reutilizables
     __init__.py
   pyproject.toml          # Define paquete "bifrost-shared"
-  requirements.txt        # Compartido por ambas apps en dev
   *-assets-downloader.sh  # Scripts para descargar rclone/fuse-t en CI
 
 old/                      # Scripts legacy (no usar)
@@ -84,12 +83,11 @@ El acoplamiento app↔shared se hace vía `from bifrost_backend import backend` 
 Desde la carpeta de la app (`bifrost-mount/` o `bifrost-transfer/`):
 
 ```bash
-# Primera vez:
-python -m venv .venv
-source .venv/bin/activate          # macOS/Linux
-# .\.venv\Scripts\Activate.ps1     # Windows PowerShell
-python -m pip install --upgrade pip
-python -m pip install -r ../shared/requirements.txt
+# Primera vez (recomendado: uv, desde la raíz del repo):
+uv sync --project bifrost-transfer        # o bifrost-mount
+source bifrost-transfer/.venv/bin/activate
+# Alternativa con pip: python -m pip install -e shared/  (instala bifrost-shared editable)
+#   y luego instalar el resto de deps de <app>/pyproject.toml.
 
 # Cada ejecución:
 flet run
@@ -162,7 +160,7 @@ Cuando hay una release nueva en GitHub, la app pregunta al usuario si quiere act
 4. **El backend importa del frontend**: `backend.py` importa `show_dialog` y `C_ERROR` de `bifrost_frontend.frontend`. Hay acoplamiento (no es un backend "puro").
 5. **`config.py` debe ser importable como módulo top-level** en cada app — el backend hace `from config import APP_INFO`. Por eso cada app tiene su propio `config.py` aunque solo contenga `APP_INFO`.
 6. **Credenciales STS**: si quedan >3 días se reutilizan; <3 días se renuevan automáticamente por 7 días. Constantes `STS_RENEWAL_THRESHOLD_DAYS` / `STS_AUTO_RENEWAL_DAYS` en `main.py`.
-7. **No commitear `.venv/`, `dist/`, `build/`, `src/version.py` generado**. Ver `.gitignore`.
+7. **No commitear `.venv/`, `dist/`, `build/`, `*.whl`, `uv.lock`, `src/assets/*` (salvo `.keep`/`icon.png`/`splash.png`), `frameworks/*` (salvo `.keep`)**. Ver `.gitignore`. `src/version.py` sí se commitea con el placeholder `2.0.0.dev` (CI lo sobrescribe en build).
 8. **`TAG_PROFILES` y `LAB_ACRONYMS` son la fuente canónica en `bifrost-transfer`**: tanto el formulario de copia como el Tag Manager usan `TAG_PROFILES`, `build_meta_fields`, `LAB_ACRONYMS` y `build_lab_filter_widget` de `meta_fields.py`. Si hay que añadir, renombrar o reordenar un campo, perfil o lab, cambiarlo **solo** en `bifrost-transfer/src/meta_fields.py`. El diccionario `LAB_ACRONYMS` debe tener los acrónimos exactos que aparecen en el tag `acronym` de los buckets MinIO. La función `detect_profile(tags)` (también en `meta_fields.py`) detecta automáticamente qué perfil encaja con un `dict[str, str]` de tags; `build_meta_fields` acepta un parámetro opcional `prefill_values: dict[str, str]` para pre-rellenar los controles con valores existentes.
 9. **Auto-instalación de WinFsp (solo `bifrost-mount`, Windows)**: si falta WinFsp al montar, el backend levanta `WinFspMissingError` (subclase de `EnvironmentError`) y la UI ofrece descargar e instalar la última release oficial desde `github.com/winfsp/winfsp` vía `backend.install_winfsp_windows()`. Requiere UAC; el MSI se cachea en `%TEMP%`. Los mensajes de este flujo están en **inglés** (excepción al punto 3) para alinearse con el resto de la UI de `bifrost-mount`. `bifrost-transfer` no tiene este flujo.
 10. **Visibilidad condicional en el formulario de copia**: las secciones METADATA, botones de acción y LOG OUTPUT de `_build_copy_content` están ocultas (`bottom_col.visible=False`) hasta que el usuario selecciona un bucket en el browser de destino. El toggle se gestiona en `on_browser_select`: si `path` es no-vacío → visible; si vuelve a vacío (root) → oculto.
@@ -170,8 +168,12 @@ Cuando hay una release nueva en GitHub, la app pregunta al usuario si quiere act
 
 ---
 
-## Wiki del proyecto
+## Documentación del proyecto
 
-Hay una base de conocimiento incremental en `docs/wiki/` que acumula **decisiones técnicas, estado de infra (MinIO/Nexica/IRB) y gotchas de usuarios** entre sesiones. Antes de responder preguntas sobre el "por qué" de patrones del repo o sobre infra externa, consulta `docs/wiki/index.md`.
+La documentación está organizada en tres capas bajo `docs/` (ver `docs/documentation-methodology.md` para la metodología):
 
-El protocolo completo (ingest, query, lint, formato de páginas, reglas de seguridad, **convención de cierre de tarea**) está en `docs/wiki/CLAUDE_WIKI.md` — léelo antes de crear/modificar páginas. Las fuentes brutas viven en `docs/wiki/raw/` y están gitignored; el resto de la wiki sí se commitea.
+- `docs/agent/` — contexto compacto y modular para agentes (cargable bajo demanda).
+- `docs/development/` — documentación técnica para desarrolladores.
+- `docs/user/` — guías de uso para usuarios generales (en español).
+
+Antes de responder preguntas sobre el "por qué" de patrones del repo o sobre infra externa, consulta la capa de agentes (`docs/agent/`) y, si necesitas más detalle, `docs/development/`.

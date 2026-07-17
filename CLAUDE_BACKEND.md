@@ -9,8 +9,6 @@ Documenta el paquete `bifrost-shared`, que contiene **toda la lógica de negocio
 ```
 shared/
   pyproject.toml          # Define el paquete bifrost-shared (hatchling)
-  requirements.txt        # Deps en común — usado en dev y en CI
-  uv.lock
   bifrost_backend/
     __init__.py
     backend.py            # ~1700 LOC — toda la lógica
@@ -112,7 +110,7 @@ python -m build .         # genera dist/bifrost_shared-*.whl
 pip install dist/bifrost_shared-*.whl
 ```
 
-Alternativa: `pip install -r shared/requirements.txt` instala todas las deps pero **no** el paquete `bifrost-shared` en sí. Si arranca `flet run` desde la app sin tener `bifrost_backend`/`bifrost_frontend` instalados, hay un bloque comentado en `main.py` que añade `shared/` a `sys.path`:
+Alternativa: `python -m pip install -e shared/` instala el paquete `bifrost-shared` en modo editable (junto con sus deps declaradas en `shared/pyproject.toml`). Si arranca `flet run` desde la app sin tener `bifrost_backend`/`bifrost_frontend` instalados, hay un bloque comentado en `main.py` que añade `shared/` a `sys.path`:
 
 ```python
 # _shared = os.path.join(os.path.dirname(__file__), "..", "..", "shared")

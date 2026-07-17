@@ -27,39 +27,48 @@ On Windows, `bifrost-mount` additionally requires **WinFsp** installed on the sy
 ## Repository structure
 
 ```
-bifrost-mount/          # S3 bucket mounting app
+bifrost-mount/          # S3 bucket mounting app (desktop only)
   src/
     main.py             # GUI (Flet). Entry point.
-    version.py
-    assets/bin/         # Bundled binaries (rclone, etc.)
-    frameworks/         # fuse-t framework (macOS)
-  pyproject.toml        # flet build configuration
+    config.py           # APP_INFO = {"flavour": "mount", ...}
+    version.py          # __version__ (placeholder 2.0.0.dev; CI overwrites in build)
+    assets/bin/         # Bundled binaries (rclone, downloaded in build)
+    frameworks/         # fuse-t framework (macOS, downloaded in build)
+  pyproject.toml        # flet build configuration + frozen deps
   installer.iss         # Inno Setup (Windows installer)
+  build-macos.sh        # Local macOS build script
 
-bifrost-transfer/       # Data transfer app
+bifrost-transfer/       # Data transfer app (desktop + web)
   src/
     main.py             # GUI (Flet). Entry point.
-    pip-requirements.txt
-    version.py
-    assets/bin/         # Bundled binaries (rclone, etc.)
-    frameworks/
+    config.py           # APP_INFO = {"flavour": "transfer", ...}
+    version.py          # __version__ (placeholder 2.0.0.dev; CI overwrites in build)
+    meta_fields.py      # Metadata profiles, LAB_ACRONYMS, lab filter
+    assets/bin/         # Bundled binaries (rclone, downloaded in build)
+    frameworks/         # (macOS fuse-t not needed for transfer)
     storage/            # Temporary transfer data
-  pyproject.toml        # flet build configuration
+  pyproject.toml        # flet build configuration + frozen deps
   installer.iss         # Inno Setup (Windows installer)
-  build.sh              # Build script
+  build-macos.sh        # Local macOS build script
 
-shared/
-  backend.py            # Shared business logic (LDAP, rclone, SMB, S3)
+shared/                 # bifrost-shared wheel (backend + frontend)
+  pyproject.toml        # Defines packages bifrost_backend + bifrost_frontend
+  bifrost_backend/
+    backend.py          # Shared business logic (LDAP, rclone, SMB, S3, STS)
+  bifrost_frontend/
+    frontend.py         # Shared palette + Flet components
   linux-assets-downloader.sh
-  macos-assets-downloader.sh
-  macos-rclone-downloader.sh
+  macos-assets-downloader.sh     # rclone + fuse-t (used by mount)
+  macos-rclone-downloader.sh     # rclone only (used by transfer)
   windows-assets-downloader.sh
-  requirements.txt      # Shared requirements for both apps
 
-old/
-  minio-sts-credentials-request.py  # Legacy script for STS credentials
+old/                    # Legacy scripts (do not use)
+  backend-old.py
+  minio-sts-credentials-request.py
 
-build-local.ps1      # Local Windows development build (flet build)
+build-local.ps1         # Local Windows build (generates wheel + flet build)
+.github/workflows/main.yml  # CI: macOS + Windows build + release
+docs/                   # See "Documentation" below
 ```
 
 ---
@@ -99,20 +108,27 @@ When a new release of bifrost-mount or bifrost-transfer is available, the app as
 
 Steps are the same for both apps. Run from the app folder (`bifrost-mount/` or `bifrost-transfer/`).
 
-First time — create the virtual environment:
+First time — create the virtual environment and install dependencies. The shared backend/frontend live in `shared/` as the `bifrost-shared` wheel; the simplest way to set everything up is with `uv`:
+
 ```bash
-python -m venv .venv
-source venv/bin/activate          # macOS / Linux
-# .\venv\Scripts\Activate.ps1    # Windows PowerShell
-python -m pip install --upgrade pip
-python -m pip install -r ./shared/requirements.txt
-.\.venv\Scripts\python.exe -m pip install build
-.\build-local.ps1 -app bifrost-mount  # Windows only
+# from the repo root
+uv sync --project bifrost-transfer        # or bifrost-mount
+source bifrost-transfer/.venv/bin/activate    # macOS / Linux
+# .\bifrost-transfer\.venv\Scripts\Activate.ps1   # Windows PowerShell
 ```
+
+`uv sync` reads `<app>/pyproject.toml` and resolves `bifrost-shared`. If the `__BUILDPATH__` placeholder isn't replaced, install the shared package editable first:
+
+```bash
+python -m pip install -e shared/
+```
+
+Alternatively, each `main.py` has a commented-out block at the top that adds `shared/` to `sys.path` for development without installing the wheel — uncomment it to iterate on the backend quickly (do not commit it uncommented).
 
 Each time — load the virtual environment and run:
 ```bash
-source venv/bin/activate
+source .venv/bin/activate          # macOS / Linux
+# .\.venv\Scripts\Activate.ps1     # Windows PowerShell
 flet run
 ```
 
@@ -134,13 +150,26 @@ BIFROST_CLUSTER=1 python src/main.py --web  # Simulate OOD production mode
 
 `flet build` uses the parameters defined in each app's `pyproject.toml`.
 
-If virtual environment packages are updated, regenerate `requirements.txt` and import it into `pyproject.toml`:
+If virtual environment packages are updated, regenerate a requirements snapshot and import it into `pyproject.toml`:
 ```bash
 python -m pip freeze > src/pip-requirements.txt
 uv add -r pip-requirements.txt
 ```
+(Note: `src/pip-requirements.txt` is generated on demand; the frozen dependencies currently live in each `<app>/pyproject.toml` and in `shared/pyproject.toml`.)
 
 The Windows installer uses Inno Setup, which packages the entire folder generated by flet into a single `.exe`. The configuration file is `installer.iss`.
+
+---
+
+## Documentation
+
+Detailed documentation is organized in three layers under `docs/`:
+
+- **`docs/user/`** — User guides (Spanish, general audience): installation, copying data, mounting, Tag Manager, metadata profiles, troubleshooting, and web mode (Open OnDemand). Start here if you want to use BIFROST.
+- **`docs/development/`** — Developer docs (Spanish, technical): architecture, environment setup, build & release, web-mode internals, thread-safety, meta-fields design, and operations.
+- **`docs/agent/`** — Compact, modular context for coding agents working on the repo.
+
+The methodology that governs this documentation lives in `docs/documentation-methodology.md`.
 
 ---
 

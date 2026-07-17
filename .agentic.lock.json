@@ -1,0 +1,46 @@
+{
+  "framework_version": "0.1.0",
+  "installed_at": "2026-07-17T09:39:00.967083+00:00",
+  "source": "/Users/dquiros/Documents/IRBDevops/devel/agentic-repo-framework",
+  "managed_core_skills": [
+    "commit-work",
+    "docs-init",
+    "docs-update"
+  ],
+  "documentation": {
+    "last_reviewed_commit": "46bd9dd2c3f5df6ef59954dba0cb828f43566230",
+    "last_reviewed_at": "2026-07-17T09:52:20+00:00"
+  },
+  "managed_files": {
+    ".agentic/skills/commit-work/SKILL.md": {
+      "sha256": "1c2f39803f79743efd36b7fb42114f56379faa995208ac0d9aa376a2e92bb8a8"
+    },
+    ".agentic/skills/docs-init/SKILL.md": {
+      "sha256": "efea6f81c51868026c2167996daf2f308ea4a6191054426c69d8e6e946f82137"
+    },
+    ".agentic/skills/docs-update/SKILL.md": {
+      "sha256": "648218cc5d780ae0a510efedb76f5c6171ec3f567ed7feb42cdeb2f426c7f026"
+    },
+    ".claude/skills/commit-work/SKILL.md": {
+      "sha256": "4eb8db12d90a1ca36f1654b79a961213da3df224ba8cf78a256630a94467c963"
+    },
+    ".claude/skills/docs-init/SKILL.md": {
+      "sha256": "a243484cc620f3a6091b0cc776cc9eecb09b637c4f398572fe2f7078d9f3970f"
+    },
+    ".claude/skills/docs-update/SKILL.md": {
+      "sha256": "001204a552d0365c62b2b7ed0bc6908d5b1162daf6fa333382f4026dc3679acb"
+    },
+    ".opencode/skills/commit-work/SKILL.md": {
+      "sha256": "c283bcd0813f57731b3de88e02f0d15691f4b33b7cb83a4d3629f480c30b6573"
+    },
+    ".opencode/skills/docs-init/SKILL.md": {
+      "sha256": "a243484cc620f3a6091b0cc776cc9eecb09b637c4f398572fe2f7078d9f3970f"
+    },
+    ".opencode/skills/docs-update/SKILL.md": {
+      "sha256": "001204a552d0365c62b2b7ed0bc6908d5b1162daf6fa333382f4026dc3679acb"
+    },
+    "docs/documentation-methodology.md": {
+      "sha256": "5435c2b30d2fc33b1de1aff2cdccc32e91d71c5559ee394bdca8f57b875f9b1d"
+    }
+  }
+}

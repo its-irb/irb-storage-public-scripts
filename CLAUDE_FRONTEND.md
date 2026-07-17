@@ -11,7 +11,6 @@ Ambas apps son idénticas en layout:
 ```
 <app>/
   pyproject.toml       # config flet build + deps congeladas
-  uv.lock
   installer.iss        # Inno Setup (Windows)
   build-macos.sh
   src/

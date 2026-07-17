@@ -192,10 +192,14 @@ src/storage/temp/
 src/storage/data/
 
 
-.claude/
+# Claude Code local state (cache, settings) — pero los wrappers de skills sí se commitean
+.claude/*
+!.claude/skills/
+!.claude/skills/**/
 
-# Wiki LLM y superpowers
-docs/
+# Documentación del proyecto (docs/agent, docs/development, docs/user, docs/documentation-methodology.md)
+# Se trackea explícitamente. El viejo wiki LLM ya no existe.
+!docs/
 
 #diff 
 historial*
