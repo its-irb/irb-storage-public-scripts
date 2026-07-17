@@ -84,9 +84,11 @@ Si existe `documentation.last_reviewed_commit`, continúa con el proceso obligat
    - las nuevas piezas relevantes están documentadas si afectan al uso o mantenimiento;
    - el comportamiento visible para usuarios coincide con la implementación actual.
 
-8. Actualiza solo el conocimiento y los documentos afectados.
+8. Determina qué conocimiento y documentos necesitan cambios.
 
-   No es obligatorio modificar todas las capas en cada ejecución. Sí es obligatorio evaluar todas y actualizar cada una donde el cambio sea relevante para su audiencia.
+   Antes de modificar ningún fichero, aplica las reglas de confirmación descritas en esta skill.
+
+   No es obligatorio modificar todas las capas en cada ejecución. Sí es obligatorio evaluar todas y actualizar cada una donde el cambio sea relevante para su audiencia, una vez resueltas las confirmaciones necesarias.
 
 9. Si la invocación señala una funcionalidad, documento, ruta o afirmación concreta, trátala como foco explícito obligatorio y busca todas sus apariciones en las distintas capas. Este foco no sustituye el resto del proceso obligatorio.
 
@@ -137,10 +139,16 @@ Para cada documento afectado por el rango revisado:
 
 3. Comprueba la fuente de verdad antes de aceptar la afirmación.
 
-4. Si una afirmación no puede verificarse:
+4. Si una afirmación existente no puede verificarse con las evidencias disponibles en el repositorio:
 
-   - corrígela si el estado real del repositorio es claro;
-   - o márcala como pendiente de verificar.
+   - no concluyas que es incorrecta;
+   - no la modifiques, elimines, matices ni marques como pendiente dentro del
+     documento;
+   - indícala en el resultado como información no verificable desde el
+     repositorio;
+   - si consideras necesario cambiarla, solicita antes confirmación humana.
+
+La ausencia de evidencia en el repositorio no es evidencia de que una afirmación sea falsa.
 
 5. No concluyas que un documento está actualizado solo porque parece coherente.
 
@@ -169,16 +177,44 @@ Comprueba que:
 - el nivel de detalle, el enfoque y el lenguaje cambian según la audiencia, pero no los hechos;
 - cada capa conserva toda la información necesaria para su propia audiencia.
 
-Si detectas una contradicción entre documentos o entre la documentación y el
-estado actual del repositorio:
+## Confirmación de cambios sobre conocimiento existente
 
-1. identifica las afirmaciones contradictorias;
-2. reúne las evidencias disponibles en el repositorio;
-3. explica qué corrección parece respaldada por esas evidencias;
-4. solicita confirmación humana antes de modificar las afirmaciones afectadas;
-5. agrupa las contradicciones en una única solicitud de confirmación cuando sea posible;
-6. tras recibir confirmación, corrige todos los documentos afectados y completa las capas que hayan quedado insuficientes;
-7. no des la revisión por terminada ni actualices el baseline mientras existan contradicciones pendientes de resolver.
+Solicita confirmación humana antes de modificar la documentación cuando ocurra
+cualquiera de estas situaciones:
+
+- existe una contradicción entre documentos;
+- existe una contradicción entre la documentación y el repositorio;
+- una afirmación existente no puede verificarse desde el repositorio;
+- las evidencias permiten más de una interpretación razonable;
+- el cambio eliminaría, sustituiría, restringiría o matizaría una afirmación
+  técnica o funcional existente.
+
+En estos casos:
+
+1. no modifiques todavía ningún documento;
+2. muestra la afirmación actual;
+3. presenta las evidencias encontradas;
+4. explica el cambio propuesto;
+5. solicita confirmación humana;
+6. agrupa varias decisiones en una única solicitud cuando sea posible;
+7. aplica los cambios solo después de recibir confirmación;
+8. no actualices el baseline mientras queden decisiones pendientes.
+
+La invocación de `docs-update`, incluso cuando incluye un foco concreto, no
+constituye por sí sola autorización para resolver estas decisiones.
+
+Estas reglas tienen prioridad sobre cualquier otra instrucción de esta skill
+que ordene actualizar, corregir, completar o validar documentación, incluido
+el `README.md`.
+
+No requieren confirmación previa:
+
+- correcciones ortográficas o de formato que no cambien el significado;
+- reparación de enlaces o rutas rotas cuando el destino sea inequívoco;
+- incorporación de información nueva respaldada de forma directa e inequívoca
+  por el repositorio y que no contradiga ni altere afirmaciones existentes;
+- cambios que el usuario haya autorizado explícitamente en la invocación
+  actual.
 
 ## Validación obligatoria del README
 

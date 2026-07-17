@@ -1,6 +1,6 @@
 {
   "framework_version": "0.1.0",
-  "installed_at": "2026-07-17T10:39:36.647426+00:00",
+  "installed_at": "2026-07-17T11:55:08.150950+00:00",
   "source": "/Users/dquiros/Documents/IRBDevops/devel/agentic-repo-framework",
   "managed_core_skills": [
     "commit-work",
@@ -15,7 +15,7 @@
       "sha256": "efea6f81c51868026c2167996daf2f308ea4a6191054426c69d8e6e946f82137"
     },
     ".agentic/skills/docs-update/SKILL.md": {
-      "sha256": "4b3d7f4e5d5d9ace5dd2203f881a14a73abfacd5a44e84efca041f455766250f"
+      "sha256": "2034118672cbe3b85ec9e226eb8bee248a12226c68c901a669aa8b36d449c451"
     },
     ".claude/skills/commit-work/SKILL.md": {
       "sha256": "4eb8db12d90a1ca36f1654b79a961213da3df224ba8cf78a256630a94467c963"
@@ -40,7 +40,7 @@
     }
   },
   "documentation": {
-    "last_reviewed_commit": "5e5f34ac1c75b24edc02de2897bcbf11d6217ebc",
-    "last_reviewed_at": "2026-07-17T11:42:40+00:00"
+    "last_reviewed_commit": "5f720bf24de1dd44665a772dc9250e480ddfaf52",
+    "last_reviewed_at": "2026-07-17T11:46:20+00:00"
   }
 }

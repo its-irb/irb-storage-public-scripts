@@ -28,8 +28,8 @@ On Windows, `bifrost-mount` additionally requires **WinFsp** installed on the sy
 
 Prebuilt installers for both apps are published on the project's [GitHub releases page](https://github.com/its-irb/irb-storage-public-scripts/releases):
 
-- **Windows**: `bifrost-<app>-<branch>-windows.exe` (Inno Setup installer, signed).
-- **macOS**: `bifrost-<app>-macos.dmg`.
+- **Windows**: `bifrost-transfer-<branch>-windows.exe` / `bifrost-mount-<branch>-windows.exe` (Inno Setup installer, signed). `<branch>` is normally `main` for stable releases.
+- **macOS**: `bifrost-transfer-macos.dmg` / `bifrost-mount-macos.dmg`.
 
 On IRB-managed machines the apps may already be installed — check the Start menu (Windows) or the Applications folder (macOS) first, or contact ITS for assistance.
 
