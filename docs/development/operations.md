@@ -77,6 +77,27 @@ STS_AUTO_RENEWAL_DAYS = 7
 | Windows | **WinFsp** | **No empaquetable** (incluye driver kernel). El usuario lo instala. Si falta, la app lo detecta y ofrece instalarlo automáticamente |
 | Linux | **FUSE** | Del sistema (modo web OOD no monta) |
 
+### Montajes siempre read-only
+
+Toda invocación de `rclone mount` en el backend incluye el flag `--read-only`. Es un invariante de diseño, no un estado temporal:
+
+- `mount_rclone_S3_prefix_to_folder(rclone_profile, s3_prefix)` — montaje S3 usado por **bifrost-mount** (`backend.py:737`):
+  ```python
+  comando = [rclone, "mount", f"{rclone_profile}:{s3_prefix}", str(mount_point), "--read-only", "--links"]
+  ```
+- `montar_share_rclone(nombre_perfil, share_path, punto_montaje, mounts_activos)` — montaje CIFS usado por **bifrost-transfer** en modo cluster (`backend.py:1206-1212`):
+  ```python
+  comando = [rclone, "mount", f"{nombre_perfil}:/{share_path}", str(punto_montaje),
+             "--vfs-cache-mode", "off", "--read-only", "--config", str(rclone_config_path)]
+  ```
+
+**Implicaciones:**
+
+- Bifrost Mount expone los buckets de MinIO como unidad de **solo lectura**. El usuario puede abrir y leer ficheros, pero no puede modificarlos, crearlos ni borrarlos a través del montaje. Para subir o actualizar datos se usa Bifrost Transfer (copia explícita con `rclone copy`).
+- Los mounts CIFS del cluster (Bifrost Transfer web) también son **solo lectura** y solo se usan como **origen** de una copia hacia MinIO, nunca como destino.
+
+No añadir flags de escritura (`--vfs-cache-mode writes/full`, `--write-back`, etc.) ni quitar `--read-only` sin un cambio explícito de diseño: rompería el contrato de uso de ambas apps.
+
 ### Flujo WinFsp (Windows, mount)
 
 Si al montar `backend._check_winfsp_windows()` devuelve `False`, el backend lanza `WinFspMissingError(EnvironmentError)`. La UI ofrece descargar e instalar la última release oficial de WinFsp desde `github.com/winfsp/winfsp`:

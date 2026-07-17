@@ -166,10 +166,10 @@ view_update → view_login → view_shares → view_minio → view_credentials �
 
 - `view_update` — `build_update_content` (en `frontend.py`, compartido): chequea updates y ofrece actualizar o continuar.
 - `view_login` — `_build_login_content`: valida LDAP (salvo `BIFROST_NO_LDAP=1`). En web, pre-rellena username si hay sesión previa.
-- `view_shares` — `_build_shares_content` (solo cluster Linux): monta shares SMB/CIFS accesibles para el usuario.
+- `view_shares` — `_build_shares_content` (solo cluster Linux): monta shares SMB/CIFS accesibles para el usuario. Los mounts CIFS son **siempre read-only** (`montar_share_rclone` usa `--read-only`); solo sirven como origen de copia.
 - `view_minio` — `_build_minio_content`: selección de servidor MinIO (`backend.MINIO_SERVERS`).
 - `view_credentials` — `_build_credentials_content`: **automática**. Si STS con >3 días → skip directo a `view_mount`/`view_copy`. Si <3 días o sin credenciales → renueva por 7 días mostrando progreso.
-- `view_mount` (mount) — `_build_mount_bucket`: navegador de buckets + montaje.
+- `view_mount` (mount) — `_build_mount_bucket`: navegador de buckets + montaje. El montaje S3 es **siempre read-only** (`mount_rclone_S3_prefix_to_folder` usa `--read-only --links`); el usuario puede leer pero no modificar, crear ni borrar ficheros. Para subir datos se usa Bifrost Transfer.
 - `view_copy` (transfer) — `_build_copy_content`: navegador rclone de destino, selector de origen, opciones de copia, log en vivo. Botón "Mount CIFS" (web) y acceso a Tag Manager (`on_tags=go_tags`).
 
 `view_copy` contiene un navegador de carpetas rclone (`build_rclone_browser`) para elegir destino, un selector de origen (local o share SMB), opciones de copia y un panel de log en vivo (`ft.ListView auto_scroll=True`).

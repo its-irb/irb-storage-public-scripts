@@ -34,6 +34,8 @@ Por eso, si se te cierra la pestaña durante una copia grande, **no te asustes**
 
 En el cluster Linux, además de carpetas locales, puedes copiar desde **unidades de red** (CIFS/SMB) a las que tengas acceso. Tras el login, en el modo cluster aparece una pantalla extra donde puedes **montar** las unidades de red disponibles antes de elegir el origen de la copia.
 
+> **Solo lectura:** las unidades de red que montas aquí son **solo para lectura**. Sirven únicamente como **origen** de una copia hacia MinIO; no puedes modificar, crear ni borrar ficheros en ellas a través del montaje.
+
 1. En la pantalla de unidades, marca las que quieras montar.
 2. Pulsa **Montar** (o el botón equivalente).
 3. Esas unidades quedarán disponibles como carpetas y podrás elegirlas como **origen** en la pantalla de copia.

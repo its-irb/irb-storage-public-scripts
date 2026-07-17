@@ -7,7 +7,7 @@ BIFROST proporciona dos apps de escritorio Flet/Python para acceder al almacenam
 | App | Carpeta | Función | Modos |
 |---|---|---|---|
 | **bifrost-transfer** | `bifrost-transfer/` | Subir datos a buckets MinIO desde carpetas de red (SMB/CIFS) o locales, con verificación de integridad y etiquetado por perfil. Incluye **Tag Manager**. | Desktop + Web (OOD) |
-| **bifrost-mount** | `bifrost-mount/` | Montar carpetas MinIO como unidad local. | Desktop |
+| **bifrost-mount** | `bifrost-mount/` | Montar carpetas MinIO como unidad local **solo lectura**. Para subir datos se usa bifrost-transfer. | Desktop |
 
 ## Layout del repo
 
@@ -76,6 +76,8 @@ view_update → view_login → view_shares → view_minio → view_credentials �
 ```
 
 `view_credentials` es automático: si quedan >3 días en las STS se salta; <3 días o sin credenciales → renueva por 7 días. Constantes `STS_RENEWAL_THRESHOLD_DAYS=3`, `STS_AUTO_RENEWAL_DAYS=7` en cada `main.py`.
+
+**Invariante de montaje:** todos los montajes son **read-only**. `mount_rclone_S3_prefix_to_folder` (bifrost-mount, S3) usa `--read-only --links` (`backend.py:737`); `montar_share_rclone` (bifrost-transfer web, CIFS) usa `--vfs-cache-mode off --read-only` (`backend.py:1209-1210`). Los mounts CIFS del cluster solo se usan como origen de copia. Ver `backend.md` § Mount/unmount.
 
 ## Servidores MinIO
 

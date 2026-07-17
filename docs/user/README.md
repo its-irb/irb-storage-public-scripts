@@ -5,7 +5,7 @@ BIFROST son dos aplicaciones para guardar y consultar datos en el almacenamiento
 | Aplicación | Para qué sirve |
 |---|---|
 | **BIFrost Transfer** | Subir carpetas o ficheros desde tu equipo (o desde una unidad de red) a tu espacio en MinIO, comprobando que los datos lleguen íntegros y etiquetándolos para que luego se puedan encontrar. Incluye un **Tag Manager** para revisar y corregir las etiquetas sin tener que volver a subir nada. |
-| **BIFrost Mount** | Ver tus carpetas de MinIO como si fueran una unidad más del equipo (un disco o carpeta), para abrir y guardar ficheros directamente desde cualquier programa. |
+| **BIFrost Mount** | Ver tus carpetas de MinIO como si fueran una unidad más del equipo (un disco o carpeta), para abrir y leer ficheros directamente desde cualquier programa. La unidad es **solo lectura**: para subir o modificar datos usa BIFrost Transfer. |
 
 ## Dónde encontrar cada guía
 
@@ -30,6 +30,6 @@ Para usar cualquiera de las dos aplicaciones necesitas:
 ## En una frase
 
 - **Transfer**: eliges qué quieres subir, eliges dónde guardarlo en MinIO, rellenas unas etiquetas y le das a copiar. La app verifica que todo llega bien.
-- **Mount**: eliges una carpeta de MinIO y le dices "montar". A partir de ese momento la ves como una unidad más del equipo hasta que la desmontes.
+- **Mount**: eliges una carpeta de MinIO y le dices "montar". A partir de ese momento la ves como una unidad más del equipo (solo lectura) hasta que la desmontes.
 
 Para detalles, abre la guía específica de la aplicación que quieres usar.

@@ -1,14 +1,18 @@
 # BIFrost Mount — Montar tus carpetas de MinIO
 
-BIFrost Mount te permite ver tus carpetas de MinIO como si fueran una unidad más de tu equipo (un disco en Windows o una carpeta en Mac). Así puedes abrir y guardar ficheros en MinIO directamente desde cualquier programa, sin tener que copiarlos antes a tu escritorio.
+BIFrost Mount te permite ver tus carpetas de MinIO como si fueran una unidad más de tu equipo (un disco en Windows o una carpeta en Mac). Así puedes abrir y leer tus ficheros de MinIO directamente desde cualquier programa, sin tener que copiarlos antes a tu escritorio.
+
+> **Solo lectura:** BIFrost Mount es **solo para lectura**. Puedes abrir, visualizar y procesar los ficheros, pero **no puedes modificar los ficheros existentes ni copiar ficheros nuevos** a través de la unidad montada. Para subir datos nuevos o actualizar ficheros en MinIO usa **BIFrost Transfer**.
 
 ## Cuándo usarlo
 
 - Para abrir ficheros grandes que están en MinIO directamente desde tu programa (Excel, ImageJ, un visor de imágenes, etc.) sin descargarlos antes.
-- Para guardar resultados de un análisis directamente en MinIO desde el programa que los genera.
 - Para explorar tus carpetas con el Finder o el Explorador de archivos.
+- Para leer resultados o datos de MinIO desde un script o un programa sin tener que descargarlos primero.
 
-> **Nota:** Montar no copia los datos a tu equipo. Los ficheros siguen en MinIO; el equipo los lee y escribe a través de la conexión. Necesitas VPN activa todo el rato. Para dejar una copia permanente en tu equipo usa **BIFrost Transfer** (que sí copia los datos).
+> Si necesitas **guardar resultados** o **actualizar ficheros** en MinIO, usa **BIFrost Transfer**. BIFrost Mount no permite escritura.
+
+> **Nota:** Montar no copia los datos a tu equipo. Los ficheros siguen en MinIO; el equipo los lee a través de la conexión. Necesitas VPN activa todo el rato. Para dejar una copia permanente en tu equipo usa **BIFrost Transfer** (que sí copia los datos).
 
 ## Abrir la aplicación
 
@@ -47,7 +51,7 @@ No tienes que hacer nada en esta pantalla; espera a que termine.
 3. Pulsa el botón **Montar**.
 4. La aplicación asigna una letra de unidad (en Windows, por ejemplo `Z:`) o un punto de montaje (en Mac) a esa carpeta.
 
-Una vez montado, puedes abrir esa unidad desde el Explorador de archivos (Windows) o desde el Finder (Mac) como cualquier otra carpeta, y trabajar con los ficheros.
+Una vez montado, puedes abrir esa unidad desde el Explorador de archivos (Windows) o desde el Finder (Mac) como cualquier otra carpeta y **leer** los ficheros. Recuerda que es **solo lectura**: no puedes guardar cambios, crear ficheros nuevos ni borrar nada desde la unidad montada (para eso usa BIFrost Transfer).
 
 ### En Windows: ¿pide instalar WinFsp?
 
@@ -75,9 +79,10 @@ Cierra la ventana normalmente. Al cerrar, BIFrost Mount desmonta todas las carpe
 
 ## Cosas a tener en cuenta
 
-- **Velocidad:** trabajar con ficheros montados es más lento que con ficheros locales, porque cada lectura/escritura viaja por la red hasta MinIO. Para tareas intensivas (procesar muchos datos, abrir ficheros muy grandes repetidamente) suele ser mejor **copiar** los datos a tu equipo con BIFrost Transfer, trabajar en local, y luego subir el resultado.
+- **Solo lectura:** la unidad montada es **solo para lectura**. No puedes modificar ficheros existentes, guardar cambios, copiar ficheros nuevos ni borrar nada desde la unidad. Para subir o actualizar datos en MinIO usa **BIFrost Transfer**.
+- **Velocidad:** trabajar con ficheros montados es más lento que con ficheros locales, porque cada lectura viaja por la red hasta MinIO. Para tareas intensivas (procesar muchos datos, abrir ficheros muy grandes repetidamente) suele ser mejor **copiar** los datos a tu equipo con BIFrost Transfer, trabajar en local, y luego subir el resultado.
 - **VPN:** si pierdes la VPN mientras tienes una carpeta montada, la unidad puede dejar de responder. Reconecta la VPN; si no se recupera, desmonta y vuelve a montar.
-- **No es una copia de seguridad:** montar no guarda una copia en tu equipo. Si borras un fichero desde la unidad montada, se borra de MinIO.
+- **No es una copia de seguridad:** montar no guarda una copia en tu equipo; los ficheros siguen en MinIO.
 - **Una carpeta a la vez:** monta solo las carpetas que vayas a usar y desmonta cuando termines.
 
 ## Resumen rápido

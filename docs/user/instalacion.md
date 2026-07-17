@@ -67,6 +67,6 @@ Recomendamos aceptar las actualizaciones para tener las mejoras y correcciones.
 
 ## ¿No sabes cuál instalar?
 
-- Si lo que quieres es **subir datos** a MinIO (copiarlos desde tu equipo o desde una unidad de red al almacenamiento) → instala **BIFrost Transfer**.
-- Si lo que quieres es **trabajar con datos que ya están en MinIO** como si estuvieran en una carpeta local (abrirlos, editarlos, guardarlos desde tus programas) → instala **BIFrost Mount**.
+- Si lo que quieres es **subir datos** a MinIO (copiarlos desde tu equipo o desde una unidad de red al almacenamiento) o actualizar ficheros existentes → instala **BIFrost Transfer**.
+- Si lo que quieres es **abrir y leer** datos que ya están en MinIO como si estuvieran en una carpeta local (desde tus programas, en modo solo lectura) → instala **BIFrost Mount**. BIFrost Mount **no permite modificar, guardar ni borrar** ficheros; para eso usa BIFrost Transfer.
 - Puedes tener las dos instaladas a la vez; no interfieren entre sí.
