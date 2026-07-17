@@ -11,7 +11,7 @@ Repositorio de **herramientas de acceso al almacenamiento MinIO S3 — IRB Barce
 | App | Carpeta | Función |
 |---|---|---|
 | **bifrost-transfer** | `bifrost-transfer/` | Copia datos desde carpetas de red (SMB/CIFS) o local a buckets MinIO S3, con verificación de integridad y etiquetado de metadatos. Incluye **Tag Manager** para navegar buckets/carpetas/ficheros S3 y aplicar tagsets masivamente sin re-subida. Soporta **modo desktop y modo web** (Open OnDemand). |
-| **bifrost-mount** | `bifrost-mount/` | Monta carpetas MinIO S3 como unidad local (Windows/macOS/Linux). Solo modo desktop. |
+| **bifrost-mount** | `bifrost-mount/` | Monta carpetas MinIO S3 como unidad local **solo lectura** (Windows/macOS/Linux). Para subir datos se usa bifrost-transfer. Solo modo desktop. |
 
 Ambas son apps Flet con punto de entrada `src/main.py` y configuración `pyproject.toml` por app.
 

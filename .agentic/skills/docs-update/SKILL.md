@@ -88,6 +88,8 @@ Si existe `documentation.last_reviewed_commit`, continúa con el proceso obligat
 
    No es obligatorio modificar todas las capas en cada ejecución. Sí es obligatorio evaluar todas y actualizar cada una donde el cambio sea relevante para su audiencia.
 
+9. Si la invocación señala una funcionalidad, documento, ruta o afirmación concreta, trátala como foco explícito obligatorio y busca todas sus apariciones en las distintas capas. Este foco no sustituye el resto del proceso obligatorio.
+
 ## Autosuficiencia de las capas
 
 Comprueba que, después de la actualización:
@@ -167,12 +169,16 @@ Comprueba que:
 - el nivel de detalle, el enfoque y el lenguaje cambian según la audiencia, pero no los hechos;
 - cada capa conserva toda la información necesaria para su propia audiencia.
 
-Si detectas una contradicción o una dependencia innecesaria entre capas:
+Si detectas una contradicción entre documentos o entre la documentación y el
+estado actual del repositorio:
 
-1. determina el comportamiento real a partir del repositorio;
-2. corrige todos los documentos afectados;
-3. completa las capas que hayan quedado insuficientes;
-4. no des la documentación por válida mientras el problema permanezca.
+1. identifica las afirmaciones contradictorias;
+2. reúne las evidencias disponibles en el repositorio;
+3. explica qué corrección parece respaldada por esas evidencias;
+4. solicita confirmación humana antes de modificar las afirmaciones afectadas;
+5. agrupa las contradicciones en una única solicitud de confirmación cuando sea posible;
+6. tras recibir confirmación, corrige todos los documentos afectados y completa las capas que hayan quedado insuficientes;
+7. no des la revisión por terminada ni actualices el baseline mientras existan contradicciones pendientes de resolver.
 
 ## Validación obligatoria del README
 
