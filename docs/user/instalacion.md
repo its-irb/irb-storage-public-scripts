@@ -1,6 +1,6 @@
 # Instalación de BIFROST
 
-Es muy posible que BIfrost ya esté instalado en los equipos gestionados por el departamento de ITS. Antes de iniciar una instalación manual, comprueba si la aplicación aparece disponible en el equipo o en el menú de aplicaciones. Si no está instalada o no puedes localizarla, puedes contactar con ITS para solicitar asistencia o instalarla tú mismo.
+Es muy posible que BIFrost ya esté instalado en los equipos gestionados por el departamento de ITS. Antes de iniciar una instalación manual, comprueba si la aplicación aparece disponible en el equipo o en el menú de aplicaciones. Si no está instalada o no puedes localizarla, puedes contactar con ITS para solicitar asistencia o instalarla tú mismo.
 
 BIFROST se instala como un programa normal en Windows y en Mac. No hace falta instalar nada más a mano: los componentes internos que necesita (como la herramienta `rclone` que copia los datos) ya vienen incluidos en el instalador.
 
