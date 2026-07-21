@@ -17,15 +17,16 @@ Puedes descargar las últimas versiones de BIFrost aquí:
 
 ## Instalación en Windows
 
-1. Descarga el instalador de la aplicación que necesites desde la página de releases del repositorio interno del IRB. El fichero se llama:
-   - `bifrost-transfer-<rama>-windows.exe` para BIFrost Transfer.
-   - `bifrost-mount-<rama>-windows.exe` para BIFrost Mount.
+1. Abre la [página de descargas de BIFROST](https://github.com/its-irb/irb-storage-public-scripts/releases) y busca la **última release** publicada (aparece arriba del todo, marcada como "Latest").
+2. En la lista de ficheros de esa release, descarga el que corresponda a la aplicación que quieres instalar:
+   - **BIFrost Transfer** → `bifrost-transfer-main-windows.exe`
+   - **BIFrost Mount** → `bifrost-mount-main-windows.exe`
 
-   Donde `<rama>` suele ser `main` o `develop`. Para uso normal elige la versión `main`.
-2. Haz doble clic en el `.exe` descargado.
-3. Si Windows muestra una advertencia de "Protección de Windows" o "Archivo no firmado habitualmente", confirma que quieres ejecutarlo. Los instaladores del IRB van firmados; si aun así aparece el aviso, elige **Más información → Ejecutar de todas formas**.
-4. Sigue los pasos del asistente (siguiente, siguiente, instalar). Puedes dejar todas las opciones por defecto.
-5. Al terminar puedes marcar "Launch Bifrost" para abrir la aplicación. También encontrarás el icono en el menú Inicio y, si lo dejaste marcado, en el escritorio.
+   Si ves varios ficheros `.exe` con otras terminaciones (por ejemplo `-release-`, `-develop-` o `-feature-...`), **ignóralos**: para uso normal descarga siempre el que termina en `-main-windows.exe`.
+3. Haz doble clic en el `.exe` descargado.
+4. Si Windows muestra una advertencia de "Protección de Windows" o "Archivo no firmado habitualmente", confirma que quieres ejecutarlo. Los instaladores del IRB van firmados; si aun así aparece el aviso, elige **Más información → Ejecutar de todas formas**.
+5. Sigue los pasos del asistente (siguiente, siguiente, instalar). Puedes dejar todas las opciones por defecto.
+6. Al terminar puedes marcar "Launch Bifrost" para abrir la aplicación. También encontrarás el icono en el menú Inicio y, si lo dejaste marcado, en el escritorio.
 
 ### BIFrost Mount en Windows: WinFsp
 
@@ -37,13 +38,16 @@ BIFrost Mount necesita un componente del sistema llamado **WinFsp** para poder m
 
 ## Instalación en macOS
 
-1. Descarga el instalador de la aplicación desde la página de releases interna del IRB. El fichero se llama:
-   - `bifrost-transfer-macos.dmg` para BIFrost Transfer.
-   - `bifrost-mount-macos.dmg` para BIFrost Mount.
-2. Haz doble clic en el `.dmg` descargado.
-3. En la ventana que se abre, arrastra el icono de BIFrost a la carpeta **Aplicaciones**.
-4. Cierra la ventana del DMG y expúlsalo (botón derecho sobre el icono del DMG en el Finder → Expulsar).
-5. Abre la carpeta **Aplicaciones** y haz doble clic en BIFrost para arrancarla.
+1. Abre la [página de descargas de BIFROST](https://github.com/its-irb/irb-storage-public-scripts/releases) y busca la **última release** publicada (aparece arriba del todo, marcada como "Latest").
+2. En la lista de ficheros de esa release, descarga el `.dmg` que corresponda a la aplicación que quieres instalar:
+   - **BIFrost Transfer** → `bifrost-transfer-macos.dmg`
+   - **BIFrost Mount** → `bifrost-mount-macos.dmg`
+
+   Si ves varios ficheros, descarga únicamente el que tenga exactamente ese nombre.
+3. Haz doble clic en el `.dmg` descargado.
+4. En la ventana que se abre, arrastra el icono de BIFrost a la carpeta **Aplicaciones**.
+5. Cierra la ventana del DMG y expúlsalo (botón derecho sobre el icono del DMG en el Finder → Expulsar).
+6. Abre la carpeta **Aplicaciones** y haz doble clic en BIFrost para arrancarla.
 
 ### La primera vez en macOS
 

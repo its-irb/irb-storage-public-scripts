@@ -1,6 +1,6 @@
 {
   "framework_version": "0.1.0",
-  "installed_at": "2026-07-17T11:55:08.150950+00:00",
+  "installed_at": "2026-07-21T07:23:15.663400+00:00",
   "source": "/Users/dquiros/Documents/IRBDevops/devel/agentic-repo-framework",
   "managed_core_skills": [
     "commit-work",
@@ -12,35 +12,35 @@
       "sha256": "1c2f39803f79743efd36b7fb42114f56379faa995208ac0d9aa376a2e92bb8a8"
     },
     ".agentic/skills/docs-init/SKILL.md": {
-      "sha256": "efea6f81c51868026c2167996daf2f308ea4a6191054426c69d8e6e946f82137"
+      "sha256": "2338cd097c081753cfa07279bb1349c0b47e780ac84d6bc37eb030298c358590"
     },
     ".agentic/skills/docs-update/SKILL.md": {
-      "sha256": "2034118672cbe3b85ec9e226eb8bee248a12226c68c901a669aa8b36d449c451"
+      "sha256": "dbcdacb42b3557d7f282bdf4246d2dc5b8156e5673c871c0eea6e0fb0bc72ab5"
     },
     ".claude/skills/commit-work/SKILL.md": {
       "sha256": "4eb8db12d90a1ca36f1654b79a961213da3df224ba8cf78a256630a94467c963"
     },
     ".claude/skills/docs-init/SKILL.md": {
-      "sha256": "a243484cc620f3a6091b0cc776cc9eecb09b637c4f398572fe2f7078d9f3970f"
+      "sha256": "d485e0a37079ce9fa40eb37b4b76ea623f416f90e3dd9a18748ab9d13b1fd5b4"
     },
     ".claude/skills/docs-update/SKILL.md": {
-      "sha256": "001204a552d0365c62b2b7ed0bc6908d5b1162daf6fa333382f4026dc3679acb"
+      "sha256": "5cb7daaf3e6d33eadc5e24d6af2e71e6002d2a06cb3b2d751a11cfeb4fa6e15e"
     },
     ".opencode/skills/commit-work/SKILL.md": {
       "sha256": "c283bcd0813f57731b3de88e02f0d15691f4b33b7cb83a4d3629f480c30b6573"
     },
     ".opencode/skills/docs-init/SKILL.md": {
-      "sha256": "a243484cc620f3a6091b0cc776cc9eecb09b637c4f398572fe2f7078d9f3970f"
+      "sha256": "d485e0a37079ce9fa40eb37b4b76ea623f416f90e3dd9a18748ab9d13b1fd5b4"
     },
     ".opencode/skills/docs-update/SKILL.md": {
-      "sha256": "001204a552d0365c62b2b7ed0bc6908d5b1162daf6fa333382f4026dc3679acb"
+      "sha256": "5cb7daaf3e6d33eadc5e24d6af2e71e6002d2a06cb3b2d751a11cfeb4fa6e15e"
     },
     "docs/documentation-methodology.md": {
-      "sha256": "5435c2b30d2fc33b1de1aff2cdccc32e91d71c5559ee394bdca8f57b875f9b1d"
+      "sha256": "163f26ec9ccd9819ee0233213bcc0915a1a16bc756fcb5a4a0920a9cd9dfb858"
     }
   },
   "documentation": {
-    "last_reviewed_commit": "5f720bf24de1dd44665a772dc9250e480ddfaf52",
-    "last_reviewed_at": "2026-07-17T11:46:20+00:00"
+    "last_reviewed_commit": "9d6ece8548780985894cc8eba3cca99deecc4225",
+    "last_reviewed_at": "2026-07-17T12:04:39+00:00"
   }
 }
