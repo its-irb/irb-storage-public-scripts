@@ -117,7 +117,7 @@ Cada app se empaqueta con `flet build`. El proceso requiere generar primero el w
 .\build-local.ps1 -app bifrost-mount       # o bifrost-transfer
 ```
 
-**CI** — `.github/workflows/main.yml` builda macOS (`flet build macos`) y Windows (`flet build windows` + Inno Setup) para ambas apps en push a `main`, `release`, `develop`, `feature/**`. La versión se inyecta como `1.0.<run_number>` en `version.py` y `pyproject.toml`.
+**CI** — `.github/workflows/main.yml` builda macOS (`flet build macos`), Windows (`flet build windows` + Inno Setup) y Rocky Linux (PyInstaller onefile) para ambas apps en push a `main`, `release`, `develop`, `feature/**`. La versión se inyecta como `1.0.<run_number>` en `version.py` y `pyproject.toml`.
 
 **macOS local** — `bifrost-mount/build-macos.sh` o `bifrost-transfer/build-macos.sh`.
 
