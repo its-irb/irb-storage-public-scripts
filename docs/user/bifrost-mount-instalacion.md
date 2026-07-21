@@ -41,8 +41,6 @@ datos en MinIO S3, utiliza **bifrost-transfer**.
   instala junto con bifrost-mount, así que normalmente ya lo tienes. Si
   falta, la app lo detecta al intentar montar y ofrece descargarlo e
   instalarlo automáticamente (requiere permisos de administrador).
-- **macOS**: el framework fuse-t va embebido en la aplicación — no hace
-  falta instalarlo.
 
 ## Instalación
 
