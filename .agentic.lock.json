@@ -1,0 +1,56 @@
+{
+  "framework_version": "0.1.0",
+  "installed_at": "2026-07-21T14:25:52.147770+00:00",
+  "source": "/Users/dquiros/Documents/IRBDevops/devel/agentic-repo-framework",
+  "managed_core_skills": [
+    "commit-work",
+    "docs-init",
+    "docs-init-full",
+    "docs-update"
+  ],
+  "documentation": {
+    "last_reviewed_commit": "42462eaf12b1b20cb1a09dc759cd16f1326e2c3e",
+    "last_reviewed_at": "2026-07-21T14:37:35.000000+00:00"
+  },
+  "managed_files": {
+    ".agentic/skills/commit-work/SKILL.md": {
+      "sha256": "1c2f39803f79743efd36b7fb42114f56379faa995208ac0d9aa376a2e92bb8a8"
+    },
+    ".agentic/skills/docs-init-full/SKILL.md": {
+      "sha256": "28c37a9eb9e5e640eed70781f937e5a5083ed580f1f49134f84c4c70c8993957"
+    },
+    ".agentic/skills/docs-init/SKILL.md": {
+      "sha256": "c891c5b1d6e1e603a13c00172b151c634d57baafd47e691fc5a809bfe4703afc"
+    },
+    ".agentic/skills/docs-update/SKILL.md": {
+      "sha256": "d65d8b33ff3474b8cf583011f8472a2cbc38dd296011eb8ced07a31f69000ac7"
+    },
+    ".claude/skills/commit-work/SKILL.md": {
+      "sha256": "4eb8db12d90a1ca36f1654b79a961213da3df224ba8cf78a256630a94467c963"
+    },
+    ".claude/skills/docs-init-full/SKILL.md": {
+      "sha256": "8ab02cc98187b5e1d3da5f066f059beee7804279c0fc1bee6a81751a84fe6840"
+    },
+    ".claude/skills/docs-init/SKILL.md": {
+      "sha256": "6b6c4c6630b8757b94697f26bc94e21e7bcc3c9cf58695816f31ee54e542a0db"
+    },
+    ".claude/skills/docs-update/SKILL.md": {
+      "sha256": "5cb7daaf3e6d33eadc5e24d6af2e71e6002d2a06cb3b2d751a11cfeb4fa6e15e"
+    },
+    ".opencode/skills/commit-work/SKILL.md": {
+      "sha256": "c283bcd0813f57731b3de88e02f0d15691f4b33b7cb83a4d3629f480c30b6573"
+    },
+    ".opencode/skills/docs-init-full/SKILL.md": {
+      "sha256": "8ab02cc98187b5e1d3da5f066f059beee7804279c0fc1bee6a81751a84fe6840"
+    },
+    ".opencode/skills/docs-init/SKILL.md": {
+      "sha256": "6b6c4c6630b8757b94697f26bc94e21e7bcc3c9cf58695816f31ee54e542a0db"
+    },
+    ".opencode/skills/docs-update/SKILL.md": {
+      "sha256": "5cb7daaf3e6d33eadc5e24d6af2e71e6002d2a06cb3b2d751a11cfeb4fa6e15e"
+    },
+    "docs/documentation-methodology.md": {
+      "sha256": "163f26ec9ccd9819ee0233213bcc0915a1a16bc756fcb5a4a0920a9cd9dfb858"
+    }
+  }
+}

@@ -195,7 +195,7 @@ src/storage/data/
 .claude/
 
 # Wiki LLM y superpowers
-docs/
+docs/wiki/raw/
 
 #diff 
 historial*
