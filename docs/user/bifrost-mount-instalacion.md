@@ -18,20 +18,8 @@ Si ya aparece, no reinstales — ábrela directamente.
 ## Para qué sirve bifrost-mount
 
 Bifrost-mount monta buckets de MinIO S3 como carpetas locales de **solo
-lectura**. Permite:
-
-- **Explorar buckets sin descargarlos**: navega por los datos S3 con el
-  Finder o el Explorador de archivos como si fueran carpetas locales.
-- **Abrir ficheros S3 directamente** en aplicaciones como ImageJ, Fiji u
-  otros sin copiarlos antes al disco.
-- **Inspeccionar el resultado de una transferencia** realizada con
-  bifrost-transfer.
-- **Consumir datos S3 desde scripts o CLI** que esperan rutas locales; el
-  mount aparece como una carpeta normal.
-
-**Bifrost-mount es de solo lectura por diseño.** Esto evita problemas de
-buffer y asegura que no se pierdan datos. Para subir, modificar o borrar
-datos en MinIO S3, utiliza **bifrost-transfer**.
+lectura** para explorarlas y abrir ficheros sin descargarlos. Para una
+guía completa de uso, consulta `bifrost-mount-uso.md`.
 
 ## Requisitos previos
 
@@ -52,8 +40,7 @@ desde
   ejecútalo.
 - **macOS**: descarga el archivo `.dmg`, ábrelo y arrastra la aplicación a
   Aplicaciones.
-- **Linux**: *pendiente de completar.* No se ha confirmado si el binario
-  Linux se distribuye a usuarios finales.
+- **Linux**: para instalaciones en Linux, consulta con ITS.
 
 ## Actualizaciones
 
