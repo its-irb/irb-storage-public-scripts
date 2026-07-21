@@ -118,6 +118,65 @@ docs/user/
 
 La estructura y el número de documentos dependen de la superficie funcional del proyecto.
 
+## Orientación por intención y objetivos
+
+La documentación no debe limitarse a inventariar componentes, funciones,
+comandos, opciones o pantallas. Debe explicar el propósito del sistema desde
+la perspectiva de cada audiencia.
+
+### Documentación para desarrolladores
+
+La documentación para desarrolladores debe explicar no solo cómo está
+implementado el sistema, sino también, cuando pueda verificarse:
+
+- qué problema resuelve cada área relevante;
+- qué responsabilidad tiene dentro del conjunto;
+- por qué el código está dividido o estructurado de esa manera;
+- qué decisiones, restricciones o necesidades condicionaron el diseño;
+- qué invariantes y límites deben preservarse;
+- qué riesgos o consecuencias tendría modificar esas decisiones;
+- cómo encaja cada componente en los flujos completos del sistema.
+
+No es necesario justificar cada función ni describir línea por línea el código.
+Debe documentarse especialmente la intención que no resulte evidente al leer
+una implementación aislada.
+
+No inventes motivaciones ni decisiones arquitectónicas. Distingue entre:
+
+- comportamiento y estructura verificables en el repositorio;
+- intención o razones respaldadas por documentación, comentarios, historial o
+  información humana;
+- razones que no pueden determinarse con las evidencias disponibles.
+
+Cuando una razón relevante no pueda verificarse, indícala como pendiente y
+solicita información humana en lugar de deducirla.
+
+### Documentación para usuarios
+
+La documentación para usuarios debe organizarse principalmente alrededor de
+los objetivos que el usuario quiere alcanzar, no alrededor de la estructura
+interna del producto ni de una enumeración de sus controles.
+
+Identifica los objetivos reales soportados por el producto. Para cada objetivo
+relevante, explica:
+
+- qué puede conseguir el usuario;
+- cuándo debe utilizar ese flujo;
+- qué requisitos o condiciones previas existen;
+- qué funcionalidad debe elegir cuando hay varias alternativas;
+- cómo completar la tarea;
+- qué resultado debe esperar;
+- qué limitaciones debe conocer;
+- qué hacer si la operación falla o no obtiene el resultado esperado.
+
+Los comandos, botones, campos, opciones y secuencias de pasos deben explicarse
+dentro del objetivo al que sirven. Pueden existir documentos de referencia de
+la interfaz, pero no deben sustituir las guías orientadas a tareas.
+
+La estructura documental no tiene que seguir literalmente títulos del tipo
+«Quiero...», pero debe permitir que un usuario encuentre la guía partiendo de
+lo que necesita conseguir.
+
 ## Autosuficiencia y redundancia
 
 Cada capa documental debe ser autosuficiente para su audiencia:

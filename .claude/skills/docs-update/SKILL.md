@@ -1,6 +1,6 @@
 ---
 name: docs-update
-description: Revisa cambios desde el último commit documentado y actualiza documentación si procede.
+description: Revisa los cambios desde el último commit documentado, propone las actualizaciones necesarias en las capas documentales y solo las aplica después de recibir confirmación humana explícita.
 ---
 
 Sigue las instrucciones comunes en:

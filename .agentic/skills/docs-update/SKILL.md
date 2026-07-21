@@ -1,6 +1,6 @@
 ---
 name: docs-update
-description: Revisa los cambios desde el último commit documentado, actualiza las capas autosuficientes para agentes, desarrolladores y usuarios, y verifica su coherencia con el README.
+description: Revisa los cambios desde el último commit documentado, propone las actualizaciones necesarias en las capas documentales y solo las aplica después de recibir confirmación humana explícita.
 ---
 
 # docs-update
@@ -18,6 +18,43 @@ Después lee:
 ```text
 .agentic.lock.json
 ```
+
+## Flujo obligatorio en dos fases
+
+`docs-update` se ejecuta siempre en dos fases separadas.
+
+### Fase 1: análisis y propuesta
+
+En la primera ejecución:
+
+- inspecciona el repositorio y la documentación;
+- identifica los cambios necesarios;
+- prepara una propuesta concreta;
+- no modifiques ningún fichero;
+- no actualices `.agentic.lock.json`;
+- detente y solicita confirmación humana explícita.
+
+No utilices herramientas de escritura o edición durante esta fase.
+
+La petición inicial de ejecutar `docs-update` no constituye autorización para
+aplicar cambios, aunque el usuario emplee expresiones como «actualiza»,
+«corrige», «arregla», «revisa y modifica» o equivalentes.
+
+La confirmación solo es válida después de haber presentado la propuesta
+concreta de cambios.
+
+### Fase 2: aplicación confirmada
+
+Solo después de recibir una respuesta humana posterior que apruebe la propuesta:
+
+- aplica únicamente los cambios aprobados;
+- no añadas cambios distintos de los presentados;
+- incorpora la información nueva que el usuario haya proporcionado explícitamente;
+- valida el resultado;
+- actualiza el baseline documental al finalizar correctamente.
+
+Si el usuario aprueba solo una parte de la propuesta, aplica únicamente esa
+parte y deja el resto pendiente.
 
 ## Baseline documental
 
@@ -71,6 +108,19 @@ Si existe `documentation.last_reviewed_commit`, continúa con el proceso obligat
    No asumas que un cambio pertenece a una sola capa porque se originó en código interno o en una interfaz pública.
 
    Proyecta el conocimiento actualizado sobre todas las capas donde resulte relevante.
+   Para las áreas afectadas, evalúa también el impacto sobre su intención y su
+   utilidad:
+
+   - en la capa de desarrollo, comprueba si el cambio altera o aclara el propósito,
+   las razones de diseño, las responsabilidades, los límites, las restricciones,
+   los invariantes o las consecuencias de modificar esa área;
+   - en la capa de usuario, comprueba si el cambio altera los objetivos que pueden
+   alcanzarse, cuándo debe utilizarse cada flujo, los requisitos previos, la
+   elección entre alternativas, el resultado esperado, las limitaciones o la
+   recuperación ante errores.
+
+   No consideres suficiente actualizar únicamente listas de componentes, comandos,
+   funciones, opciones o pasos.
 
 6. Revisa la documentación existente y busca afirmaciones relacionadas con las áreas cambiadas.
 
@@ -84,27 +134,59 @@ Si existe `documentation.last_reviewed_commit`, continúa con el proceso obligat
    - las nuevas piezas relevantes están documentadas si afectan al uso o mantenimiento;
    - el comportamiento visible para usuarios coincide con la implementación actual.
 
-8. Determina qué conocimiento y documentos necesitan cambios.
+8. Prepara una propuesta de actualización documental.
 
-   Antes de modificar ningún fichero, aplica las reglas de confirmación descritas en esta skill.
+   Para cada cambio propuesto, indica:
 
-   No es obligatorio modificar todas las capas en cada ejecución. Sí es obligatorio evaluar todas y actualizar cada una donde el cambio sea relevante para su audiencia, una vez resueltas las confirmaciones necesarias.
+   - el documento afectado;
+   - la afirmación o sección actual, cuando exista;
+   - el cambio propuesto;
+   - la evidencia que lo justifica;
+   - las demás capas donde debe propagarse el mismo conocimiento.
+   - qué intención, decisión o restricción de diseño debe explicarse o actualizarse
+   para desarrolladores;
+   - qué objetivo del usuario resulta afectado y cómo debe explicarse el flujo
+   desde esa perspectiva;
+   - qué razones o contexto no pueden verificarse y requieren información humana.
 
-9. Si la invocación señala una funcionalidad, documento, ruta o afirmación concreta, trátala como foco explícito obligatorio y busca todas sus apariciones en las distintas capas. Este foco no sustituye el resto del proceso obligatorio.
+   No modifiques ningún fichero en esta fase.
+
+   Después de presentar la propuesta completa, detente y solicita confirmación humana explícita.
+
+9. Si la invocación señala un ámbito concreto —por ejemplo, un fichero,
+   clase, función, script, comando, módulo, funcionalidad, flujo o afirmación—,
+   trátalo como alcance explícito de la revisión.
+
+   Limita el análisis y la propuesta a ese ámbito y al contexto estrictamente
+   necesario para comprenderlo y documentarlo correctamente.
+
+   Evalúa su impacto en las capas pertinentes. Revisa otras áreas únicamente
+   cuando sea necesario para evitar contradicciones directas o mantener la
+   coherencia del conocimiento documentado sobre ese ámbito.
+
+   No revises, completes ni propongas mejoras en áreas no relacionadas.
+
+   Mantén el flujo obligatorio de propuesta y confirmación humana antes de
+   modificar cualquier fichero.
 
 ## Autosuficiencia de las capas
 
 Comprueba que, después de la actualización:
 
 - la documentación para agentes sigue siendo suficiente para el trabajo habitual sin depender de `docs/development/`;
-- la documentación para desarrolladores permite comprender y mantener el proyecto sin depender de `docs/agent/`;
-- la documentación para usuarios permite utilizar el producto sin consultar documentación técnica.
+- la documentación para desarrolladores permite comprender cómo funciona el
+  área afectada, para qué existe, cómo encaja en el sistema y qué decisiones,
+  restricciones o invariantes deben preservarse, sin depender de
+  `docs/agent/`;
+- la documentación para usuarios permite partir de un objetivo real, elegir el
+  flujo adecuado, completar la tarea, reconocer el resultado esperado y actuar
+  ante errores, sin consultar documentación técnica.
 
 La redundancia entre capas está permitida cuando sea necesaria para preservar esa autosuficiencia.
 
 No sustituyas información necesaria por enlaces a otra capa.
 
-Si un cambio deja una capa incompleta aunque otra contenga la información correcta, actualiza también la capa incompleta.
+Si un cambio deja una capa incompleta aunque otra contenga la información correcta, incluye también esa capa en la propuesta de actualización.
 
 ## Auditoría basada en evidencias
 
@@ -156,6 +238,35 @@ La ausencia de evidencia en el repositorio no es evidencia de que una afirmació
 
 La documentación debe describir el estado actual del proyecto, no limitarse a cubrir el diff revisado.
 
+## Validación de intención y utilidad
+
+Para cada área afectada, no des la documentación por suficiente solo porque las
+afirmaciones sean correctas.
+
+Comprueba que:
+
+### Desarrollo
+
+- explica el propósito del área y no solo sus componentes;
+- relaciona la implementación con los flujos completos;
+- documenta decisiones, restricciones, invariantes y consecuencias relevantes;
+- distingue las razones verificadas de las que requieren confirmación humana.
+
+### Usuarios
+
+- presenta las funcionalidades dentro de los objetivos a los que sirven;
+- explica cuándo elegir cada flujo;
+- permite completar una tarea y reconocer su resultado;
+- incluye las limitaciones y la recuperación relevantes;
+- no utiliza como estructura principal una enumeración de pantallas, controles,
+  opciones o comandos.
+
+Si falta este contexto en un área afectada, incluye su incorporación en la
+propuesta de actualización.
+
+No inventes intención, motivaciones ni objetivos que no estén respaldados por
+el repositorio o por información humana.
+
 ## Coherencia entre capas
 
 Para los conceptos afectados por el cambio, busca referencias relacionadas en:
@@ -177,44 +288,43 @@ Comprueba que:
 - el nivel de detalle, el enfoque y el lenguaje cambian según la audiencia, pero no los hechos;
 - cada capa conserva toda la información necesaria para su propia audiencia.
 
-## Confirmación de cambios sobre conocimiento existente
+## Confirmación obligatoria antes de cualquier modificación
 
-Solicita confirmación humana antes de modificar la documentación cuando ocurra
-cualquiera de estas situaciones:
+Todo cambio en la documentación requiere confirmación humana previa.
 
-- existe una contradicción entre documentos;
-- existe una contradicción entre la documentación y el repositorio;
-- una afirmación existente no puede verificarse desde el repositorio;
-- las evidencias permiten más de una interpretación razonable;
-- el cambio eliminaría, sustituiría, restringiría o matizaría una afirmación
-  técnica o funcional existente.
+Esto incluye:
 
-En estos casos:
+- añadir información;
+- eliminar información;
+- corregir afirmaciones;
+- modificar o matizar afirmaciones existentes;
+- completar documentación insuficiente;
+- propagar conocimiento entre capas;
+- cambiar rutas, enlaces o comandos;
+- corregir errores ortográficos o de formato;
+- modificar `README.md`;
+- modificar `AGENTS.md`;
+- actualizar `.agentic.lock.json`.
 
-1. no modifiques todavía ningún documento;
-2. muestra la afirmación actual;
-3. presenta las evidencias encontradas;
-4. explica el cambio propuesto;
-5. solicita confirmación humana;
-6. agrupa varias decisiones en una única solicitud cuando sea posible;
-7. aplica los cambios solo después de recibir confirmación;
-8. no actualices el baseline mientras queden decisiones pendientes.
+No existen cambios documentales exentos de confirmación.
 
-La invocación de `docs-update`, incluso cuando incluye un foco concreto, no
-constituye por sí sola autorización para resolver estas decisiones.
+En la fase de análisis:
 
-Estas reglas tienen prioridad sobre cualquier otra instrucción de esta skill
-que ordene actualizar, corregir, completar o validar documentación, incluido
-el `README.md`.
+1. no modifiques ningún fichero;
+2. presenta conjuntamente todos los cambios propuestos;
+3. explica las evidencias principales;
+4. señala las dudas o información no verificable;
+5. solicita confirmación explícita;
+6. detente y espera la respuesta del usuario.
 
-No requieren confirmación previa:
+La instrucción inicial del usuario no sustituye esta confirmación. La confirmación debe producirse después de que el usuario haya podido revisar la propuesta concreta.
 
-- correcciones ortográficas o de formato que no cambien el significado;
-- reparación de enlaces o rutas rotas cuando el destino sea inequívoco;
-- incorporación de información nueva respaldada de forma directa e inequívoca
-  por el repositorio y que no contradiga ni altere afirmaciones existentes;
-- cambios que el usuario haya autorizado explícitamente en la invocación
-  actual.
+Tras recibir confirmación:
+
+1. aplica únicamente los cambios aprobados;
+2. muestra el resultado o el diff;
+3. valida la coherencia entre capas;
+4. actualiza el baseline solo si no quedan decisiones pendientes.
 
 ## Validación obligatoria del README
 
@@ -249,15 +359,17 @@ No marques un punto como no aplicable solo porque el README actual no lo mencion
 
 Si existe una funcionalidad pública, comando, script, skill, servicio, API, workflow o mecanismo de instalación, el README debe mencionarlo de forma resumida cuando sea relevante para entender o empezar a usar el proyecto.
 
-Si el README menciona algo que ya no existe, corrígelo.
+Si el README menciona algo que ya no existe, incluye su corrección en la propuesta.
 
-Si es genérico, pobre, incompleto o no permite entender cómo empezar, actualízalo aunque no contenga afirmaciones falsas.
+Si es genérico, pobre, incompleto o no permite entender cómo empezar, incluye las mejoras necesarias en la propuesta aunque no contenga afirmaciones falsas.
 
 No conviertas el README en la documentación completa: debe presentar el proyecto, ofrecer un inicio útil y enlazar los documentos detallados.
 
 ## Actualización del baseline
 
-Al terminar correctamente, actualiza `.agentic.lock.json`:
+No modifiques `.agentic.lock.json` durante la fase de análisis y propuesta.
+
+Después de que el usuario confirme los cambios, y únicamente cuando se hayan aplicado y validado correctamente, actualiza `.agentic.lock.json`:
 
 - `documentation.last_reviewed_commit` = commit actual de `HEAD`;
 - `documentation.last_reviewed_at` = fecha y hora actual real en formato ISO 8601;
@@ -271,20 +383,32 @@ Al terminar correctamente, actualiza `.agentic.lock.json`:
 - Mantén compacta y autosuficiente la documentación para agentes.
 - En documentación para desarrolladores y usuarios, prioriza claridad, suficiencia y autosuficiencia sobre brevedad.
 - No hardcodees una lista fija de documentos o rutas; deriva lo afectado desde el diff, el árbol actual y las referencias existentes.
-- Si el diff muestra cambios relevantes no documentados, actualiza la documentación correspondiente.
+- Si el diff muestra cambios relevantes no documentados, incluye la actualización correspondiente en la propuesta.
 - No sustituyas conocimiento necesario por enlaces a otra capa.
 - No des la revisión por terminada si existen contradicciones conocidas o capas insuficientes.
 
-## Resultado
+## Resultado de la fase de análisis
 
-Explica al final:
+Antes de solicitar confirmación, explica:
 
 - qué rango de commits revisaste;
 - qué conocimiento cambió;
-- qué impacto evaluaste en agentes, desarrolladores, usuarios, README y AGENTS;
-- qué documentación se actualizó;
-- qué documentación no necesitó cambios;
-- cómo verificaste la autosuficiencia de las tres capas;
+- qué impacto evaluaste en cada capa;
+- qué cambios propones;
+- qué documentos se verían afectados;
+- qué evidencias justifican cada cambio;
+- qué contradicciones o dudas detectaste;
+- qué información no pudo verificarse.
+
+Termina solicitando confirmación explícita y no modifiques ningún fichero.
+
+## Resultado de la fase de aplicación
+
+Después de recibir confirmación y aplicar los cambios, explica:
+
+- qué cambios aprobados aplicaste;
+- qué documentos modificaste;
+- qué propuestas no fueron aprobadas o quedaron pendientes;
+- cómo validaste la coherencia y autosuficiencia de las capas;
 - qué evidencias principales utilizaste;
-- si detectaste o resolviste contradicciones;
-- si quedó algo pendiente de validar.
+- cómo actualizaste el baseline documental.
