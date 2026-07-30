@@ -209,7 +209,7 @@ jobs:
           PYTHONUTF8: "1"
         run: |
           cd ${{ matrix.app }}
-          echo "y" | uv run --project ${{ matrix.app }} flet build windows --output dist --no-rich-output -v
+          echo "y" | uv run flet build windows --output dist --no-rich-output -v
 
       - name: Crear directorio installer
         shell: pwsh
