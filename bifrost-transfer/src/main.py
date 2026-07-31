@@ -1966,7 +1966,11 @@ def _build_copy_content(
         page.update()
 
     renew_btn = btn_secondary("🔑 Renew credentials", on_click=show_renew_dialog)
-    back_btn  = btn_secondary("← Back", on_click=lambda e: on_back()) if on_back else None
+    def _back_with_sftp_cleanup(e):
+        _sftp_disconnect(clear_origen=False)
+        on_back()
+
+    back_btn  = btn_secondary("← Back", on_click=_back_with_sftp_cleanup) if on_back else None
     tags_btn  = btn_secondary("🏷️ Tags", on_click=lambda e: on_tags()) if on_tags else None
     cifs_btn = (
         btn_secondary("⊞  Mount CIFS", on_click=lambda e: on_cifs())
@@ -2257,6 +2261,170 @@ def _build_copy_content(
 
     cancel_btn.on_click = do_cancel
 
+    # ── Origen SFTP (perfil rclone efímero) ─────────────────────────────────
+    sftp_state: dict = {"perfil": None, "host": None, "user": None}
+
+    sftp_status_label = ft.Text("", size=12, color=C_ACCENT, font_family=FONT_MONO)
+    sftp_disconnect_btn = ft.IconButton(
+        icon=ft.Icons.CLOSE,
+        icon_color=C_TEXT_DIM,
+        icon_size=16,
+        tooltip="Disconnect SFTP",
+        on_click=lambda e: _sftp_disconnect(),
+    )
+    sftp_status_row = ft.Row(
+        [sftp_status_label, sftp_disconnect_btn],
+        spacing=4,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        visible=False,
+    )
+
+    def _sftp_disconnect(clear_origen: bool = True) -> None:
+        perfil = sftp_state["perfil"]
+        if not perfil:
+            return
+
+        def _bg():
+            backend.eliminar_perfil_rclone(perfil)
+
+        backend.safe_thread(page, _bg).start()
+        sftp_state["perfil"] = None
+        sftp_state["host"]   = None
+        sftp_state["user"]   = None
+        sftp_status_row.visible = False
+        if clear_origen:
+            origen_tf.value = ""
+        page.update()
+
+    def _open_sftp_browser_modal() -> None:
+        _sftp_dest_path = {"value": ""}
+
+        def _on_sftp_select(path: str) -> None:
+            _sftp_dest_path["value"] = path
+
+        browser_widget, browser_refresh = build_rclone_browser(
+            page, sftp_state["perfil"], on_select=_on_sftp_select, lab_filter_enabled=False,
+        )
+
+        def confirm(e):
+            path = _sftp_dest_path["value"]
+            origen_tf.value = f"{sftp_state['perfil']}:{path}"
+            page.pop_dialog()
+            page.update()
+
+        def cancel(e):
+            page.pop_dialog()
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(
+                f"SFTP — {sftp_state['user']}@{sftp_state['host']}",
+                color=C_TEXT, size=15, weight=ft.FontWeight.W_600,
+            ),
+            content=ft.Column([browser_widget], spacing=6, tight=True, width=520),
+            actions=[
+                btn_secondary("Cancel", on_click=cancel),
+                btn_primary("Select this folder", on_click=confirm),
+            ],
+            bgcolor=C_OVERLAY,
+            shape=ft.RoundedRectangleBorder(radius=10),
+        )
+        page.show_dialog(dlg)
+        page.update()
+        threading.Timer(0.1, lambda: backend.ui_call(page, browser_refresh)).start()
+
+    def _open_sftp_dialog(e) -> None:
+        if sftp_state["perfil"]:
+            _open_sftp_browser_modal()
+            return
+
+        host_tf, host_col = styled_field("Host")
+        port_tf, port_col = styled_field("Port", value="22")
+        user_tf, user_col = styled_field("Username")
+        pass_tf, pass_col = styled_field("Password", password=True)
+        err = ft.Text("", color=C_ERROR, size=12, visible=False)
+        loading_indicator = ft.ProgressRing(
+            width=16, height=16, stroke_width=2, color=C_PRIMARY, visible=False
+        )
+        confirm_btn = btn_primary("Connect")
+
+        def connect(ev):
+            host = (host_tf.value or "").strip()
+            port = (port_tf.value or "").strip() or "22"
+            user = (user_tf.value or "").strip()
+            pwd  = (pass_tf.value or "").strip()
+            if not host or not user or not pwd:
+                err.value   = "Host, username and password are required."
+                err.visible = True
+                page.update()
+                return
+
+            confirm_btn.disabled      = True
+            loading_indicator.visible = True
+            err.visible               = False
+            page.update()
+
+            def _validate():
+                perfil = backend.generar_nombre_perfil_sftp()
+                backend.crear_perfil_rclone_sftp(perfil, host, port, user, pwd)
+                ok, motivo = backend.validar_conexion_sftp(perfil)
+                if ok:
+                    sftp_state["perfil"] = perfil
+                    sftp_state["host"]   = host
+                    sftp_state["user"]   = user
+
+                    def _success():
+                        page.pop_dialog()
+                        sftp_status_label.value = f"🌐 Connected to {user}@{host}"
+                        sftp_status_row.visible = True
+                        page.update()
+                        _open_sftp_browser_modal()
+
+                    backend.ui_call(page, _success)
+                else:
+                    backend.eliminar_perfil_rclone(perfil)
+                    mensajes = {
+                        "auth":        "Incorrect username or password.",
+                        "unreachable": f"Could not connect to {host}:{port}. Check the address and make sure the server is reachable from your network.",
+                        "timeout":     f"Connection to {host}:{port} timed out.",
+                    }
+                    msg = mensajes.get(motivo, "Could not connect. Check the details and try again.")
+
+                    def _fail():
+                        err.value                 = msg
+                        err.visible               = True
+                        confirm_btn.disabled      = False
+                        loading_indicator.visible = False
+                        page.update()
+
+                    backend.ui_call(page, _fail)
+
+            backend.safe_thread(page, _validate).start()
+
+        confirm_btn.on_click = connect
+
+        def cancel(ev):
+            page.pop_dialog()
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Connect to SFTP", color=C_TEXT, size=15, weight=ft.FontWeight.W_600),
+            content=ft.Column(
+                [
+                    host_col, port_col, user_col, pass_col, err,
+                    ft.Row([loading_indicator], alignment=ft.MainAxisAlignment.CENTER),
+                ],
+                spacing=6, tight=True, width=320,
+            ),
+            actions=[btn_secondary("Cancel", on_click=cancel), confirm_btn],
+            bgcolor=C_OVERLAY,
+            shape=ft.RoundedRectangleBorder(radius=10),
+        )
+        page.show_dialog(dlg)
+        page.update()
+
+    sftp_btn = btn_secondary("🌐 SFTP", on_click=_open_sftp_dialog)
+
     # ── FilePicker (solo desktop) ──────────────────────────────────────────
     if not IS_WEB:
         file_picker   = ft.FilePicker()
@@ -2306,7 +2474,7 @@ def _build_copy_content(
         pick_folder_btn = btn_secondary("📁 Folder",
                             on_click=lambda e: page.run_task(_pick_folder, e))
 
-        pick_row = ft.Row([pick_file_btn, pick_folder_btn], spacing=8)
+        pick_row = ft.Row([pick_file_btn, pick_folder_btn, sftp_btn], spacing=8)
     else:
         # Modo WEB: browsers propios que leen el filesystem del servidor
         def _open_folder_browser(e):
@@ -2327,6 +2495,7 @@ def _build_copy_content(
             [
                 btn_secondary("📁 Folder", on_click=_open_folder_browser),
                 btn_secondary("📄 File",   on_click=_open_file_browser),
+                sftp_btn,
             ],
             spacing=8,
         )
@@ -2648,6 +2817,7 @@ def _build_copy_content(
                                     origen_col,
                                     ft.Container(height=4),
                                     pick_row,
+                                    sftp_status_row,
                                     ft.Container(height=12),
                                     dest_browser_col,
                                     ft.Container(height=6),
@@ -4025,11 +4195,27 @@ def main(page: ft.Page):
         state["endpoint"]          = session["endpoint"]
         # mounts_activos stays [] — OOD web mode has no CIFS shares
 
+        def _sweep_sftp_huerfanos():
+            try:
+                backend.limpiar_perfiles_rclone_con_prefijo("sftp-src-")
+            except Exception as ex:
+                print(f"[sftp] cleanup sweep failed (non-fatal): {ex}")
+
+        backend.safe_thread(page, _sweep_sftp_huerfanos).start()
+
         # Jump straight to credentials-check → copy view
         _go_credentials_or_copy()
 
     def on_login_success(creds: dict):
         state["credenciales_ldap"] = creds
+
+        def _sweep_sftp_huerfanos():
+            try:
+                backend.limpiar_perfiles_rclone_con_prefijo("sftp-src-")
+            except Exception as ex:
+                print(f"[sftp] cleanup sweep failed (non-fatal): {ex}")
+
+        backend.safe_thread(page, _sweep_sftp_huerfanos).start()
         go_minio()
 
     def go_minio():
