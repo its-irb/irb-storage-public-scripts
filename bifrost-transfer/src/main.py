@@ -1041,10 +1041,12 @@ def _build_credentials_content(
 def build_rclone_browser(
     page: ft.Page,
     perfil_rclone: str,
-    on_select: Callable[[str], None],
+    on_select: Callable[[str, bool], None],
     initial_path: str = "",
     lab_filter_enabled: bool = False,
     endpoint: str | None = None,
+    allow_mkdir: bool = True,
+    show_files: bool = False,
 ) -> tuple[ft.Column, Callable]:
     """
     Navegador interactivo de carpetas rclone con breadcrumb.
@@ -1055,7 +1057,7 @@ def build_rclone_browser(
         (widget, refresh_fn) — llama a refresh_fn() una vez que el widget
         esté en la página para arrancar la carga inicial.
     """
-    nav_state = {"current_path": "", "timeout": 15}
+    nav_state = {"current_path": "", "timeout": 15, "selected_file": None}
     filter_state = {"acronym": None}
     bucket_cache: dict = {"list": None, "tags": None}
 
@@ -1149,14 +1151,15 @@ def build_rclone_browser(
 
     def _navigate(path: str):
         print(f"[browser] navigate → perfil={perfil_rclone!r} path={path!r}")
-        nav_state["current_path"] = path
-        on_select(path)
+        nav_state["current_path"]  = path
+        nav_state["selected_file"] = None
+        on_select(path, False)
 
         loading_row.visible    = True
         error_text.visible     = False
         folder_col.controls.clear()
         filter_row.visible     = lab_filter_enabled and not path
-        mkdir_section.visible  = bool(path)
+        mkdir_section.visible  = allow_mkdir and bool(path)
         _rebuild_breadcrumb()
         page.update()
 
@@ -1254,8 +1257,9 @@ def build_rclone_browser(
                     def confirm_manual(e):
                         new_path = manual_tf.value.strip()
                         print(f"[browser] manual path confirmed → {new_path!r}")
-                        nav_state["current_path"] = new_path
-                        on_select(new_path)
+                        nav_state["current_path"]  = new_path
+                        nav_state["selected_file"] = None
+                        on_select(new_path, False)
                         _rebuild_breadcrumb()
                         manual_tf.visible   = False
                         confirm_btn.visible = False
@@ -1376,7 +1380,7 @@ def build_rclone_browser(
 
         # Actualizar estado y breadcrumb sin llamar a rclone
         nav_state["current_path"] = new_path
-        on_select(new_path)
+        on_select(new_path, False)
         _rebuild_breadcrumb()
 
         # Mostrar la carpeta como "nueva/vacía" en la lista
@@ -2299,11 +2303,12 @@ def _build_copy_content(
     def _open_sftp_browser_modal() -> None:
         _sftp_dest_path = {"value": ""}
 
-        def _on_sftp_select(path: str) -> None:
+        def _on_sftp_select(path: str, is_file: bool = False) -> None:
             _sftp_dest_path["value"] = path
 
         browser_widget, browser_refresh = build_rclone_browser(
             page, sftp_state["perfil"], on_select=_on_sftp_select, lab_filter_enabled=False,
+            allow_mkdir=False,
         )
 
         def confirm(e):
@@ -2513,7 +2518,7 @@ def _build_copy_content(
         font_family=FONT_MONO,
     )
 
-    def on_browser_select(path: str):
+    def on_browser_select(path: str, is_file: bool = False):
         print(f"[copy] destination selected → {perfil_rclone}:{path}" if path
               else "[copy] destination cleared (root)")
         _dest_path["value"] = path
