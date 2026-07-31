@@ -5,7 +5,7 @@ This repository contains two desktop apps (Flet/Python) for interacting with IRB
 
 | App | Folder | Description |
 |---|---|---|
-| **bifrost-transfer** | `bifrost-transfer/` | Upload data from network shares (SMB/CIFS), SFTP servers, or local folders to MinIO S3 buckets, with integrity verification and metadata tagging by profile. Includes a **Tag Manager** to browse and edit S3 object tags without re-uploading. |
+| **bifrost-transfer** | `bifrost-transfer/` | Upload data from network shares (SMB/CIFS), SFTP servers (password optional; browse and pick either a folder or an individual file as the source), or local folders to MinIO S3 buckets, with integrity verification and metadata tagging by profile. Includes a **Tag Manager** to browse and edit S3 object tags without re-uploading. |
 | **bifrost-mount** | `bifrost-mount/` | Mount MinIO S3 folders as a local drive. |
 
 Both apps share the backend defined in `shared/bifrost_backend` (LDAP, rclone, SMB, S3). They also share part of the frontend in `shared/bifrost_frontend`, both imported as packages in each app's `main.py`.
