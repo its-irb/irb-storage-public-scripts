@@ -109,6 +109,11 @@ source ./.venv/bin/activate          # macOS / Linux
 .\build-local.ps1 -app bifrost-mount  # Windows only
 ```
 
+To force upgrade bifrost shared:
+```
+uv sync --reinstall-package bifrost-shared
+```
+
 Each time — load the virtual environment and run:
 ```bash
 source .venv/bin/activate
