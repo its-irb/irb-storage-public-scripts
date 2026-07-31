@@ -1796,6 +1796,39 @@ def rclone_lsd(perfil: str, path: str = "", timeout: int = 15) -> list[str]:
     return sorted(folders)
 
 
+def rclone_lsjson(perfil: str, path: str = "", timeout: int = 15) -> list[dict]:
+    """
+    Lista carpetas y ficheros (un nivel) de un path en un perfil rclone, vía JSON.
+
+    Args:
+        perfil: nombre del perfil rclone (ej. "sftp-src-abc123")
+        path:   path dentro del perfil. "" = raíz
+
+    Returns:
+        Lista de dicts {"name": str, "is_dir": bool}, carpetas primero,
+        luego alfabético case-insensitive dentro de cada grupo.
+
+    Raises:
+        RuntimeError: si rclone lsjson falla.
+    """
+    rclone = get_rclone_executable()
+    target = f"{perfil}:{path}" if path else f"{perfil}:"
+
+    result = subprocess.run(
+        [rclone, "lsjson", target],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        **_subprocess_kwargs(),
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or f"rclone lsjson failed (code {result.returncode})")
+
+    entradas = json.loads(result.stdout or "[]")
+    items = [{"name": e["Name"], "is_dir": bool(e.get("IsDir"))} for e in entradas]
+    return sorted(items, key=lambda i: (not i["is_dir"], i["name"].lower()))
+
+
 # ============================================================================
 # LÓGICA DE INICIALIZACIÓN
 # ============================================================================
