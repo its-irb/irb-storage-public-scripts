@@ -300,7 +300,8 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                     ft.Column(
                         [
                             ft.Text(srv_name, size=14, weight=ft.FontWeight.W_600, color=C_TEXT),
-                            ft.Text(info["endpoint"], size=11, color=C_TEXT_DIM, font_family=FONT_MONO),
+                            ft.Text(info["endpoint"], size=11, color=C_TEXT_DIM, font_family=FONT_MONO,
+                                    font_family_fallback=MONO_FALLBACK),
                         ],
                         spacing=2, tight=True, expand=True,
                     ),
@@ -401,7 +402,7 @@ def _build_credentials_content(
     back_btn.visible   = False
     back_btn.on_click  = lambda e: on_back() if on_back else None
     status_text = ft.Text("Renewing credentials...", size=13, color=C_TEXT_DIM,
-                           font_family=FONT_MONO)
+                           font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK)
 
     def log(msg: str, color: str = C_TEXT):
         print(msg.rstrip())
@@ -409,7 +410,7 @@ def _build_credentials_content(
         def _add():
             log_list.controls.append(
                 ft.Text(msg.rstrip("\n"), size=11, color=color,
-                        font_family=FONT_MONO, selectable=True)
+                        font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK, selectable=True)
             )
         backend.ui_call(page, _add)
 
@@ -942,6 +943,7 @@ def _build_mount_bucket(
         size=12,
         color=C_WARNING,
         font_family=FONT_MONO,
+        font_family_fallback=MONO_FALLBACK,
     )
 
     def on_browser_select(path: str):
@@ -1240,15 +1242,7 @@ exit /b 1
 
 def main(page: ft.Page):
     _log_event(f"APP start — bifrost-mount v{__version__}")
-    page.title             = "BIFROST MOUNT — IRB MinIO"
-    page.bgcolor           = C_BG
-    page.window.width      = 1100
-    page.window.height     = 820
-    page.window.min_width  = 800
-    page.window.min_height = 600
-    page.theme             = ft.Theme(color_scheme_seed=C_PRIMARY)
-    page.theme_mode        = ft.ThemeMode.DARK
-    page.padding           = 0
+    apply_theme(page)
 
     state = {
         "credenciales_ldap": None,

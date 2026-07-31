@@ -25,6 +25,43 @@ C_TEXT     = "#E6EDF3"
 C_TEXT_DIM = "#8B949E"
 C_OVERLAY  = "#1C2027"
 FONT_MONO  = "Courier New"
+EMOJI_FONT_FAMILY = "NotoColorEmoji"
+_SYSTEM_FALLBACK_FONTS = ["sans-serif"]
+MONO_FALLBACK = ["monospace", EMOJI_FONT_FAMILY]
+REGULAR_FALLBACK = ["sans-serif", EMOJI_FONT_FAMILY]
+
+def apply_theme(page: ft.Page) -> None:
+    page.title             = APP_INFO["name"]
+    page.bgcolor           = C_BG
+    page.window.width      = 1100
+    page.window.height     = 820
+    page.window.min_width  = 800
+    page.window.min_height = 600
+    page.theme             = ft.Theme(color_scheme_seed=C_PRIMARY)
+    page.theme_mode        = ft.ThemeMode.DARK
+    page.padding           = 0
+
+    # Registrar NotoColorEmoji como fallback emoji global.
+    font_rel = backend.get_emoji_font_asset_path()
+    if not font_rel:
+        return
+    family = EMOJI_FONT_FAMILY
+    page.fonts = {family: font_rel}
+
+    # Fallback ordenado: fuentes del sistema primero, emoji al final.
+    fallback = _SYSTEM_FALLBACK_FONTS + [family]
+    # Los 15 estilos de TextTheme (Material 3).
+    styles = {
+        attr: ft.TextStyle(font_family_fallback=fallback)
+        for attr in (
+            "body_large", "body_medium", "body_small",
+            "display_large", "display_medium", "display_small",
+            "headline_large", "headline_medium", "headline_small",
+            "label_large", "label_medium", "label_small",
+            "title_large", "title_medium", "title_small",
+        )
+    }
+    page.theme.text_theme = ft.TextTheme(**styles)
 
 # ============================================================================
 # BUTTONS
@@ -33,7 +70,7 @@ FONT_MONO  = "Courier New"
 
 def btn_primary(text: str, on_click=None, width=None, disabled=False) -> ft.Button:
     return ft.Button(
-        content=ft.Text(text),
+        content=ft.Text(text, font_family_fallback=REGULAR_FALLBACK),
         on_click=on_click,
         disabled=disabled,
         width=width,
@@ -54,7 +91,7 @@ def btn_primary(text: str, on_click=None, width=None, disabled=False) -> ft.Butt
     
 def btn_secondary(text: str, on_click=None, width=None) -> ft.OutlinedButton:
     return ft.OutlinedButton(
-        content=ft.Text(text),
+        content=ft.Text(text, font_family_fallback=REGULAR_FALLBACK),
         on_click=on_click,
         width=width,
         style=ft.ButtonStyle(
@@ -82,6 +119,7 @@ def section_title(text: str) -> ft.Text:
         weight=ft.FontWeight.W_600,
         color=C_TEXT_DIM,
         font_family=FONT_MONO,
+        font_family_fallback=MONO_FALLBACK,
     )
     
 def field_label(text: str) -> ft.Text:
@@ -192,6 +230,7 @@ def build_header(subtitle: str = "", IS_WEB: bool = False, no_ldap: bool = False
                                     weight=ft.FontWeight.W_700,
                                     color=C_PRIMARY,
                                     font_family=FONT_MONO,
+                                    font_family_fallback=MONO_FALLBACK,
                                 ),
                                 ft.Container(width=8),
                                 status_badge("WEB" if IS_WEB else ("DESKTOP (NO LDAP)" if no_ldap else "DESKTOP"), C_WARNING),
@@ -203,7 +242,8 @@ def build_header(subtitle: str = "", IS_WEB: bool = False, no_ldap: bool = False
                     spacing=2,
                     expand=True,
                 ),
-                ft.Text(version_str, size=11, color=C_TEXT_DIM, font_family=FONT_MONO),
+                ft.Text(version_str, size=11, color=C_TEXT_DIM, font_family=FONT_MONO,
+                        font_family_fallback=MONO_FALLBACK),
             ],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -359,7 +399,8 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                 [
                     ft.Icon(ft.Icons.SYNC, color=C_PRIMARY, size=48),
                     ft.Text(APP_INFO["name"], size=32, weight=ft.FontWeight.W_700,
-                            color=C_TEXT, font_family=FONT_MONO),
+                            color=C_TEXT, font_family=FONT_MONO,
+                            font_family_fallback=MONO_FALLBACK),
                     ft.Text(APP_INFO["description"], size=14, color=C_TEXT_DIM),
                     ft.Container(height=24),
                     progress,

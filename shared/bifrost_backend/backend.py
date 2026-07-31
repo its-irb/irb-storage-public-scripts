@@ -52,6 +52,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 _rclone_version_cache: str | None = None
 
+EMOJI_FONT_FILENAME = "NotoColorEmoji-noflags.ttf"
 
 def _get_rclone_version() -> str:
     global _rclone_version_cache
@@ -124,6 +125,35 @@ def get_rclone_executable() -> str:
         "rclone not found. The application bundle appears to be incomplete — "
         "please reinstall BIFROST."
     )
+
+
+def get_emoji_font_asset_path() -> str | None:
+    """
+    Devuelve la ruta relativa al assets_dir de Flet donde encontrar la fuente
+    emoji, o ``None`` si no existe.
+
+    La fuente la descargan los scripts ``shared/*-assets-downloader.sh`` a
+    ``assets/fonts/`` en cada build/ejecución, así que aquí solo la localizamos.
+    """
+    font_rel = f"fonts/{EMOJI_FONT_FILENAME}"
+
+    # 1. Bundle Flet (apps empaquetadas y dev con flet run).
+    flet_assets = os.environ.get("FLET_ASSETS_DIR")
+    if flet_assets and (Path(flet_assets) / font_rel).exists():
+        return font_rel
+
+    # 2. Dev sin flet run: assets del repo (solo si el paquete se importa
+    # desde el repo, no desde site-packages).
+    pkg_root = Path(__file__).parent.parent
+    if pkg_root.name == "shared":
+        repo_font = (
+            pkg_root.parent
+            / f"bifrost-{APP_INFO['flavour']}" / "src" / "assets" / font_rel
+        )
+        if repo_font.exists():
+            return font_rel
+
+    return None
 
 
 # ============================================================================

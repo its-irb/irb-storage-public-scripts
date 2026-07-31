@@ -775,7 +775,7 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                             ft.Text(srv_name, size=14, weight=ft.FontWeight.W_600,
                                     color=C_TEXT),
                             ft.Text(info["endpoint"], size=11, color=C_TEXT_DIM,
-                                    font_family=FONT_MONO),
+                                    font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK),
                         ],
                         spacing=2,
                         tight=True,
@@ -877,7 +877,7 @@ def _build_credentials_content(
 
     progress    = ft.ProgressBar(color=C_PRIMARY, bgcolor=C_SURFACE2)
     status_text = ft.Text("Renewing credentials...", size=13, color=C_TEXT_DIM,
-                           font_family=FONT_MONO)
+                           font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK)
     back_btn    = btn_secondary("← Back to login", width=200)
     back_btn.visible   = False
     back_btn.on_click  = lambda e: on_back() if on_back else None
@@ -887,7 +887,7 @@ def _build_credentials_content(
         def _add():
             log_list.controls.append(
                 ft.Text(msg.rstrip("\n"), size=11, color=color,
-                        font_family=FONT_MONO, selectable=True)
+                        font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK, selectable=True)
             )
         backend.ui_call(page, _add)
 
@@ -2093,7 +2093,7 @@ def _build_copy_content(
                 lines_to_add.append(
                     ft.Text(line.rstrip("\n"),
                             size=11, color=color,
-                            font_family=FONT_MONO, selectable=True)
+                            font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK, selectable=True)
                 )
 
         def _add():
@@ -2342,6 +2342,7 @@ def _build_copy_content(
         size=12,
         color=C_WARNING,
         font_family=FONT_MONO,
+        font_family_fallback=MONO_FALLBACK,
     )
 
     def on_browser_select(path: str):
@@ -2856,7 +2857,7 @@ def _build_tag_manager_content(
         def _add():
             log_list.controls.append(
                 ft.Text(msg.rstrip("\n"), size=11, color=color,
-                        font_family=FONT_MONO, selectable=True)
+                        font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK, selectable=True)
             )
         backend.ui_call(page, _add)
 
@@ -3862,15 +3863,7 @@ def _build_tag_manager_content(
 def main(page: ft.Page):
     global IS_WEB
     IS_WEB = IS_WEB or page.web
-    page.title             = "BIFROST — TRANSFER"
-    page.bgcolor           = C_BG
-    page.window.width      = 1100
-    page.window.height     = 820
-    page.window.min_width  = 800
-    page.window.min_height = 600
-    page.theme             = ft.Theme(color_scheme_seed=C_PRIMARY)
-    page.theme_mode        = ft.ThemeMode.DARK
-    page.padding           = 0
+    apply_theme(page)
 
     state = {
         "credenciales_ldap":     None,
