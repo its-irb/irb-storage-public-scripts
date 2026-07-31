@@ -17,6 +17,7 @@ description = "Bifrost Mount"
 authors = [
   {name = "Ona Pérez"}
 ]
+requires-python = ">=3.11"
 dependencies = [
     "annotated-types==0.7.0",
     "anyio==4.12.1",
@@ -27,6 +28,7 @@ dependencies = [
     "charset-normalizer==3.4.4",
     "cryptography==46.0.7",
     "flet==0.84.0",
+    "flet-cli==0.84.0 ; platform_system == 'Linux'",
     "h11==0.16.0",
     "httpcore==1.0.9",
     "httptools==0.7.1",
@@ -49,7 +51,7 @@ dependencies = [
     "six==1.17.0",
     "typing-extensions==4.15.0",
     "urllib3>=2.7.0",
-    "uvloop==0.22.1 ; sys_platform != 'win32'",
+    "uvloop==0.22.1 ; platform_system != 'Windows'",
     "watchfiles==1.1.1",
     "websockets==15.0.1",
     "bifrost-shared @ file:///__BUILDPATH__/shared"
