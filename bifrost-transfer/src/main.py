@@ -1058,6 +1058,7 @@ def build_rclone_browser(
         esté en la página para arrancar la carga inicial.
     """
     nav_state = {"current_path": "", "timeout": 15, "selected_file": None}
+    file_row_refs: dict[str, ft.Container] = {}
     filter_state = {"acronym": None}
     bucket_cache: dict = {"list": None, "tags": None}
 
@@ -1114,6 +1115,30 @@ def build_rclone_browser(
         tooltip="Add folder to destination path (virtual — created on copy)",
     )
 
+    def _style_file_row(container: ft.Container, selected: bool) -> None:
+        if selected:
+            container.bgcolor = f"{C_PRIMARY}22"
+            container.border  = ft.Border.all(2, C_PRIMARY)
+        else:
+            container.bgcolor = C_SURFACE2
+            container.border  = ft.Border.all(1, C_BORDER)
+
+    def _toggle_file_selection(path: str) -> None:
+        previous = nav_state["selected_file"]
+        if previous is not None and previous in file_row_refs:
+            _style_file_row(file_row_refs[previous], False)
+
+        if previous == path:
+            nav_state["selected_file"] = None
+            on_select(nav_state["current_path"], False)
+        else:
+            nav_state["selected_file"] = path
+            if path in file_row_refs:
+                _style_file_row(file_row_refs[path], True)
+            on_select(path, True)
+
+        page.update()
+
     def _rebuild_breadcrumb():
         breadcrumb_row.controls.clear()
         breadcrumb_row.controls.append(
@@ -1153,6 +1178,7 @@ def build_rclone_browser(
         print(f"[browser] navigate → perfil={perfil_rclone!r} path={path!r}")
         nav_state["current_path"]  = path
         nav_state["selected_file"] = None
+        file_row_refs.clear()
         on_select(path, False)
 
         loading_row.visible    = True
@@ -1166,22 +1192,28 @@ def build_rclone_browser(
         def _load():
             try:
                 if not path and bucket_cache["list"] is not None:
-                    folders = list(bucket_cache["list"])
+                    entries = list(bucket_cache["list"])
                 else:
-                    folders = backend.rclone_lsd(perfil_rclone, path, timeout=nav_state["timeout"])
-                    print(f"[browser] rclone lsd path={path!r} → {len(folders)} folders: {folders}")
+                    if show_files:
+                        entries = backend.rclone_lsjson(perfil_rclone, path, timeout=nav_state["timeout"])
+                        print(f"[browser] rclone lsjson path={path!r} → {len(entries)} entries: {entries}")
+                    else:
+                        folders = backend.rclone_lsd(perfil_rclone, path, timeout=nav_state["timeout"])
+                        print(f"[browser] rclone lsd path={path!r} → {len(folders)} folders: {folders}")
+                        entries = [{"name": f, "is_dir": True} for f in folders]
                     if not path:
-                        bucket_cache["list"] = list(folders)
+                        bucket_cache["list"] = list(entries)
                         bucket_cache["tags"] = None
 
                 if lab_filter_enabled and filter_state["acronym"] and not path:
                     active = filter_state["acronym"]
-                    total = len(bucket_cache["list"])
+                    bucket_names = [e["name"] for e in bucket_cache["list"]]
+                    total = len(bucket_names)
                     if bucket_cache["tags"] is None:
                         print(f"[browser] lab filter {active!r}: scanning S3 'acronym' tag for {total} buckets (one-time per session)...")
                         s3 = backend.get_s3_client_from_profile(perfil_rclone, endpoint)
                         with ThreadPoolExecutor(max_workers=8) as pool:
-                            futs = {pool.submit(backend.get_bucket_tags, s3, b): b for b in bucket_cache["list"]}
+                            futs = {pool.submit(backend.get_bucket_tags, s3, b): b for b in bucket_names}
                             tag_map: dict[str, str] = {}
                             for fut in as_completed(futs):
                                 b = futs[fut]
@@ -1192,43 +1224,68 @@ def build_rclone_browser(
                         bucket_cache["tags"] = tag_map
                         n_tagged = sum(1 for v in tag_map.values() if v)
                         print(f"[browser] lab filter: tag scan done → {n_tagged}/{total} buckets have an 'acronym' tag (cached for this session)")
-                    folders = [b for b in folders if bucket_cache["tags"].get(b) == active]
-                    print(f"[browser] lab filter {active!r} → {len(folders)}/{total} buckets match: {folders}")
+                    entries = [e for e in entries if bucket_cache["tags"].get(e["name"]) == active]
+                    print(f"[browser] lab filter {active!r} → {len(entries)}/{total} buckets match: {[e['name'] for e in entries]}")
 
                 def _show():
                     loading_row.visible = False
                     folder_col.controls.clear()
+                    file_row_refs.clear()
 
-                    if not folders:
+                    if not entries:
+                        empty_msg = "(empty)" if show_files else "(empty — no subfolders)"
                         folder_col.controls.append(
-                            ft.Text("(empty — no subfolders)", size=11, color=C_TEXT_DIM, italic=True)
+                            ft.Text(empty_msg, size=11, color=C_TEXT_DIM, italic=True)
                         )
                     else:
-                        for fname in folders:
-                            full_path = f"{path}/{fname}" if path else fname
+                        for entry in entries:
+                            name      = entry["name"]
+                            is_dir    = entry["is_dir"]
+                            full_path = f"{path}/{name}" if path else name
                             fp_snap   = full_path
 
-                            row = ft.Container(
-                                content=ft.Row(
-                                    [
-                                        ft.Icon(
-                                        ft.Icons.STORAGE if not path else ft.Icons.FOLDER_OUTLINED,
-                                        color=C_PRIMARY if not path else C_WARNING,
-                                        size=16,
+                            if is_dir:
+                                row = ft.Container(
+                                    content=ft.Row(
+                                        [
+                                            ft.Icon(
+                                                ft.Icons.STORAGE if not path else ft.Icons.FOLDER_OUTLINED,
+                                                color=C_PRIMARY if not path else C_WARNING,
+                                                size=16,
+                                            ),
+                                            ft.Text(name, size=12, color=C_TEXT, expand=True),
+                                            ft.Icon(ft.Icons.CHEVRON_RIGHT, color=C_TEXT_DIM, size=14),
+                                        ],
+                                        spacing=8,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                     ),
-                                        ft.Text(fname, size=12, color=C_TEXT, expand=True),
-                                        ft.Icon(ft.Icons.CHEVRON_RIGHT, color=C_TEXT_DIM, size=14),
-                                    ],
-                                    spacing=8,
-                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                ),
-                                bgcolor=C_SURFACE2,
-                                border=ft.Border.all(1, C_BORDER),
-                                border_radius=6,
-                                padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-                                on_click=lambda e, p=fp_snap: _navigate(p),
-                                ink=True,
-                            )
+                                    bgcolor=C_SURFACE2,
+                                    border=ft.Border.all(1, C_BORDER),
+                                    border_radius=6,
+                                    padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                                    on_click=lambda e, p=fp_snap: _navigate(p),
+                                    ink=True,
+                                )
+                            else:
+                                row = ft.Container(
+                                    content=ft.Row(
+                                        [
+                                            ft.Icon(ft.Icons.INSERT_DRIVE_FILE_OUTLINED,
+                                                    color=C_TEXT_DIM, size=16),
+                                            ft.Text(name, size=12, color=C_TEXT, expand=True),
+                                        ],
+                                        spacing=8,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    ),
+                                    bgcolor=C_SURFACE2,
+                                    border=ft.Border.all(1, C_BORDER),
+                                    border_radius=6,
+                                    padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                                    on_click=lambda e, p=fp_snap: _toggle_file_selection(p),
+                                    ink=True,
+                                )
+                                file_row_refs[fp_snap] = row
+
                             folder_col.controls.append(row)
 
                     page.update()
@@ -2301,14 +2358,17 @@ def _build_copy_content(
         page.update()
 
     def _open_sftp_browser_modal() -> None:
-        _sftp_dest_path = {"value": ""}
+        _sftp_dest_path = {"value": "", "is_file": False}
 
         def _on_sftp_select(path: str, is_file: bool = False) -> None:
-            _sftp_dest_path["value"] = path
+            _sftp_dest_path["value"]   = path
+            _sftp_dest_path["is_file"] = is_file
+            confirm_btn.content.value = "Select this file" if is_file else "Select this folder"
+            page.update()
 
         browser_widget, browser_refresh = build_rclone_browser(
             page, sftp_state["perfil"], on_select=_on_sftp_select, lab_filter_enabled=False,
-            allow_mkdir=False,
+            allow_mkdir=False, show_files=True,
         )
 
         def confirm(e):
@@ -2320,6 +2380,8 @@ def _build_copy_content(
         def cancel(e):
             page.pop_dialog()
 
+        confirm_btn = btn_primary("Select this folder", on_click=confirm)
+
         dlg = ft.AlertDialog(
             modal=True,
             title=ft.Text(
@@ -2329,7 +2391,7 @@ def _build_copy_content(
             content=ft.Column([browser_widget], spacing=6, tight=True, width=520),
             actions=[
                 btn_secondary("Cancel", on_click=cancel),
-                btn_primary("Select this folder", on_click=confirm),
+                confirm_btn,
             ],
             bgcolor=C_OVERLAY,
             shape=ft.RoundedRectangleBorder(radius=10),
