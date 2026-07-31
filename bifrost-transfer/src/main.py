@@ -2353,8 +2353,8 @@ def _build_copy_content(
             port = (port_tf.value or "").strip() or "22"
             user = (user_tf.value or "").strip()
             pwd  = (pass_tf.value or "").strip()
-            if not host or not user or not pwd:
-                err.value   = "Host, username and password are required."
+            if not host or not user:
+                err.value   = "Host and username are required."
                 err.visible = True
                 page.update()
                 return
