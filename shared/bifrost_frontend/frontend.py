@@ -29,7 +29,7 @@ FONT_MONO  = "Courier New"
 # instalada en Linux/macOS, así que ahí cae directamente al fallback
 # ("sans-serif", resuelto por fontconfig/Core Text); en Windows sí existe
 # y se usa tal cual.
-FONT_REGULAR = "Helvetica"
+FONT_REGULAR = "Segoe UI"
 EMOJI_FONT_FAMILY = "NotoColorEmoji"
 _SYSTEM_FALLBACK_FONTS = ["sans-serif"]
 MONO_FALLBACK = ["monospace", EMOJI_FONT_FAMILY]
