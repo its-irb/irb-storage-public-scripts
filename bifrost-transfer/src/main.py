@@ -79,12 +79,16 @@ from config import APP_INFO
 # Modo web: producción (BIFROST_CLUSTER=1), Flet web runtime, o dev local (--web)
 IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or (os.environ.get("BIFROST_CLUSTER") == "1")
 
+# Máquinas sin acceso a LDAP pero con acceso a MinIO (ej. IVIS).
+# Setear BIFROST_NO_LDAP=1 como variable de sistema para saltarse la validación LDAP.
+NO_LDAP = os.environ.get("BIFROST_NO_LDAP") == "1"
+
 # Umbral (en días) por debajo del cual se renuevan las credenciales STS automáticamente
 STS_RENEWAL_THRESHOLD_DAYS = 3
 # Duración (en días) de las credenciales STS renovadas automáticamente
 STS_AUTO_RENEWAL_DAYS = 7
 
-from meta_fields import FieldType, TAG_PROFILES, build_meta_fields, detect_profile, LAB_ACRONYMS, build_lab_filter_widget
+from meta_fields import FieldType, TAG_PROFILES, build_meta_fields, detect_profile, LAB_ACRONYMS, build_lab_filter_widget, validate_tagset, check_tag_value
 # ============================================================================
 # PARA EVITAR PROBLEMAS DE CODIFICACIÓN EN CONSOLA (ESPECIALMENTE EN WINDOWS)
 # ============================================================================
@@ -95,6 +99,55 @@ try:
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
 except Exception:
     pass
+
+# ============================================================================
+# TEE DE CONSOLA A FICHERO — persiste todo lo que se hace print() (navegación,
+# filtros, copy, tags, selección de cluster, etc.) en ~/bifrost-logs/, igual
+# que ya se hace con los logs de copy/tags. Así el histórico de debug no
+# depende de que haya una consola visible (apps empaquetadas con flet build
+# no muestran una).
+# ============================================================================
+class _TeeStream:
+    def __init__(self, *streams):
+        self._streams = streams
+
+    def write(self, data):
+        for s in self._streams:
+            try:
+                s.write(data)
+            except Exception:
+                pass
+
+    def flush(self):
+        for s in self._streams:
+            try:
+                s.flush()
+            except Exception:
+                pass
+
+
+try:
+    _console_log_dir = pathlib.Path.home() / "bifrost-logs"
+    _console_log_dir.mkdir(parents=True, exist_ok=True)
+    _console_log_path = _console_log_dir / f"bifrost-console-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+    _console_log_file = open(_console_log_path, "a", encoding="utf-8", errors="replace", buffering=1)
+    sys.stdout = _TeeStream(sys.stdout, _console_log_file)
+    sys.stderr = _TeeStream(sys.stderr, _console_log_file)
+    print(f"[startup] console log → {_console_log_path}")
+
+    # Rotación: conservar solo los 50 ficheros de consola más recientes.
+    _console_logs = sorted(
+        _console_log_dir.glob("bifrost-console-*.log"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for _old_console_log in _console_logs[50:]:
+        try:
+            _old_console_log.unlink()
+        except Exception:
+            pass
+except Exception as _console_log_ex:
+    print(f"[startup] Could not set up console log file: {_console_log_ex}")
 
 
 
@@ -265,6 +318,9 @@ def _build_login_content(
 
         def _auth():
             creds = {"usuario": user, "password": pwd}
+            if NO_LDAP:
+                backend.ui_call(page, lambda: on_success(creds))
+                return
             ok, motivo = backend.validar_credenciales_ldap(creds)
             if ok:
                 backend.ui_call(page, lambda: on_success(creds))
@@ -290,7 +346,7 @@ def _build_login_content(
 
     content = ft.Column(
         [
-            build_header(subtitle="Authentication", IS_WEB=IS_WEB),
+            build_header(subtitle="Authentication", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
             ft.Container(expand=True),
             ft.Row(
                 [
@@ -379,7 +435,7 @@ def _build_shares_content(
     if not shares:
         content = ft.Column(
             [
-                build_header(subtitle=f"CIFS Shares — {usuario_actual}", IS_WEB=IS_WEB),
+                build_header(subtitle=f"CIFS Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
                 ft.Container(
                     content=ft.Row(
                         [btn_secondary("← Back", on_click=lambda e: on_back())],
@@ -638,7 +694,7 @@ def _build_shares_content(
 
     content = ft.Column(
         [
-            build_header(subtitle=f"CIFS Shares — {usuario_actual}", IS_WEB=IS_WEB),
+            build_header(subtitle=f"CIFS Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
             ft.Container(
                 content=ft.Row(
                     [c for c in [back_btn_widget] if c is not None],
@@ -719,7 +775,7 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                             ft.Text(srv_name, size=14, weight=ft.FontWeight.W_600,
                                     color=C_TEXT),
                             ft.Text(info["endpoint"], size=11, color=C_TEXT_DIM,
-                                    font_family=FONT_MONO),
+                                    font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK),
                         ],
                         spacing=2,
                         tight=True,
@@ -765,7 +821,7 @@ def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
 
     content = ft.Column(
         [
-            build_header(subtitle="MinIO Server", IS_WEB=IS_WEB),
+            build_header(subtitle="MinIO Server", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
             ft.Container(
                 content=ft.Column(
                     [
@@ -803,6 +859,7 @@ def _build_credentials_content(
     on_continue: Callable,
     extra_config: dict | None = None,
     duracion_dias: int | None = None,
+    on_back: Callable | None = None,
 ) -> ft.Control:
     log_list = ft.ListView(
         expand=True,
@@ -820,14 +877,17 @@ def _build_credentials_content(
 
     progress    = ft.ProgressBar(color=C_PRIMARY, bgcolor=C_SURFACE2)
     status_text = ft.Text("Renewing credentials...", size=13, color=C_TEXT_DIM,
-                           font_family=FONT_MONO)
+                           font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK)
+    back_btn    = btn_secondary("← Back to login", width=200)
+    back_btn.visible   = False
+    back_btn.on_click  = lambda e: on_back() if on_back else None
 
     def log(msg: str, color: str = C_TEXT):
         print(msg.rstrip())
         def _add():
             log_list.controls.append(
                 ft.Text(msg.rstrip("\n"), size=11, color=color,
-                        font_family=FONT_MONO, selectable=True)
+                        font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK, selectable=True)
             )
         backend.ui_call(page, _add)
 
@@ -853,19 +913,37 @@ def _build_credentials_content(
         log(f"   Endpoint : {endpoint}", C_TEXT_DIM)
         log(f"   User     : {credenciales_ldap['usuario']}", C_TEXT_DIM)
 
-        creds = backend.get_credentials(
-            endpoint,
-            credenciales_ldap["usuario"],
-            credenciales_ldap["password"],
-            duracion_segundos,
-        )
+        try:
+            creds = backend.get_credentials(
+                endpoint,
+                credenciales_ldap["usuario"],
+                credenciales_ldap["password"],
+                duracion_segundos,
+            )
+        except Exception as exc:
+            log(f"\n❌ Cannot connect to MinIO: {exc}", C_ERROR)
+            def _show_net_err():
+                progress.visible  = False
+                status_text.value = "❌ Connection error."
+                status_text.color = C_ERROR
+                if on_back:
+                    back_btn.visible = True
+                page.update()
+            backend.ui_call(page, _show_net_err)
+            return
 
         if creds is None:
-            log("\n❌ Failed to obtain credentials. Check your password or contact ITS.", C_ERROR)
+            if on_back:
+                log("\n❌ Wrong username or password. Please try again.", C_ERROR)
+            else:
+                log("\n❌ Failed to obtain credentials. Check your password or contact ITS.", C_ERROR)
             def _show_err():
                 progress.visible  = False
-                status_text.value = "❌ Renewal failed."
+                status_text.value = "❌ Wrong username or password." if on_back else "❌ Renewal failed."
                 status_text.color = C_ERROR
+                if on_back:
+                    back_btn.visible = True
+                page.update()
             backend.ui_call(page, _show_err)
             return
 
@@ -901,7 +979,7 @@ def _build_credentials_content(
 
     content = ft.Column(
         [
-            build_header(subtitle="S3 Credentials — Auto Renewal", IS_WEB=IS_WEB),
+            build_header(subtitle="S3 Credentials — Auto Renewal", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
             ft.Container(
                 content=ft.Column(
                     [
@@ -924,6 +1002,8 @@ def _build_credentials_content(
                                     progress,
                                     ft.Container(height=8),
                                     status_text,
+                                    ft.Container(height=8),
+                                    back_btn,
                                 ],
                                 spacing=0,
                             ),
@@ -961,10 +1041,12 @@ def _build_credentials_content(
 def build_rclone_browser(
     page: ft.Page,
     perfil_rclone: str,
-    on_select: Callable[[str], None],
+    on_select: Callable[[str, bool], None],
     initial_path: str = "",
     lab_filter_enabled: bool = False,
     endpoint: str | None = None,
+    allow_mkdir: bool = True,
+    show_files: bool = False,
 ) -> tuple[ft.Column, Callable]:
     """
     Navegador interactivo de carpetas rclone con breadcrumb.
@@ -975,12 +1057,18 @@ def build_rclone_browser(
         (widget, refresh_fn) — llama a refresh_fn() una vez que el widget
         esté en la página para arrancar la carga inicial.
     """
-    nav_state = {"current_path": "", "timeout": 15}
+    nav_state = {"current_path": "", "timeout": 15, "selected_file": None}
+    file_row_refs: dict[str, ft.Container] = {}
     filter_state = {"acronym": None}
     bucket_cache: dict = {"list": None, "tags": None}
 
     if lab_filter_enabled:
         def _on_lab_select(acronym: str | None) -> None:
+            previous = filter_state["acronym"]
+            if acronym is None:
+                print(f"[browser] lab filter cleared (was {previous!r}) → showing all buckets")
+            else:
+                print(f"[browser] lab filter → {acronym!r} (was {previous!r})")
             filter_state["acronym"] = acronym
             _navigate("")
 
@@ -1027,6 +1115,30 @@ def build_rclone_browser(
         tooltip="Add folder to destination path (virtual — created on copy)",
     )
 
+    def _style_file_row(container: ft.Container, selected: bool) -> None:
+        if selected:
+            container.bgcolor = f"{C_PRIMARY}22"
+            container.border  = ft.Border.all(2, C_PRIMARY)
+        else:
+            container.bgcolor = C_SURFACE2
+            container.border  = ft.Border.all(1, C_BORDER)
+
+    def _toggle_file_selection(path: str) -> None:
+        previous = nav_state["selected_file"]
+        if previous is not None and previous in file_row_refs:
+            _style_file_row(file_row_refs[previous], False)
+
+        if previous == path:
+            nav_state["selected_file"] = None
+            on_select(nav_state["current_path"], False)
+        else:
+            nav_state["selected_file"] = path
+            if path in file_row_refs:
+                _style_file_row(file_row_refs[path], True)
+            on_select(path, True)
+
+        page.update()
+
     def _rebuild_breadcrumb():
         breadcrumb_row.controls.clear()
         breadcrumb_row.controls.append(
@@ -1063,33 +1175,45 @@ def build_rclone_browser(
                 )
 
     def _navigate(path: str):
-        nav_state["current_path"] = path
-        on_select(path)
+        print(f"[browser] navigate → perfil={perfil_rclone!r} path={path!r}")
+        nav_state["current_path"]  = path
+        nav_state["selected_file"] = None
+        file_row_refs.clear()
+        on_select(path, False)
 
-        loading_row.visible  = True
-        error_text.visible   = False
+        loading_row.visible    = True
+        error_text.visible     = False
         folder_col.controls.clear()
-        filter_row.visible   = lab_filter_enabled and not path
+        filter_row.visible     = lab_filter_enabled and not path
+        mkdir_section.visible  = allow_mkdir and bool(path)
         _rebuild_breadcrumb()
         page.update()
 
         def _load():
             try:
                 if not path and bucket_cache["list"] is not None:
-                    folders = list(bucket_cache["list"])
-                    print(f"[browser] path={path!r} folders={folders} (cached)")
+                    entries = list(bucket_cache["list"])
                 else:
-                    folders = backend.rclone_lsd(perfil_rclone, path, timeout=nav_state["timeout"])
-                    print(f"[browser] path={path!r} folders={folders}")
+                    if show_files:
+                        entries = backend.rclone_lsjson(perfil_rclone, path, timeout=nav_state["timeout"])
+                        print(f"[browser] rclone lsjson path={path!r} → {len(entries)} entries: {entries}")
+                    else:
+                        folders = backend.rclone_lsd(perfil_rclone, path, timeout=nav_state["timeout"])
+                        print(f"[browser] rclone lsd path={path!r} → {len(folders)} folders: {folders}")
+                        entries = [{"name": f, "is_dir": True} for f in folders]
                     if not path:
-                        bucket_cache["list"] = list(folders)
+                        bucket_cache["list"] = list(entries)
                         bucket_cache["tags"] = None
 
                 if lab_filter_enabled and filter_state["acronym"] and not path:
+                    active = filter_state["acronym"]
+                    bucket_names = [e["name"] for e in bucket_cache["list"]]
+                    total = len(bucket_names)
                     if bucket_cache["tags"] is None:
+                        print(f"[browser] lab filter {active!r}: scanning S3 'acronym' tag for {total} buckets (one-time per session)...")
                         s3 = backend.get_s3_client_from_profile(perfil_rclone, endpoint)
                         with ThreadPoolExecutor(max_workers=8) as pool:
-                            futs = {pool.submit(backend.get_bucket_tags, s3, b): b for b in bucket_cache["list"]}
+                            futs = {pool.submit(backend.get_bucket_tags, s3, b): b for b in bucket_names}
                             tag_map: dict[str, str] = {}
                             for fut in as_completed(futs):
                                 b = futs[fut]
@@ -1098,45 +1222,70 @@ def build_rclone_browser(
                                 except Exception:
                                     tag_map[b] = ""
                         bucket_cache["tags"] = tag_map
-                        print(f"[browser] tag cache populated for {len(tag_map)} buckets")
-                    active = filter_state["acronym"]
-                    folders = [b for b in folders if bucket_cache["tags"].get(b) == active]
-                    print(f"[browser] lab filter={active!r} → {len(folders)} buckets")
+                        n_tagged = sum(1 for v in tag_map.values() if v)
+                        print(f"[browser] lab filter: tag scan done → {n_tagged}/{total} buckets have an 'acronym' tag (cached for this session)")
+                    entries = [e for e in entries if bucket_cache["tags"].get(e["name"]) == active]
+                    print(f"[browser] lab filter {active!r} → {len(entries)}/{total} buckets match: {[e['name'] for e in entries]}")
 
                 def _show():
                     loading_row.visible = False
                     folder_col.controls.clear()
+                    file_row_refs.clear()
 
-                    if not folders:
+                    if not entries:
+                        empty_msg = "(empty)" if show_files else "(empty — no subfolders)"
                         folder_col.controls.append(
-                            ft.Text("(empty — no subfolders)", size=11, color=C_TEXT_DIM, italic=True)
+                            ft.Text(empty_msg, size=11, color=C_TEXT_DIM, italic=True)
                         )
                     else:
-                        for fname in folders:
-                            full_path = f"{path}/{fname}" if path else fname
+                        for entry in entries:
+                            name      = entry["name"]
+                            is_dir    = entry["is_dir"]
+                            full_path = f"{path}/{name}" if path else name
                             fp_snap   = full_path
 
-                            row = ft.Container(
-                                content=ft.Row(
-                                    [
-                                        ft.Icon(
-                                        ft.Icons.STORAGE if not path else ft.Icons.FOLDER_OUTLINED,
-                                        color=C_PRIMARY if not path else C_WARNING,
-                                        size=16,
+                            if is_dir:
+                                row = ft.Container(
+                                    content=ft.Row(
+                                        [
+                                            ft.Icon(
+                                                ft.Icons.STORAGE if not path else ft.Icons.FOLDER_OUTLINED,
+                                                color=C_PRIMARY if not path else C_WARNING,
+                                                size=16,
+                                            ),
+                                            ft.Text(name, size=12, color=C_TEXT, expand=True),
+                                            ft.Icon(ft.Icons.CHEVRON_RIGHT, color=C_TEXT_DIM, size=14),
+                                        ],
+                                        spacing=8,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                     ),
-                                        ft.Text(fname, size=12, color=C_TEXT, expand=True),
-                                        ft.Icon(ft.Icons.CHEVRON_RIGHT, color=C_TEXT_DIM, size=14),
-                                    ],
-                                    spacing=8,
-                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                ),
-                                bgcolor=C_SURFACE2,
-                                border=ft.Border.all(1, C_BORDER),
-                                border_radius=6,
-                                padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-                                on_click=lambda e, p=fp_snap: _navigate(p),
-                                ink=True,
-                            )
+                                    bgcolor=C_SURFACE2,
+                                    border=ft.Border.all(1, C_BORDER),
+                                    border_radius=6,
+                                    padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                                    on_click=lambda e, p=fp_snap: _navigate(p),
+                                    ink=True,
+                                )
+                            else:
+                                row = ft.Container(
+                                    content=ft.Row(
+                                        [
+                                            ft.Icon(ft.Icons.INSERT_DRIVE_FILE_OUTLINED,
+                                                    color=C_TEXT_DIM, size=16),
+                                            ft.Text(name, size=12, color=C_TEXT, expand=True),
+                                        ],
+                                        spacing=8,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    ),
+                                    bgcolor=C_SURFACE2,
+                                    border=ft.Border.all(1, C_BORDER),
+                                    border_radius=6,
+                                    padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                                    on_click=lambda e, p=fp_snap: _toggle_file_selection(p),
+                                    ink=True,
+                                )
+                                file_row_refs[fp_snap] = row
+
                             folder_col.controls.append(row)
 
                     page.update()
@@ -1144,6 +1293,7 @@ def build_rclone_browser(
                 backend.ui_call(page, _show)
 
             except subprocess.TimeoutExpired:
+                print(f"[browser] TIMEOUT path={path!r} after {nav_state['timeout']}s")
                 def _timeout_ui():
                     loading_row.visible = False
                     folder_col.controls.clear()
@@ -1163,8 +1313,10 @@ def build_rclone_browser(
                     )
                     def confirm_manual(e):
                         new_path = manual_tf.value.strip()
-                        nav_state["current_path"] = new_path
-                        on_select(new_path)
+                        print(f"[browser] manual path confirmed → {new_path!r}")
+                        nav_state["current_path"]  = new_path
+                        nav_state["selected_file"] = None
+                        on_select(new_path, False)
                         _rebuild_breadcrumb()
                         manual_tf.visible   = False
                         confirm_btn.visible = False
@@ -1191,6 +1343,7 @@ def build_rclone_browser(
                         page.update()
 
                     def retry_60(e):
+                        print(f"[browser] retry path={path!r} with timeout=60s")
                         nav_state["timeout"] = 60
                         _navigate(path)
 
@@ -1239,6 +1392,7 @@ def build_rclone_browser(
 
                 backend.ui_call(page, _timeout_ui)
             except Exception as ex:
+                print(f"[browser] ERROR path={path!r}: {ex}")
                 def _err(ex_val=ex):
                     loading_row.visible = False
                     error_text.value    = f"Error: {ex_val}"
@@ -1253,6 +1407,13 @@ def build_rclone_browser(
         Crea una carpeta VIRTUAL: solo actualiza el path de destino en la UI.
         No llama a rclone — S3 creará el prefijo automáticamente al copiar.
         """
+        if not nav_state["current_path"]:
+            mkdir_status.value   = "⚠ Select a bucket first before adding a subfolder."
+            mkdir_status.color   = C_WARNING
+            mkdir_status.visible = True
+            page.update()
+            return
+
         name = (new_folder_tf.value or "").strip()
         if not name:
             mkdir_status.value   = "⚠ Enter a folder name first."
@@ -1270,12 +1431,13 @@ def build_rclone_browser(
 
         base     = nav_state["current_path"]
         new_path = f"{base}/{name}" if base else name
+        print(f"[browser] virtual mkdir → {new_path!r} (not created in rclone until copy)")
 
         new_folder_tf.value = ""
 
         # Actualizar estado y breadcrumb sin llamar a rclone
         nav_state["current_path"] = new_path
-        on_select(new_path)
+        on_select(new_path, False)
         _rebuild_breadcrumb()
 
         # Mostrar la carpeta como "nueva/vacía" en la lista
@@ -1296,6 +1458,34 @@ def build_rclone_browser(
     mkdir_btn.on_click      = _do_mkdir
     new_folder_tf.on_submit = _do_mkdir  # Enter también funciona
 
+    mkdir_section = ft.Container(
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Icon(ft.Icons.CREATE_NEW_FOLDER_OUTLINED,
+                                color=C_TEXT_DIM, size=14),
+                        ft.Text("Add subfolder to destination:",
+                                size=11, color=C_TEXT_DIM),
+                    ],
+                    spacing=6,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Row(
+                    [new_folder_tf, mkdir_btn],
+                    spacing=6,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            ],
+            spacing=6,
+            tight=True,
+        ),
+        bgcolor=C_SURFACE2,
+        border=ft.Border.all(1, C_BORDER),
+        border_radius=6,
+        padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+        visible=False,
+    )
 
     # ── Widget ────────────────────────────────────────────────────────────
     browser_widget = ft.Column(
@@ -1323,40 +1513,14 @@ def build_rclone_browser(
                 padding=ft.Padding.all(8),
             ),
             # ── Fila "Create folder" ──────────────────────────────────────
-            ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Row(
-                            [
-                                ft.Icon(ft.Icons.CREATE_NEW_FOLDER_OUTLINED,
-                                        color=C_TEXT_DIM, size=14),
-                                ft.Text("Add subfolder to destination:",
-                                        size=11, color=C_TEXT_DIM),
-                            ],
-                            spacing=6,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                        ft.Row(
-                            [new_folder_tf, mkdir_btn],
-                            spacing=6,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                        #mkdir_status,
-                    ],
-                    spacing=6,
-                    tight=True,
-                ),
-                bgcolor=C_SURFACE2,
-                border=ft.Border.all(1, C_BORDER),
-                border_radius=6,
-                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-            ),
+            mkdir_section,
         ],
         spacing=6,
         tight=True,
     )
 
     def _refresh():
+        print(f"[browser] refresh() → cache invalidated, initial_path={initial_path!r}")
         bucket_cache["list"] = None
         bucket_cache["tags"] = None
         _navigate(initial_path)
@@ -1437,10 +1601,12 @@ def build_local_fs_browser(
                 )
 
     def _navigate(path: pathlib.Path):
+        print(f"[local-fs] navigate → {path}")
         nav_state["current"] = path
         # Auto-select the current folder when browsing in folder/both mode,
         # so the user can just navigate and press Confirm without needing the ✓ icon.
         if select_mode in ("folder", "both"):
+            print(f"[local-fs] auto-select folder (mode={select_mode!r}) → {path}")
             on_select(str(path))
         loading_row.visible  = True
         error_text.visible   = False
@@ -1452,6 +1618,7 @@ def build_local_fs_browser(
             try:
                 raw = sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
             except PermissionError:
+                print(f"[local-fs] PERMISSION DENIED: {path}")
                 def _perm():
                     loading_row.visible = False
                     error_text.value    = f"Permission denied: {path}"
@@ -1459,9 +1626,19 @@ def build_local_fs_browser(
                     page.update()
                 backend.ui_call(page, _perm)
                 return
+            except Exception as ex:
+                print(f"[local-fs] ERROR listing {path}: {ex}")
+                def _err(ex_val=ex):
+                    loading_row.visible = False
+                    error_text.value    = f"Error: {ex_val}"
+                    error_text.visible  = True
+                    page.update()
+                backend.ui_call(page, _err)
+                return
 
             dirs  = [p for p in raw if p.is_dir()  and not p.name.startswith(".")]
             files = [p for p in raw if p.is_file() and not p.name.startswith(".")]
+            print(f"[local-fs] listed {path} → {len(dirs)} dirs, {len(files)} files")
 
             def _show():
                 loading_row.visible = False
@@ -1512,8 +1689,13 @@ def build_local_fs_browser(
                             if nav:
                                 _navigate(ep)
                             if sel and not nav:
+                                print(f"[local-fs] selected (click) → {ep}")
                                 on_select(str(ep))
                         return _click
+
+                    def _select_via_icon(e, ep=ep_snap):
+                        print(f"[local-fs] selected (✓ button) → {ep}")
+                        on_select(str(ep))
 
                     # Botón "Select" solo si es seleccionable Y no vamos a navegar
                     select_icon = ft.IconButton(
@@ -1521,7 +1703,7 @@ def build_local_fs_browser(
                         icon_color=C_ACCENT,
                         icon_size=16,
                         tooltip="Select this folder" if is_dir else "Select this file",
-                        on_click=lambda e, ep=ep_snap: on_select(str(ep)),
+                        on_click=_select_via_icon,
                         visible=selectable,
                     ) if selectable else ft.Container(width=24)
 
@@ -1554,7 +1736,7 @@ def build_local_fs_browser(
                         border_radius=6,
                         padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                         on_click=_make_click() if navigable else (
-                            (lambda e, ep=ep_snap: on_select(str(ep))) if selectable else None
+                            _select_via_icon if selectable else None
                         ),
                         ink=navigable or selectable,
                     )
@@ -1730,6 +1912,7 @@ def _build_copy_content(
     on_back: Callable | None = None,
     on_tags: Callable | None = None,
     on_cifs: Callable | None = None,
+    on_login: Callable | None = None,
 ) -> ft.Control:
     usuario_actual = credenciales_ldap["usuario"]
 
@@ -1795,6 +1978,7 @@ def _build_copy_content(
                 on_continue=on_renew_complete,
                 extra_config=extra_config,
                 duracion_dias=dias_int,
+                on_back=on_login if NO_LDAP else None,
             ))
 
         def cancel(ev):
@@ -1843,7 +2027,11 @@ def _build_copy_content(
         page.update()
 
     renew_btn = btn_secondary("🔑 Renew credentials", on_click=show_renew_dialog)
-    back_btn  = btn_secondary("← Back", on_click=lambda e: on_back()) if on_back else None
+    def _back_with_sftp_cleanup(e):
+        _sftp_disconnect(clear_origen=False)
+        on_back()
+
+    back_btn  = btn_secondary("← Back", on_click=_back_with_sftp_cleanup) if on_back else None
     tags_btn  = btn_secondary("🏷️ Tags", on_click=lambda e: on_tags()) if on_tags else None
     cifs_btn = (
         btn_secondary("⊞  Mount CIFS", on_click=lambda e: on_cifs())
@@ -1932,9 +2120,15 @@ def _build_copy_content(
     )
 
     # ── Log ────────────────────────────────────────────────────────────────
+    # NOTA: en Flet 0.84.0, auto_scroll en ListView no hace nada si no se
+    # define también `scroll` explícitamente — bug conocido
+    # (github.com/flet-dev/flet/issues/6397), arreglado en 0.85.0 pero aún
+    # no lo usamos. `scroll=ALWAYS` es el workaround oficial del propio
+    # equipo de Flet mientras tanto.
     log_list = ft.ListView(
         expand=True,
         auto_scroll=True,
+        scroll=ft.ScrollMode.ALWAYS,
         spacing=0,
         padding=ft.Padding.all(12),
     )
@@ -1964,7 +2158,7 @@ def _build_copy_content(
                 lines_to_add.append(
                     ft.Text(line.rstrip("\n"),
                             size=11, color=color,
-                            font_family=FONT_MONO, selectable=True)
+                            font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK, selectable=True)
                 )
 
         def _add():
@@ -2128,6 +2322,176 @@ def _build_copy_content(
 
     cancel_btn.on_click = do_cancel
 
+    # ── Origen SFTP (perfil rclone efímero) ─────────────────────────────────
+    sftp_state: dict = {"perfil": None, "host": None, "user": None}
+
+    sftp_status_label = ft.Text("", size=12, color=C_ACCENT, font_family=FONT_MONO)
+    sftp_disconnect_btn = ft.IconButton(
+        icon=ft.Icons.CLOSE,
+        icon_color=C_TEXT_DIM,
+        icon_size=16,
+        tooltip="Disconnect SFTP",
+        on_click=lambda e: _sftp_disconnect(),
+    )
+    sftp_status_row = ft.Row(
+        [sftp_status_label, sftp_disconnect_btn],
+        spacing=4,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        visible=False,
+    )
+
+    def _sftp_disconnect(clear_origen: bool = True) -> None:
+        perfil = sftp_state["perfil"]
+        if not perfil:
+            return
+
+        def _bg():
+            backend.eliminar_perfil_rclone(perfil)
+
+        backend.safe_thread(page, _bg).start()
+        sftp_state["perfil"] = None
+        sftp_state["host"]   = None
+        sftp_state["user"]   = None
+        sftp_status_row.visible = False
+        if clear_origen:
+            origen_tf.value = ""
+        page.update()
+
+    def _open_sftp_browser_modal() -> None:
+        _sftp_dest_path = {"value": "", "is_file": False}
+
+        def _on_sftp_select(path: str, is_file: bool = False) -> None:
+            _sftp_dest_path["value"]   = path
+            _sftp_dest_path["is_file"] = is_file
+            confirm_btn.content.value = "Select this file" if is_file else "Select this folder"
+            page.update()
+
+        browser_widget, browser_refresh = build_rclone_browser(
+            page, sftp_state["perfil"], on_select=_on_sftp_select, lab_filter_enabled=False,
+            allow_mkdir=False, show_files=True,
+        )
+
+        def confirm(e):
+            path = _sftp_dest_path["value"]
+            origen_tf.value = f"{sftp_state['perfil']}:{path}"
+            page.pop_dialog()
+            page.update()
+
+        def cancel(e):
+            page.pop_dialog()
+
+        confirm_btn = btn_primary("Select this folder", on_click=confirm)
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(
+                f"SFTP — {sftp_state['user']}@{sftp_state['host']}",
+                color=C_TEXT, size=15, weight=ft.FontWeight.W_600,
+            ),
+            content=ft.Column([browser_widget], spacing=6, tight=True, width=520),
+            actions=[
+                btn_secondary("Cancel", on_click=cancel),
+                confirm_btn,
+            ],
+            bgcolor=C_OVERLAY,
+            shape=ft.RoundedRectangleBorder(radius=10),
+        )
+        page.show_dialog(dlg)
+        page.update()
+        threading.Timer(0.1, lambda: backend.ui_call(page, browser_refresh)).start()
+
+    def _open_sftp_dialog(e) -> None:
+        if sftp_state["perfil"]:
+            _open_sftp_browser_modal()
+            return
+
+        host_tf, host_col = styled_field("Host")
+        port_tf, port_col = styled_field("Port", value="22")
+        user_tf, user_col = styled_field("Username")
+        pass_tf, pass_col = styled_field("Password", password=True)
+        err = ft.Text("", color=C_ERROR, size=12, visible=False)
+        loading_indicator = ft.ProgressRing(
+            width=16, height=16, stroke_width=2, color=C_PRIMARY, visible=False
+        )
+        confirm_btn = btn_primary("Connect")
+
+        def connect(ev):
+            host = (host_tf.value or "").strip()
+            port = (port_tf.value or "").strip() or "22"
+            user = (user_tf.value or "").strip()
+            pwd  = (pass_tf.value or "").strip()
+            if not host or not user:
+                err.value   = "Host and username are required."
+                err.visible = True
+                page.update()
+                return
+
+            confirm_btn.disabled      = True
+            loading_indicator.visible = True
+            err.visible               = False
+            page.update()
+
+            def _validate():
+                perfil = backend.generar_nombre_perfil_sftp()
+                backend.crear_perfil_rclone_sftp(perfil, host, port, user, pwd)
+                ok, motivo = backend.validar_conexion_sftp(perfil)
+                if ok:
+                    sftp_state["perfil"] = perfil
+                    sftp_state["host"]   = host
+                    sftp_state["user"]   = user
+
+                    def _success():
+                        page.pop_dialog()
+                        sftp_status_label.value = f"🌐 Connected to {user}@{host}"
+                        sftp_status_row.visible = True
+                        page.update()
+                        _open_sftp_browser_modal()
+
+                    backend.ui_call(page, _success)
+                else:
+                    backend.eliminar_perfil_rclone(perfil)
+                    mensajes = {
+                        "auth":        "Incorrect username or password.",
+                        "unreachable": f"Could not connect to {host}:{port}. Check the address and make sure the server is reachable from your network.",
+                        "timeout":     f"Connection to {host}:{port} timed out.",
+                    }
+                    msg = mensajes.get(motivo, "Could not connect. Check the details and try again.")
+
+                    def _fail():
+                        err.value                 = msg
+                        err.visible               = True
+                        confirm_btn.disabled      = False
+                        loading_indicator.visible = False
+                        page.update()
+
+                    backend.ui_call(page, _fail)
+
+            backend.safe_thread(page, _validate).start()
+
+        confirm_btn.on_click = connect
+
+        def cancel(ev):
+            page.pop_dialog()
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Connect to SFTP", color=C_TEXT, size=15, weight=ft.FontWeight.W_600),
+            content=ft.Column(
+                [
+                    host_col, port_col, user_col, pass_col, err,
+                    ft.Row([loading_indicator], alignment=ft.MainAxisAlignment.CENTER),
+                ],
+                spacing=6, tight=True, width=320,
+            ),
+            actions=[btn_secondary("Cancel", on_click=cancel), confirm_btn],
+            bgcolor=C_OVERLAY,
+            shape=ft.RoundedRectangleBorder(radius=10),
+        )
+        page.show_dialog(dlg)
+        page.update()
+
+    sftp_btn = btn_secondary("🌐 SFTP", on_click=_open_sftp_dialog)
+
     # ── FilePicker (solo desktop) ──────────────────────────────────────────
     if not IS_WEB:
         file_picker   = ft.FilePicker()
@@ -2139,15 +2503,21 @@ def _build_copy_content(
             result = await file_picker.pick_files()
             if result:
                 ruta = backend.traducir_ruta_a_remote(result[0].path, mounts_activos)
+                print(f"[file-picker] file picked → raw={result[0].path!r} translated={ruta!r}")
                 origen_tf.value = ruta
                 page.update()
+            else:
+                print("[file-picker] file pick cancelled")
 
         async def _pick_folder(e):
             result = await folder_picker.get_directory_path()
             if result:
                 ruta = backend.traducir_ruta_a_remote(result, mounts_activos)
+                print(f"[file-picker] folder picked → raw={result!r} translated={ruta!r}")
                 origen_tf.value = ruta
                 page.update()
+            else:
+                print("[file-picker] folder pick cancelled")
 
         async def _save_log_picker(file_name: str):
             result = await save_picker.save_file(file_name=file_name)
@@ -2171,17 +2541,19 @@ def _build_copy_content(
         pick_folder_btn = btn_secondary("📁 Folder",
                             on_click=lambda e: page.run_task(_pick_folder, e))
 
-        pick_row = ft.Row([pick_file_btn, pick_folder_btn], spacing=8)
+        pick_row = ft.Row([pick_file_btn, pick_folder_btn, sftp_btn], spacing=8)
     else:
         # Modo WEB: browsers propios que leen el filesystem del servidor
         def _open_folder_browser(e):
             def _picked(path: str):
+                print(f"[file-picker] web folder picked → {path}")
                 origen_tf.value = path
                 page.update()
             show_local_fs_modal(page, on_select=_picked, select_mode="folder")
 
         def _open_file_browser(e):
             def _picked(path: str):
+                print(f"[file-picker] web file picked → {path}")
                 origen_tf.value = path
                 page.update()
             show_local_fs_modal(page, on_select=_picked, select_mode="file")
@@ -2190,6 +2562,7 @@ def _build_copy_content(
             [
                 btn_secondary("📁 Folder", on_click=_open_folder_browser),
                 btn_secondary("📄 File",   on_click=_open_file_browser),
+                sftp_btn,
             ],
             spacing=8,
         )
@@ -2205,9 +2578,12 @@ def _build_copy_content(
         size=12,
         color=C_WARNING,
         font_family=FONT_MONO,
+        font_family_fallback=MONO_FALLBACK,
     )
 
-    def on_browser_select(path: str):
+    def on_browser_select(path: str, is_file: bool = False):
+        print(f"[copy] destination selected → {perfil_rclone}:{path}" if path
+              else "[copy] destination cleared (root)")
         _dest_path["value"] = path
         # Persist non-empty selections to session.
         # Do NOT wipe copy_destino on empty path: the browser refresh timer
@@ -2256,6 +2632,12 @@ def _build_copy_content(
 
         metadatos = {k: (tf.value or "").strip() for k, tf in meta_fields.items()}
         flags     = (flags_tf.value or "").strip().split()
+
+        tag_errors = validate_tagset(metadatos)
+        if tag_errors:
+            show_dialog(page, "Invalid characters in tags",
+                        "\n".join(tag_errors), C_ERROR)
+            return
 
         _set_running(True)
 
@@ -2483,7 +2865,7 @@ def _build_copy_content(
     # ── Layout ────────────────────────────────────────────────────────────
     content = ft.Column(
         [
-            build_header(subtitle=f"Copy & Verify — {perfil_rclone}", IS_WEB=IS_WEB),
+            build_header(subtitle=f"Copy & Verify — {perfil_rclone}", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
             ft.Container(
                 content=ft.Row(
                     [c for c in [back_btn, tags_btn, cifs_btn, expiry_badge, ft.Container(expand=True), renew_btn] if c is not None],
@@ -2503,6 +2885,7 @@ def _build_copy_content(
                                     origen_col,
                                     ft.Container(height=4),
                                     pick_row,
+                                    sftp_status_row,
                                     ft.Container(height=12),
                                     dest_browser_col,
                                     ft.Container(height=6),
@@ -2682,8 +3065,12 @@ def _build_tag_manager_content(
     right_panel = {"visible": False}
 
     # ── Log ───────────────────────────────────────────────────────────────
+    # NOTA: en Flet, adjuntar on_scroll a un ListView rompe su auto_scroll
+    # interno por completo (deja de autoseguir incluso sin tocar el scroll).
+    # Además, en Flet 0.84.0 auto_scroll no hace nada si no se define
+    # también `scroll` explícitamente (github.com/flet-dev/flet/issues/6397).
     log_list = ft.ListView(
-        expand=True, auto_scroll=True, spacing=0,
+        expand=True, auto_scroll=True, scroll=ft.ScrollMode.ALWAYS, spacing=0,
         padding=ft.Padding.all(12),
     )
     log_section = ft.Container(
@@ -2707,7 +3094,7 @@ def _build_tag_manager_content(
         def _add():
             log_list.controls.append(
                 ft.Text(msg.rstrip("\n"), size=11, color=color,
-                        font_family=FONT_MONO, selectable=True)
+                        font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK, selectable=True)
             )
         backend.ui_call(page, _add)
 
@@ -2746,6 +3133,11 @@ def _build_tag_manager_content(
     tm_bucket_cache: dict = {"list": None, "tags": None}
 
     def _on_tm_lab_select(acronym: str | None) -> None:
+        previous = tm_filter_state["acronym"]
+        if acronym is None:
+            print(f"[tag-manager] lab filter cleared (was {previous!r}) → showing all buckets")
+        else:
+            print(f"[tag-manager] lab filter → {acronym!r} (was {previous!r})")
         tm_filter_state["acronym"] = acronym
         _navigate(None, "")
 
@@ -2880,6 +3272,8 @@ def _build_tag_manager_content(
                 )
 
                 def _on_view_files(e):
+                    bucket_snap, prefix_snap = nav["bucket"], nav["prefix"]
+                    print(f"[tag-manager] view files → {bucket_snap}/{prefix_snap}")
                     view_files_btn.disabled = True
                     view_files_btn.text = "Loading files..."
                     browser_loading.visible = True
@@ -2889,6 +3283,7 @@ def _build_tag_manager_content(
                         real_files = backend.rclone_list_files_only(
                             perfil_rclone, nav["bucket"], nav["prefix"]
                         )
+                        print(f"[tag-manager] view files → {bucket_snap}/{prefix_snap} → {len(real_files)} files")
                         _current_items["files"] = real_files
                         nav["show_files"] = True
                         browser_loading.visible = False
@@ -2996,6 +3391,7 @@ def _build_tag_manager_content(
         nav["prefix"] = old_prefix
 
     def _navigate(bucket: str | None, prefix: str) -> None:
+        print(f"[tag-manager] navigate → bucket={bucket!r} prefix={prefix!r}")
         nav["bucket"]     = bucket
         nav["prefix"]     = prefix
         nav["show_files"] = False
@@ -3043,14 +3439,16 @@ def _build_tag_manager_content(
             if nav["bucket"] is None:
                 if tm_bucket_cache["list"] is not None:
                     buckets = list(tm_bucket_cache["list"])
-                    print(f"[tag-manager] bucket list (cached): {len(buckets)} buckets")
                 else:
                     buckets = backend.rclone_lsd(perfil=perfil_rclone, path="")
                     tm_bucket_cache["list"] = list(buckets)
                     tm_bucket_cache["tags"] = None
                     print(f"[tag-manager] bucket list fetched: {len(buckets)} buckets")
                 if tm_filter_state["acronym"]:
+                    active = tm_filter_state["acronym"]
+                    total = len(tm_bucket_cache["list"])
                     if tm_bucket_cache["tags"] is None:
+                        print(f"[tag-manager] lab filter {active!r}: scanning S3 'acronym' tag for {total} buckets (one-time per session)...")
                         with ThreadPoolExecutor(max_workers=8) as pool:
                             futs = {pool.submit(backend.get_bucket_tags, client, b): b for b in tm_bucket_cache["list"]}
                             tm_tag_map: dict[str, str] = {}
@@ -3061,15 +3459,19 @@ def _build_tag_manager_content(
                                 except Exception:
                                     tm_tag_map[b] = ""
                         tm_bucket_cache["tags"] = tm_tag_map
-                        print(f"[tag-manager] tag cache populated for {len(tm_tag_map)} buckets")
-                    active = tm_filter_state["acronym"]
+                        n_tagged = sum(1 for v in tm_tag_map.values() if v)
+                        print(f"[tag-manager] lab filter: tag scan done → {n_tagged}/{total} buckets have an 'acronym' tag (cached for this session)")
                     buckets = [b for b in buckets if tm_bucket_cache["tags"].get(b) == active]
-                    print(f"[tag-manager] lab filter={active!r} → {len(buckets)} buckets")
+                    print(f"[tag-manager] lab filter {active!r} → {len(buckets)}/{total} buckets match: {buckets}")
                 _current_items["folders"] = buckets
                 _current_items["files"]   = []
             else:
                 folders, files = backend.list_prefix_contents(
                     perfil_rclone, nav["bucket"], nav["prefix"]
+                )
+                print(
+                    f"[tag-manager] listed bucket={nav['bucket']!r} prefix={nav['prefix']!r} "
+                    f"→ {len(folders)} subfolders"
                 )
                 _current_items["folders"] = folders
                 _current_items["files"]   = files
@@ -3080,6 +3482,7 @@ def _build_tag_manager_content(
             backend.ui_call(page, _show)
 
         except Exception as ex:
+            print(f"[tag-manager] ERROR bucket={nav['bucket']!r} prefix={nav['prefix']!r}: {ex}")
             def _err(ex_val=ex):
                 browser_loading.visible = False
                 browser_error.value     = f"Error: {ex_val}"
@@ -3092,7 +3495,8 @@ def _build_tag_manager_content(
         prefix = nav["prefix"]
         if not bucket:
             return
-        
+        print(f"[tag-manager] select prefix → {bucket}/{prefix}")
+
         label   = f"📁 {prefix or (bucket + '/')}"
         note    = "(Tag scanning and counting disabled for speed)"
         tags_cp = {}
@@ -3110,6 +3514,7 @@ def _build_tag_manager_content(
         backend.ui_call(page, _upd)
 
     def _select_file(key: str) -> None:
+        print(f"[tag-manager] select file → {nav['bucket']}/{key}")
         def _do():
             client = _get_client()
             right_panel["visible"] = True
@@ -3122,6 +3527,7 @@ def _build_tag_manager_content(
                 error_code = (resp or {}).get("Error", {}).get("Code", "") if isinstance(resp, dict) else ""
                 if error_code != "NoSuchKey":
                     ex_str = str(ex)
+                    print(f"[tag-manager] ERROR reading tags for {nav['bucket']}/{key}: {ex_str}")
                     def _err():
                         browser_error.value   = f"Error reading tags: {ex_str}"
                         browser_error.visible = True
@@ -3233,6 +3639,13 @@ def _build_tag_manager_content(
 
     def do_apply(e) -> None:
         tagset = {k: (tf.value or "").strip() for k, tf in tag_fields.items()}
+
+        tag_errors = validate_tagset(tagset)
+        if tag_errors:
+            show_dialog(page, "Caracteres no permitidos en los tags",
+                        "\n".join(tag_errors), C_ERROR)
+            return
+
         apply_btn.disabled  = True
         apply_status.value  = "Applying tags..."
         apply_status.color  = C_TEXT_DIM
@@ -3243,6 +3656,9 @@ def _build_tag_manager_content(
         def _do():
             client = _get_client()
             bucket = nav["bucket"]
+            target = sel["key"] if sel["type"] == "file" else f"{sel['key'] or ''} (prefix, recursive)"
+            non_empty_tags = {k: v for k, v in tagset.items() if v}
+            print(f"[tag-manager] applying tags to {bucket}/{target} → {non_empty_tags}")
             ts     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             _log(f"### Tags applied — {ts} ###\n")
             _log(f"Profile: {active_profile['name']}\n", C_TEXT_DIM)
@@ -3266,6 +3682,7 @@ def _build_tag_manager_content(
                         log_fn=lambda msg: _log(msg),
                     )
 
+                print(f"[tag-manager] tags applied OK → {n_ok} object(s) updated in {bucket}/{target}")
                 _log(f"\n✅ {n_ok} object(s) tagged successfully.\n", C_ACCENT)
 
                 def _ok():
@@ -3277,6 +3694,7 @@ def _build_tag_manager_content(
 
             except Exception as ex:
                 err_str = str(ex)
+                print(f"[tag-manager] tags apply FAILED for {bucket}/{target}: {err_str}")
                 _log(f"\n❌ Error: {err_str}\n", C_ERROR)
                 def _err():
                     apply_btn.disabled   = False
@@ -3328,6 +3746,8 @@ def _build_tag_manager_content(
         )
         
         val_container = ft.Container(expand=2)
+        key_err = ft.Text("", size=11, color=C_ERROR, visible=False, expand=1)
+        val_err = ft.Text("", size=11, color=C_ERROR, visible=False, expand=2)
         row_dict: dict = {"key_tf": key_tf, "val_tf": None, "row": None, "val_container": val_container}
 
         def update_value_field_type(current_key: str, current_val: str):
@@ -3340,16 +3760,27 @@ def _build_tag_manager_content(
                 content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
                 text_size=12, max_length=256, expand=True
             )
+            def _on_val_change(e):
+                err = check_tag_value(row_dict["val_tf"].value or "")
+                row_dict["val_tf"].border_color = C_ERROR if err else C_BORDER
+                val_err.value = err or ""
+                val_err.visible = bool(err)
+                page.update()
+            field_tf.on_change = _on_val_change
             row_dict["val_tf"] = field_tf
             val_container.content = field_tf  # siempre simple, sin dropdown
 
         update_value_field_type(key, value)
 
         def on_key_change(e):
+            err = check_tag_value(key_tf.value or "")
+            key_tf.border_color = C_ERROR if err else C_BORDER
+            key_err.value = err or ""
+            key_err.visible = bool(err)
             old_val = row_dict["val_tf"].value or ""
             update_value_field_type(key_tf.value, old_val)
             page.update()
-            
+
         key_tf.on_change = on_key_change
 
         def _delete(e, rd=row_dict):
@@ -3360,7 +3791,7 @@ def _build_tag_manager_content(
             _refresh_add_btn_state()
             page.update()
 
-        row = ft.Row(
+        inner_row = ft.Row(
             [
                 key_tf, val_container,
                 ft.IconButton(
@@ -3370,6 +3801,10 @@ def _build_tag_manager_content(
             ],
             spacing=6,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+        row = ft.Column(
+            [inner_row, ft.Row([key_err, val_err], spacing=6)],
+            spacing=2,
         )
         row_dict["row"] = row
         return row_dict
@@ -3432,6 +3867,12 @@ def _build_tag_manager_content(
                 for rd in _file_tag_rows
                 if rd["key_tf"].value.strip()
             }
+
+        tag_errors = validate_tagset(tagset)
+        if tag_errors:
+            show_dialog(page, "Caracteres no permitidos en los tags",
+                        "\n".join(tag_errors), C_ERROR)
+            return
 
         if _save_btn_ref["btn"] is not None:
             _save_btn_ref["btn"].disabled = True
@@ -3592,7 +4033,7 @@ def _build_tag_manager_content(
 
     content = ft.Column(
         [
-            build_header(subtitle=f"Tag Manager — {perfil_rclone}", IS_WEB=IS_WEB),
+            build_header(subtitle=f"Tag Manager — {perfil_rclone}", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
             ft.Container(
                 content=ft.Row(
                     [back_btn, ft.Container(expand=True)],
@@ -3659,15 +4100,7 @@ def _build_tag_manager_content(
 def main(page: ft.Page):
     global IS_WEB
     IS_WEB = IS_WEB or page.web
-    page.title             = "BIFROST — TRANSFER"
-    page.bgcolor           = C_BG
-    page.window.width      = 1100
-    page.window.height     = 820
-    page.window.min_width  = 800
-    page.window.min_height = 600
-    page.theme             = ft.Theme(color_scheme_seed=C_PRIMARY)
-    page.theme_mode        = ft.ThemeMode.DARK
-    page.padding           = 0
+    apply_theme(page)
 
     state = {
         "credenciales_ldap":     None,
@@ -3815,24 +4248,41 @@ def main(page: ft.Page):
             on_login_success(creds)
             return
 
-        print(f"[session] Restoring session for {usuario!r}")
+        print(f"[session] Restoring session for {usuario!r} → cluster={session['servidor_minio']!r} ({session['endpoint']})")
         state["credenciales_ldap"] = creds
         state["servidor_minio"]    = session["servidor_minio"]
         state["perfil_rclone"]     = session["perfil_rclone"]
         state["endpoint"]          = session["endpoint"]
         # mounts_activos stays [] — OOD web mode has no CIFS shares
 
+        def _sweep_sftp_huerfanos():
+            try:
+                backend.limpiar_perfiles_rclone_con_prefijo("sftp-src-")
+            except Exception as ex:
+                print(f"[sftp] cleanup sweep failed (non-fatal): {ex}")
+
+        backend.safe_thread(page, _sweep_sftp_huerfanos).start()
+
         # Jump straight to credentials-check → copy view
         _go_credentials_or_copy()
 
     def on_login_success(creds: dict):
         state["credenciales_ldap"] = creds
+
+        def _sweep_sftp_huerfanos():
+            try:
+                backend.limpiar_perfiles_rclone_con_prefijo("sftp-src-")
+            except Exception as ex:
+                print(f"[sftp] cleanup sweep failed (non-fatal): {ex}")
+
+        backend.safe_thread(page, _sweep_sftp_huerfanos).start()
         go_minio()
 
     def go_minio():
         show_screen(_build_minio_content(page, on_continue=on_minio_selected))
 
     def on_minio_selected(eleccion: dict):
+        print(f"[minio] cluster selected → {eleccion['servidor']} ({eleccion['endpoint']})")
         state["servidor_minio"] = eleccion["servidor"]
         state["perfil_rclone"]  = eleccion["perfil"]
         state["endpoint"]       = eleccion["endpoint"]
@@ -3879,6 +4329,7 @@ def main(page: ft.Page):
                 credenciales_ldap=state["credenciales_ldap"],
                 on_continue=go_copy,
                 extra_config=extra_config,
+                on_back=go_login if NO_LDAP else None,
             ))
         else:
             go_copy()
@@ -4013,6 +4464,7 @@ def main(page: ft.Page):
             on_back=go_minio,
             on_tags=go_tags,
             on_cifs=go_cifs,          # ← nuevo
+            on_login=go_login,
         ))
 
     def do_close():

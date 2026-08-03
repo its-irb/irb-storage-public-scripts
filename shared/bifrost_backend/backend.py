@@ -37,6 +37,7 @@ from sys import platform as sys_platform
 import ctypes, ctypes.util
 import traceback
 import tempfile
+import uuid
 
 import jwt
 import requests
@@ -49,6 +50,35 @@ from bifrost_frontend.frontend import show_dialog, C_ERROR
 from config import APP_INFO
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+_rclone_version_cache: str | None = None
+
+EMOJI_FONT_FILENAME = "NotoColorEmoji-noflags.ttf"
+
+def _get_rclone_version() -> str:
+    global _rclone_version_cache
+    if _rclone_version_cache is not None:
+        return _rclone_version_cache
+    try:
+        out = subprocess.check_output(
+            [get_rclone_executable(), "--version"],
+            encoding="utf-8",
+            errors="replace",
+            **_subprocess_kwargs(),
+        )
+        # Primera línea: "rclone v1.72.1"
+        _rclone_version_cache = out.splitlines()[0].split()[1].lstrip("v")
+    except Exception:
+        _rclone_version_cache = "unknown"
+    return _rclone_version_cache
+
+
+def _get_user_agent() -> str:
+    try:
+        from version import __version__ as app_version
+    except Exception:
+        app_version = "dev"
+    return f"bifrost-transfer/{app_version} rclone/{_get_rclone_version()}"
 
 _s3_mount_processes: list[subprocess.Popen] = []
 
@@ -96,6 +126,35 @@ def get_rclone_executable() -> str:
         "rclone not found. The application bundle appears to be incomplete — "
         "please reinstall BIFROST."
     )
+
+
+def get_emoji_font_asset_path() -> str | None:
+    """
+    Devuelve la ruta relativa al assets_dir de Flet donde encontrar la fuente
+    emoji, o ``None`` si no existe.
+
+    La fuente la descargan los scripts ``shared/*-assets-downloader.sh`` a
+    ``assets/fonts/`` en cada build/ejecución, así que aquí solo la localizamos.
+    """
+    font_rel = f"fonts/{EMOJI_FONT_FILENAME}"
+
+    # 1. Bundle Flet (apps empaquetadas y dev con flet run).
+    flet_assets = os.environ.get("FLET_ASSETS_DIR")
+    if flet_assets and (Path(flet_assets) / font_rel).exists():
+        return font_rel
+
+    # 2. Dev sin flet run: assets del repo (solo si el paquete se importa
+    # desde el repo, no desde site-packages).
+    pkg_root = Path(__file__).parent.parent
+    if pkg_root.name == "shared":
+        repo_font = (
+            pkg_root.parent
+            / f"bifrost-{APP_INFO['flavour']}" / "src" / "assets" / font_rel
+        )
+        if repo_font.exists():
+            return font_rel
+
+    return None
 
 
 # ============================================================================
@@ -934,8 +993,7 @@ def get_s3_client_from_profile(profile_name: str, endpoint: str):
     section = config[profile_name]
     region_from_rclone = section.get("region")
     region_name = region_from_rclone or DEFAULT_S3_REGION
-    print(f"[s3-client] profile={profile_name} endpoint={endpoint}", flush=True)
-    print(f"[s3-client] region_from_rclone={region_from_rclone!r} -> using={region_name!r}", flush=True)
+    print(f"[s3-client] {profile_name} → {endpoint} (region={region_name!r})", flush=True)
     return boto3.client(
         "s3",
         endpoint_url=endpoint,
@@ -967,7 +1025,7 @@ def list_prefix_contents(perfil_rclone: str, bucket: str, prefix: str) -> tuple[
                 folders.append(f"{f}/")
                 
     except Exception as e:
-        print(f"Error listing prefix contents with rclone: {e}")
+        print(f"[backend] ERROR list_prefix_contents bucket={bucket!r} prefix={prefix!r}: {e}")
         folders = []
     return folders, []
 
@@ -995,8 +1053,9 @@ def rclone_list_files_only(perfil_rclone: str, bucket: str, prefix: str) -> list
             **_subprocess_kwargs(), # Usa tus kwargs existentes
         )
         if result.returncode != 0:
+            print(f"[backend] ERROR rclone_list_files_only bucket={bucket!r} prefix={prefix!r}: {result.stderr.strip()}")
             return []
-            
+
         files = []
         for line in result.stdout.splitlines():
             name = line.strip()
@@ -1007,7 +1066,8 @@ def rclone_list_files_only(perfil_rclone: str, bucket: str, prefix: str) -> list
                 else:
                     files.append(name)
         return files
-    except Exception:
+    except Exception as e:
+        print(f"[backend] ERROR rclone_list_files_only bucket={bucket!r} prefix={prefix!r}: {e}")
         return []
 
 def get_object_tags(s3_client, bucket: str, key: str) -> dict[str, str]:
@@ -1152,6 +1212,98 @@ def actualizar_password_perfiles_rclone(
         print(f"🔐 Password updated for all SMB profiles of '{usuario}'")
     else:
         print(f"⚠️ No profiles '{usuario}-smbmount-*' found in rclone.conf")
+
+
+# ============================================================================
+# GESTIÓN SFTP (ORIGEN EFÍMERO)
+# ============================================================================
+
+def crear_perfil_rclone_sftp(
+    nombre_perfil: str,
+    host: str,
+    port: str,
+    username: str,
+    password: str,
+) -> None:
+    """Crea (o reemplaza) un perfil SFTP temporal en rclone.conf."""
+    rclone = get_rclone_executable()
+    config_path = obtener_ruta_rclone_conf()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    if nombre_perfil in config:
+        config.remove_section(nombre_perfil)
+    config[nombre_perfil] = {
+        "type": "sftp",
+        "host": host,
+        "port": port,
+        "user": username,
+        "pass": subprocess.check_output(
+            [rclone, "obscure", password],
+            text=True,
+            **_subprocess_kwargs(),
+        ).strip(),
+    }
+    with open(config_path, "w") as f:
+        config.write(f)
+
+
+def eliminar_perfil_rclone(
+    nombre_perfil: str,
+    rclone_config_path: str | None = None,
+) -> None:
+    """Borra una sección de rclone.conf si existe."""
+    config_path = rclone_config_path or obtener_ruta_rclone_conf()
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    if nombre_perfil in config:
+        config.remove_section(nombre_perfil)
+        with open(config_path, "w") as f:
+            config.write(f)
+
+
+def limpiar_perfiles_rclone_con_prefijo(
+    prefijo: str,
+    rclone_config_path: str | None = None,
+) -> None:
+    """Borra todas las secciones cuyo nombre empiece por *prefijo* (barrido de huérfanos)."""
+    config_path = rclone_config_path or obtener_ruta_rclone_conf()
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    for nombre in [s for s in config.sections() if s.startswith(prefijo)]:
+        eliminar_perfil_rclone(nombre, config_path)
+
+
+def generar_nombre_perfil_sftp() -> str:
+    """Genera un nombre de perfil rclone único para una conexión SFTP efímera."""
+    return f"sftp-src-{uuid.uuid4().hex[:8]}"
+
+
+def validar_conexion_sftp(nombre_perfil: str, timeout: int = 15) -> tuple[bool, str | None]:
+    """
+    Valida que el perfil SFTP recién creado conecta correctamente, listando la raíz.
+
+    Returns:
+        (True, None) si conecta.
+        (False, motivo) si falla — motivo ∈ {"unreachable", "auth", "timeout", "other"}.
+    """
+    try:
+        rclone_lsd(nombre_perfil, "", timeout=timeout)
+        return True, None
+    except subprocess.TimeoutExpired:
+        return False, "timeout"
+    except RuntimeError as e:
+        mensaje = str(e).lower()
+        if "auth" in mensaje or "permission denied" in mensaje:
+            return False, "auth"
+        if (
+            "no such host" in mensaje
+            or "connection refused" in mensaje
+            or "i/o timeout" in mensaje
+            or "network is unreachable" in mensaje
+        ):
+            return False, "unreachable"
+        return False, "other"
 
 
 # ============================================================================
@@ -1397,7 +1549,7 @@ def ejecutar_rclone_copy(
     rclone = get_rclone_executable()
     tag_string   = construir_tag_string(metadatos_dict)
     header_value = f"x-amz-tagging:{tag_string}"
-
+    print(f"[copy] tags applied → {tag_string or '(none)'}")
 
     comando = [
         rclone, "copy",
@@ -1417,6 +1569,7 @@ def ejecutar_rclone_copy(
         "--progress",
         "--stats=1s",
         "--header-upload", header_value,
+        "--user-agent", _get_user_agent(),
     ]
     comando.extend(flags_adicionales)
 
@@ -1446,12 +1599,15 @@ def ejecutar_rclone_copy(
             log_fn(linea)
         proceso.wait()
         if proceso.returncode == 0:
+            print(f"[copy] finished OK → {origen} → {destino_perfil}:/{destino_path} (tags: {tag_string or '(none)'})")
             log_fn("\n✅ Copy completed successfully.\n")
             if on_success:
                 on_success()
         else:
+            print(f"[copy] FAILED (rc={proceso.returncode}) → {origen} → {destino_perfil}:/{destino_path}")
             log_fn(f"\n❌ Copy error. Code: {proceso.returncode}")
     except Exception as e:
+        print(f"[copy] EXCEPTION → {origen} → {destino_perfil}:/{destino_path}: {e}")
         log_fn(f"\n❌ Exception while executing rclone: {str(e)}")
     finally:
         # Guarantee the subprocess is not left running if the stdout loop raised.
@@ -1575,12 +1731,13 @@ def ejecutar_rclone_check(
             "--one-way",
             "--combined", str(combined_path),
             "--copy-links",
-            "--exclude", "/.DS_Store",
             "--exclude", "**/.DS_Store",
-            "--exclude", "/Thumbs.db",
-            "--exclude", "**/Thumbs.db",
-            "--exclude", ".snapshots/**",
-            "--exclude", "**/.snapshots/**",
+            "--exclude", "**/*.Thumbs.db",
+            "--exclude", ".snapshot/**",
+            "--exclude", "**/.snapshot/**",
+            "--exclude", ".snapshot/",
+            "--exclude", "**/.Trash*/**",
+            "--exclude", "**/.cache/**"
         ]
     comando.extend(flags_adicionales)
 
@@ -1667,6 +1824,39 @@ def rclone_lsd(perfil: str, path: str = "", timeout: int = 15) -> list[str]:
         if len(parts) == 5:
             folders.append(parts[4])
     return sorted(folders)
+
+
+def rclone_lsjson(perfil: str, path: str = "", timeout: int = 15) -> list[dict]:
+    """
+    Lista carpetas y ficheros (un nivel) de un path en un perfil rclone, vía JSON.
+
+    Args:
+        perfil: nombre del perfil rclone (ej. "sftp-src-abc123")
+        path:   path dentro del perfil. "" = raíz
+
+    Returns:
+        Lista de dicts {"name": str, "is_dir": bool}, carpetas primero,
+        luego alfabético case-insensitive dentro de cada grupo.
+
+    Raises:
+        RuntimeError: si rclone lsjson falla.
+    """
+    rclone = get_rclone_executable()
+    target = f"{perfil}:{path}" if path else f"{perfil}:"
+
+    result = subprocess.run(
+        [rclone, "lsjson", target],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        **_subprocess_kwargs(),
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or f"rclone lsjson failed (code {result.returncode})")
+
+    entradas = json.loads(result.stdout or "[]")
+    items = [{"name": e["Name"], "is_dir": bool(e.get("IsDir"))} for e in entradas]
+    return sorted(items, key=lambda i: (not i["is_dir"], i["name"].lower()))
 
 
 # ============================================================================

@@ -27,6 +27,7 @@ share/python-wheels/
 MANIFEST
 */src/build/
 */src/assets/*
+*/src/assets/**/*
 !*/src/assets/**/.keep
 !*/src/assets/icon.png
 !*/src/assets/splash.png
@@ -196,6 +197,7 @@ src/storage/data/
 
 # Wiki LLM y superpowers
 docs/
+.superpowers/
 
 #diff 
 historial*
@@ -205,3 +207,5 @@ bifrost-mount/src/bifrost_backend/
 bifrost-mount/src/bifrost_frontend/
 bifrost-transfer/src/bifrost_backend/
 bifrost-transfer/src/bifrost_frontend/
+
+node_modules/

@@ -14,13 +14,43 @@ on:
       - feature/**
   workflow_dispatch:
 
+run-name: >-
+  ${{ startsWith(github.event.head_commit.message, 'Merge') && github.event.head_commit.message || format('{0} · #{1}', github.ref_name, github.run_number) }}
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 # ─────────────────────────────────────────────────────────────────────────────
-# macOS — flet build macos → .app
+# jobs
 # ─────────────────────────────────────────────────────────────────────────────
 jobs:
+  summary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Listar commits incluidos en este push
+        run: |
+          echo "## 📦 Commits incluidos en este build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Rama:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Versión:** \`1.0.${{ github.run_number }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Evento:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            git log --pretty=format:"- \`%h\` %s _(%an)_" ${{ github.event.before }}..${{ github.sha }} >> $GITHUB_STEP_SUMMARY
+          else
+            echo "_(Ejecución manual o primer push de la rama — mostrando últimos 10 commits)_" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            git log -10 --pretty=format:"- \`%h\` %s _(%an)_" >> $GITHUB_STEP_SUMMARY
+          fi
+  # ─────────────────────────────────────────────────────────────────────────────
+  # macOS — flet build macos → .app
+  # ─────────────────────────────────────────────────────────────────────────────
   build-macos:
     runs-on: macos-latest
     strategy:
@@ -54,7 +84,8 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install uv
-          uv sync --project ${{ matrix.app }}
+          cd ${{ matrix.app }}
+          uv sync
           echo "$GITHUB_WORKSPACE/${{ matrix.app }}/.venv/bin" >> $GITHUB_PATH
 
       - name: Descargar rclone y fuse-t para macOS
@@ -137,16 +168,24 @@ jobs:
         with:
           python-version: "3.12"
 
-      # - name: Instalar Flutter
-      #   uses: subosito/flutter-action@v2
-      #   with:
-      #     flutter-version: "3.41.4"
-      #     channel: stable
+      - name: Añadir ruta al paquete de bifrost-shared (backend and frontend) pyproject.toml
+        shell: bash
+        run: |
+          sed -i "s|__BUILDPATH__|${GITHUB_WORKSPACE//\\//}|g" \
+            ${{ matrix.app }}/pyproject.toml
+
+      - name: Escribir versión en pyproject.toml
+        shell: bash
+        run: |
+          sed -i 's/^version = .*/version = "1.0.${{ github.run_number }}"/' \
+            ${{ matrix.app }}/pyproject.toml
 
       - name: Instalar dependencias Python
         run: |
-          pip install -e ./shared 
-          pip install -r shared/requirements.txt
+          pip install --upgrade pip
+          pip install uv
+          cd ${{ matrix.app }}
+          uv sync
 
       - name: Copiar windows-assets-downloader.sh dentro de src/
         shell: bash
@@ -167,53 +206,13 @@ jobs:
         shell: bash
         run: echo "__version__ = '1.0.${{ github.run_number }}'" > ${{ matrix.app }}/src/version.py
 
-      - name: Escribir versión en pyproject.toml
-        shell: bash
-        run: |
-          sed -i 's/^version = .*/version = "1.0.${{ github.run_number }}"/' \
-            ${{ matrix.app }}/pyproject.toml
-
-      - name: Añadir ruta al paquete de bifrost-shared (backend and frontend) pyproject.toml
-        shell: bash
-        run: |
-          sed -i "s|__BUILDPATH__|${GITHUB_WORKSPACE//\\//}|g" \
-            ${{ matrix.app }}/pyproject.toml
-
-      - name: Build bifrost-shared wheel
-        shell: pwsh
-        run: |
-          pip install build
-          python -m build shared/ --outdir "${{ matrix.app }}/src/"
-
-          @'
-          from pathlib import Path
-          import glob
-
-          app = "${{ matrix.app }}"
-          pyproject = Path(app) / "pyproject.toml"
-
-          wheels = glob.glob(f"{app}/src/bifrost_shared-*.whl")
-          if not wheels:
-              raise SystemExit("No se encontró bifrost_shared-*.whl")
-
-          wheel_uri = Path(wheels[0]).resolve().as_uri()
-
-          content = pyproject.read_text()
-          content = content.replace(
-              '"bifrost-shared",',
-              f'"bifrost-shared @ {wheel_uri}",'
-          )
-          pyproject.write_text(content)
-          print("OK:", wheel_uri)
-          '@ | python
-
       - name: Build Windows
         shell: bash
         env:
           PYTHONUTF8: "1"
         run: |
           cd ${{ matrix.app }}
-          echo "y" | flet build windows --output dist --no-rich-output -v
+          echo "y" | uv run flet build windows --output dist --no-rich-output -v
 
       - name: Crear directorio installer
         shell: pwsh
@@ -234,99 +233,54 @@ jobs:
             /DAppName="$env:APP" `
             "$env:APP\installer.iss"
 
+      - name: Sign Windows installer
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.IRBCODESIGNING }}
+          PFX_PASSWORD: ${{ secrets.IRBCODESIGNING_PASSWORD }}
+        run: |
+          # Decode PFX from base64
+          $pfxPath = "$env:RUNNER_TEMP\codeSigning.pfx"
+          [System.Convert]::FromBase64String($env:PFX_B64) | Set-Content $pfxPath -AsByteStream
+      
+          # Find signtool: highest version folder that actually contains signtool.exe
+          $kitsBase = "C:\Program Files (x86)\Windows Kits\10\bin"
+          $signtool = Get-ChildItem $kitsBase -Directory |
+            Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
+            Sort-Object { [version]$_.Name } |
+            ForEach-Object { "$($_.FullName)\x64\signtool.exe" } |
+            Where-Object { Test-Path $_ } |
+            Select-Object -Last 1
+      
+          if (-not $signtool) { throw "signtool.exe not found" }
+          Write-Host "Using signtool: $signtool"
+      
+          $installer = "${{ matrix.app }}\installer\${{ matrix.app }}-${{ steps.clean_branch.outputs.name }}-windows.exe"
+      
+          & $signtool sign `
+            /fd sha256 `
+            /f $pfxPath `
+            /p $env:PFX_PASSWORD `
+            /t http://timestamp.digicert.com `
+            /v `
+            $installer
+      
+          Remove-Item $pfxPath -Force
+      
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
         with:
           name: ${{ matrix.app }}-windows
           path: ${{ matrix.app }}/installer/*.exe
 
-  # ─────────────────────────────────────────────────────────────────────────────
-  # Rocky Linux — PyInstaller onefile para las dos apps
-  # flet build linux no soporta onefile
-  # flet solo soporta devian y ubuntu, y como tenemos Rocky Linux 9, flet no es compatible.
-  # https://flet.dev/docs/getting-started/installation/ : Flet supports Debian 10, 11 and 12 and Ubuntu 20.04, 22.04 and 24.04 LTS.
-  # ─────────────────────────────────────────────────────────────────────────────
-  build-rocky:
-    runs-on: ubuntu-latest
-    container:
-      image: rockylinux:9
-    strategy:
-      matrix:
-        app: [bifrost-transfer, bifrost-mount]
-    steps:
-      - name: Instalar dependencias sistema
-        run: |
-          dnf install -y --allowerasing python3.11 python3.11-pip python3.11-devel gcc make \
-            glibc-devel unzip zip curl
-          python3.11 -m pip install --upgrade pip setuptools wheel
-
-      - name: Checkout código
-        uses: actions/checkout@v6.0.2
-
-      - name: Instalar dependencias Python
-        run: |
-          python3.11 -m pip install -e ./shared
-          python3.11 -m pip install -r shared/requirements.txt
-          python3.11 -m pip install pyinstaller
-
-      - name: Copiar linux-assets-downloader.sh dentro de src/
-        run: cp shared/linux-assets-downloader.sh ${{ matrix.app }}/src/linux-assets-downloader.sh
-
-      - name: Descargar rclone para Linux
-        run: cd ${{ matrix.app }}/src && bash linux-assets-downloader.sh
-
-      - name: Limpiar nombre de rama
-        id: clean_branch
-        run: |
-          clean=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
-          echo "name=$clean" >> $GITHUB_OUTPUT
-
-      - name: Escribir versión
-        run: echo "__version__ = '1.0.${{ github.run_number }}'" > ${{ matrix.app }}/src/version.py
-
-      - name: Build bifrost-shared wheel
-        run: |
-          python3.11 -m pip install build
-          python3.11 -m build shared/ --outdir ${{ matrix.app }}/src/
-          WHEEL=$(ls $(pwd)/${{ matrix.app }}/src/bifrost_shared-*.whl)
-          sed -i 's|"bifrost-shared",|"bifrost-shared @ file://'"${WHEEL}"'",|' ${{ matrix.app }}/pyproject.toml
-
-      - name: Build Rocky Linux (PyInstaller onefile)
-        env:
-          #BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
-          APP: ${{ matrix.app }}
-        run: |
-          mkdir -p dist
-          cd ${APP}/src
-          python3.11 -m PyInstaller --onefile main.py \
-            --add-data "assets/bin/rclone:." \
-            --collect-all flet \
-            --collect-all flet_core \
-            --hidden-import flet.fastapi \
-            --hidden-import uvicorn \
-            --hidden-import uvicorn.lifespan.on \
-            --hidden-import uvicorn.protocols.http.auto \
-            --hidden-import uvicorn.protocols.websockets.auto \
-            --hidden-import uvicorn.logging \
-            --hidden-import uvicorn.loops.auto \
-            --distpath ../../dist
-          mv ../../dist/main "../../dist/${APP}-linux"
-
-      # - name: Verificar artefacto generado
-      #   run: ls -lah dist/
-
-      - name: Subir artefacto
-        uses: actions/upload-artifact@v7.0.0
-        with:
-          name: ${{ matrix.app }}-linux
-          path: dist/${{ matrix.app }}-linux
+  
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Release — solo en main y release
   # Recoge los artefactos de los tres jobs y crea una GitHub Release
   # ─────────────────────────────────────────────────────────────────────────────
   release:
-    needs: [build-macos, build-windows, build-rocky]
+    needs: [build-macos, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
