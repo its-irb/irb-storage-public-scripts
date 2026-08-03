@@ -84,7 +84,8 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install uv
-          uv sync --project ${{ matrix.app }}
+          cd ${{ matrix.app }}
+          uv sync
           echo "$GITHUB_WORKSPACE/${{ matrix.app }}/.venv/bin" >> $GITHUB_PATH
 
       - name: Descargar rclone y fuse-t para macOS
@@ -183,7 +184,8 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install uv
-          uv sync --project ${{ matrix.app }}
+          cd ${{ matrix.app }}
+          uv sync
 
       - name: Copiar windows-assets-downloader.sh dentro de src/
         shell: bash
