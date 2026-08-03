@@ -25,6 +25,11 @@ C_TEXT     = "#E6EDF3"
 C_TEXT_DIM = "#8B949E"
 C_OVERLAY  = "#1C2027"
 FONT_MONO  = "Courier New"
+# Fuente principal para el texto general (botones, TextTheme). No está
+# instalada en Linux/macOS, así que ahí cae directamente al fallback
+# ("sans-serif", resuelto por fontconfig/Core Text); en Windows sí existe
+# y se usa tal cual.
+FONT_REGULAR = "Helvetica"
 EMOJI_FONT_FAMILY = "NotoColorEmoji"
 _SYSTEM_FALLBACK_FONTS = ["sans-serif"]
 MONO_FALLBACK = ["monospace", EMOJI_FONT_FAMILY]
@@ -52,7 +57,7 @@ def apply_theme(page: ft.Page) -> None:
     fallback = _SYSTEM_FALLBACK_FONTS + [family]
     # Los 15 estilos de TextTheme (Material 3).
     styles = {
-        attr: ft.TextStyle(font_family_fallback=fallback)
+        attr: ft.TextStyle(font_family=FONT_REGULAR, font_family_fallback=fallback)
         for attr in (
             "body_large", "body_medium", "body_small",
             "display_large", "display_medium", "display_small",
@@ -70,7 +75,7 @@ def apply_theme(page: ft.Page) -> None:
 
 def btn_primary(text: str, on_click=None, width=None, disabled=False) -> ft.Button:
     return ft.Button(
-        content=ft.Text(text, font_family_fallback=REGULAR_FALLBACK),
+        content=ft.Text(text, font_family=FONT_REGULAR, font_family_fallback=REGULAR_FALLBACK),
         on_click=on_click,
         disabled=disabled,
         width=width,
@@ -91,7 +96,7 @@ def btn_primary(text: str, on_click=None, width=None, disabled=False) -> ft.Butt
     
 def btn_secondary(text: str, on_click=None, width=None) -> ft.OutlinedButton:
     return ft.OutlinedButton(
-        content=ft.Text(text, font_family_fallback=REGULAR_FALLBACK),
+        content=ft.Text(text, font_family=FONT_REGULAR, font_family_fallback=REGULAR_FALLBACK),
         on_click=on_click,
         width=width,
         style=ft.ButtonStyle(
