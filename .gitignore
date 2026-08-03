@@ -197,6 +197,7 @@ src/storage/data/
 
 # Wiki LLM y superpowers
 docs/
+.superpowers/
 
 #diff 
 historial*
