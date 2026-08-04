@@ -2,7 +2,7 @@ param([string]$app = "bifrost-transfer")
 
 $toml = "$app/pyproject.toml"
 
-Copy-Item "pyproject-template.toml" $toml -Force
+Copy-Item "$app/pyproject-template.toml" $toml -Force
 
 (Get-Content $toml -Raw) `
   -replace '"bifrost-shared @ file:///__BUILDPATH__/shared"', "`"bifrost-shared @ file://$root/../shared`"" |
