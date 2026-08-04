@@ -794,6 +794,17 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
        mount_point.parent.mkdir(parents=True, exist_ok=True)
 
     comando = [rclone, "mount", f"{rclone_profile}:{s3_prefix}", str(mount_point), "--read-only", "--links"]
+
+    FLAGS_WITH_VALUE = {
+        "--vfs-cache-mode",
+        "--vfs-cache-max-size",
+        "--cache-dir",
+    }
+
+    for i, arg in enumerate(sys.argv):
+        if arg in FLAGS_WITH_VALUE and i + 1 < len(sys.argv):
+            comando.extend([arg, sys.argv[i + 1]])
+            
     if sistema != "Windows":
         comando.append("--allow-non-empty")
 
