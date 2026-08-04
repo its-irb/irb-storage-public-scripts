@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+cp ./pyproject-template.toml ./pyproject.toml
+
 sed -i "" "s|__BUILDPATH__|$(pwd)/..|g" ./pyproject.toml
 sed -i "" 's/^version = .*/version = "2.0.0.dev"/' ./pyproject.toml
 
