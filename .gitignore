@@ -211,3 +211,4 @@ bifrost-transfer/src/bifrost_frontend/
 node_modules/
 
 */pyproject.toml
+!shared/pyproject.toml
