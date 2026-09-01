@@ -1222,11 +1222,13 @@ def build_rclone_browser(
                     ):
                         default_names = WORM_FACILITY_DATA_SUBFOLDERS
                     if default_names:
-                        existing_names = {e["name"] for e in entries}
-                        missing = [n for n in default_names if n not in existing_names]
+                        by_name = {e["name"]: e for e in entries}
+                        missing = [n for n in default_names if n not in by_name]
                         if missing:
                             print(f"[browser] worm defaults path={path!r} → adding missing virtual folders: {missing}")
-                            entries = entries + [{"name": n, "is_dir": True} for n in missing]
+                        ordered = [by_name.pop(n, {"name": n, "is_dir": True}) for n in default_names]
+                        rest = [e for e in entries if e["name"] in by_name]
+                        entries = ordered + rest
 
                 if lab_filter_enabled and filter_state["acronym"] and not path:
                     active = filter_state["acronym"]
