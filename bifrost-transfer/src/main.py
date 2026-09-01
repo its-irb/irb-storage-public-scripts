@@ -88,7 +88,11 @@ STS_RENEWAL_THRESHOLD_DAYS = 3
 # Duración (en días) de las credenciales STS renovadas automáticamente
 STS_AUTO_RENEWAL_DAYS = 7
 
-from meta_fields import FieldType, TAG_PROFILES, build_meta_fields, detect_profile, LAB_ACRONYMS, build_lab_filter_widget, validate_tagset, check_tag_value
+from meta_fields import (
+    FieldType, TAG_PROFILES, build_meta_fields, detect_profile, LAB_ACRONYMS,
+    build_lab_filter_widget, validate_tagset, check_tag_value,
+    WORM_BUCKET_SUFFIX, WORM_ROOT_PREFIXES, WORM_FACILITY_DATA_SUBFOLDERS,
+)
 # ============================================================================
 # PARA EVITAR PROBLEMAS DE CODIFICACIÓN EN CONSOLA (ESPECIALMENTE EN WINDOWS)
 # ============================================================================
@@ -1047,6 +1051,7 @@ def build_rclone_browser(
     endpoint: str | None = None,
     allow_mkdir: bool = True,
     show_files: bool = False,
+    worm_defaults_enabled: bool = False,
 ) -> tuple[ft.Column, Callable]:
     """
     Navegador interactivo de carpetas rclone con breadcrumb.
@@ -1204,6 +1209,24 @@ def build_rclone_browser(
                     if not path:
                         bucket_cache["list"] = list(entries)
                         bucket_cache["tags"] = None
+
+                if worm_defaults_enabled:
+                    path_parts = [p for p in path.split("/") if p]
+                    default_names: list[str] | None = None
+                    if len(path_parts) == 1 and path_parts[0].endswith(WORM_BUCKET_SUFFIX):
+                        default_names = WORM_ROOT_PREFIXES
+                    elif (
+                        len(path_parts) == 2
+                        and path_parts[0].endswith(WORM_BUCKET_SUFFIX)
+                        and path_parts[1] == "facility_data"
+                    ):
+                        default_names = WORM_FACILITY_DATA_SUBFOLDERS
+                    if default_names:
+                        existing_names = {e["name"] for e in entries}
+                        missing = [n for n in default_names if n not in existing_names]
+                        if missing:
+                            print(f"[browser] worm defaults path={path!r} → adding missing virtual folders: {missing}")
+                            entries = entries + [{"name": n, "is_dir": True} for n in missing]
 
                 if lab_filter_enabled and filter_state["acronym"] and not path:
                     active = filter_state["acronym"]
@@ -2614,6 +2637,7 @@ def _build_copy_content(
         on_select=on_browser_select,
         initial_path=_initial_dest,
         lab_filter_enabled=True,
+        worm_defaults_enabled=True,
         endpoint=endpoint,
     )
     dest_browser_col = ft.Column(
