@@ -1349,7 +1349,7 @@ def generar_punto_montaje(usuario_actual: str, nombre_share: str) -> str:
         if letra:
             return letra
         raise Exception("No hay letras de unidad disponibles en Windows")
-    return os.path.expanduser(f"~/cifs-mount/{usuario_actual}/{nombre_share}")
+    return os.path.expanduser(f"~/netapp-mount/{usuario_actual}/{nombre_share}")
 
 
 def montar_share_rclone(
@@ -1408,7 +1408,7 @@ def desmontar_todos_los_shares(usuario_actual: str) -> None:
         except Exception as e:
             print(f"Error unmounting in Windows: {e}")
     else:
-        base_dir = Path.home() / "cifs-mount" / usuario_actual
+        base_dir = Path.home() / "netapp-mount" / usuario_actual
         if not base_dir.exists():
             return
         for subdir in base_dir.iterdir():
