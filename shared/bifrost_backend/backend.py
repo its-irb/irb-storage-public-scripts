@@ -742,9 +742,74 @@ def _get_s3_mount_base() -> Path:
 
 
 
-def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> None:
-    import shutil
+def _mount_point_is_stale(mount_point: Path) -> bool:
+    """Detecta si mount_point es un mountpoint FUSE colgado (el proceso rclone
+    que lo servía murió sin desmontar, típico de un cierre abrupto de sesión
+    DCV/Open OnDemand). Un mount colgado sigue reportando ismount()=True pero
+    cualquier acceso al contenido falla con OSError (p.ej. "Transport endpoint
+    is not connected").
+    """
+    try:
+        montado = os.path.ismount(mount_point)
+    except OSError:
+        return True
+    if not montado:
+        return False
+    try:
+        os.listdir(mount_point)
+    except OSError:
+        return True
+    return False
 
+
+def _force_unmount_path(mount_point: Path) -> None:
+    """Fuerza el desmontaje (perezoso si hace falta) de un punto de montaje
+    FUSE en Linux/macOS. No-op en Windows (WinFsp se libera al matar el proceso).
+    """
+    sistema = platform.system()
+    mp = str(mount_point)
+    if sistema == "Linux":
+        intentos = []
+        if shutil.which("fusermount"):
+            intentos.append(["fusermount", "-u", "-z", mp])
+        if shutil.which("fusermount3"):
+            intentos.append(["fusermount3", "-u", "-z", mp])
+        intentos.append(["umount", "-l", mp])
+    elif sistema == "Darwin":
+        intentos = [["umount", "-f", mp], ["diskutil", "unmount", "force", mp]]
+    else:
+        return
+
+    for comando in intentos:
+        try:
+            subprocess.run(comando, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+            print(f"[mount] Desmontaje forzado OK con: {' '.join(comando)}")
+            return
+        except Exception as e:
+            print(f"[mount] Falló '{' '.join(comando)}': {e}")
+            continue
+
+
+def _cleanup_stale_mount_point(mount_point: Path) -> None:
+    """Pre-mount cleanup: si mount_point es un mount colgado de una sesión
+    anterior (cierre abrupto), lo desmonta y limpia antes de volver a montar.
+    """
+    if not mount_point.exists():
+        return
+    if not _mount_point_is_stale(mount_point):
+        return
+
+    print(f"[mount] Punto de montaje colgado detectado en {mount_point}, forzando limpieza...")
+    _force_unmount_path(mount_point)
+
+    try:
+        if mount_point.exists() and not os.path.ismount(mount_point):
+            mount_point.rmdir()
+    except OSError as e:
+        print(f"[mount] No se pudo limpiar {mount_point} tras el desmontaje forzado: {e}")
+
+
+def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> None:
     try:
         rclone = get_rclone_executable()
     except EnvironmentError as e:
@@ -781,6 +846,9 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     mount_base = _get_s3_mount_base() / rclone_profile
     prefix_sanitizado = s3_prefix.strip("/").replace("/", "_")
     mount_point = mount_base / prefix_sanitizado
+
+    if sistema != "Windows":
+        _cleanup_stale_mount_point(mount_point)
 
     if mount_point.exists() and not os.path.ismount(mount_point):
         try:
@@ -1349,7 +1417,7 @@ def generar_punto_montaje(usuario_actual: str, nombre_share: str) -> str:
         if letra:
             return letra
         raise Exception("No hay letras de unidad disponibles en Windows")
-    return os.path.expanduser(f"~/cifs-mount/{usuario_actual}/{nombre_share}")
+    return os.path.expanduser(f"~/netapp-mount/{usuario_actual}/{nombre_share}")
 
 
 def montar_share_rclone(
@@ -1408,7 +1476,7 @@ def desmontar_todos_los_shares(usuario_actual: str) -> None:
         except Exception as e:
             print(f"Error unmounting in Windows: {e}")
     else:
-        base_dir = Path.home() / "cifs-mount" / usuario_actual
+        base_dir = Path.home() / "netapp-mount" / usuario_actual
         if not base_dir.exists():
             return
         for subdir in base_dir.iterdir():
@@ -1516,10 +1584,24 @@ def resolver_mount_point_destino(perfil_rclone: str, ruta_destino: str) -> str:
     return str(mount_base / prefix_sanitizado)
 
 def desmontar_todos_los_mounts_s3() -> None:
-    """Mata todos los procesos rclone mount de S3 activos."""
+    """Mata todos los procesos rclone mount de S3 activos y, si el punto de
+    montaje sigue activo tras matar el proceso, fuerza el desmontaje a nivel
+    de filesystem. Pensado para dispararse en atexit / señales de cierre
+    (SIGTERM, SIGINT) — un cierre abrupto de sesión (DCV/Open OnDemand) no deja
+    tiempo para un desmontaje ordenado del propio rclone.
+    """
     global _s3_mount_processes
     print(f"[atexit] Terminating {len(_s3_mount_processes)} S3 mount processes...")
-    for proceso in _s3_mount_processes:
+    sistema = platform.system()
+    for proceso in list(_s3_mount_processes):
+        mount_point = None
+        try:
+            args = proceso.args if hasattr(proceso, "args") else []
+            if len(args) > 3:
+                mount_point = args[3]
+        except Exception:
+            pass
+
         try:
             proceso.terminate()
             proceso.wait(timeout=3)
@@ -1529,6 +1611,15 @@ def desmontar_todos_los_mounts_s3() -> None:
                 proceso.kill()
             except Exception:
                 pass
+
+        if mount_point and sistema != "Windows":
+            try:
+                time.sleep(0.3)
+                if os.path.exists(mount_point) and os.path.ismount(mount_point):
+                    _force_unmount_path(Path(mount_point))
+            except Exception as e:
+                print(f"[atexit] Error forcing filesystem unmount of {mount_point}: {e}")
+
     _s3_mount_processes.clear()
     print("[atexit] All S3 mounts terminated.")
 

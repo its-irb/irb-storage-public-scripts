@@ -439,7 +439,7 @@ def _build_shares_content(
     if not shares:
         content = ft.Column(
             [
-                build_header(subtitle=f"CIFS Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
+                build_header(subtitle=f"NetApp Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
                 ft.Container(
                     content=ft.Row(
                         [btn_secondary("← Back", on_click=lambda e: on_back())],
@@ -698,7 +698,7 @@ def _build_shares_content(
 
     content = ft.Column(
         [
-            build_header(subtitle=f"CIFS Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
+            build_header(subtitle=f"NetApp Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
             ft.Container(
                 content=ft.Row(
                     [c for c in [back_btn_widget] if c is not None],
@@ -2059,7 +2059,7 @@ def _build_copy_content(
     back_btn  = btn_secondary("← Back", on_click=_back_with_sftp_cleanup) if on_back else None
     tags_btn  = btn_secondary("🏷️ Tags", on_click=lambda e: on_tags()) if on_tags else None
     cifs_btn = (
-        btn_secondary("⊞  Mount CIFS", on_click=lambda e: on_cifs())
+        btn_secondary("⊞  Mount NetApp", on_click=lambda e: on_cifs())
         if IS_WEB and on_cifs is not None
         else None
     )
@@ -4417,6 +4417,10 @@ def main(page: ft.Page):
                     ))
                     return
 
+                backend.actualizar_password_perfiles_rclone(
+                    state["credenciales_smb"]["usuario"],
+                    state["credenciales_smb"]["password"],
+                )
                 perfiles = backend.configurar_perfiles_smb_si_faltan(
                     shares,
                     state["credenciales_smb"],
