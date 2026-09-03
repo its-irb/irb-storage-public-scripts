@@ -747,8 +747,16 @@ def _mount_point_is_stale(mount_point: Path) -> bool:
     que lo servía murió sin desmontar, típico de un cierre abrupto de sesión
     DCV/Open OnDemand). Un mount colgado sigue reportando ismount()=True pero
     cualquier acceso al contenido falla con OSError (p.ej. "Transport endpoint
-    is not connected").
+    is not connected"). Path.exists() puede relanzar esa misma excepción
+    (ENOTCONN no está en la lista de errores que pathlib ignora), así que se
+    trata igual que un mount colgado en vez de dejarla propagar sin capturar.
     """
+    try:
+        existe = mount_point.exists()
+    except OSError:
+        return True
+    if not existe:
+        return False
     try:
         montado = os.path.ismount(mount_point)
     except OSError:
@@ -794,8 +802,6 @@ def _cleanup_stale_mount_point(mount_point: Path) -> None:
     """Pre-mount cleanup: si mount_point es un mount colgado de una sesión
     anterior (cierre abrupto), lo desmonta y limpia antes de volver a montar.
     """
-    if not mount_point.exists():
-        return
     if not _mount_point_is_stale(mount_point):
         return
 
@@ -850,7 +856,11 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     if sistema != "Windows":
         _cleanup_stale_mount_point(mount_point)
 
-    if mount_point.exists() and not os.path.ismount(mount_point):
+    try:
+        punto_ocupado = mount_point.exists()
+    except OSError:
+        punto_ocupado = True
+    if punto_ocupado and not os.path.ismount(mount_point):
         try:
             mount_point.rmdir()
         except OSError as e:
