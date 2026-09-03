@@ -1254,12 +1254,34 @@ def main(page: ft.Page):
     }
 
     import atexit
+    import signal
+
+    _cleanup_done = {"value": False}
 
     def _cleanup_on_exit():
+        # Puede llegar por atexit normal Y por señal — evitar doble desmontaje.
+        if _cleanup_done["value"]:
+            return
+        _cleanup_done["value"] = True
         print("[atexit] Cleaning up...")
         backend.desmontar_todos_los_mounts_s3()
 
     atexit.register(_cleanup_on_exit)
+
+    def _handle_termination_signal(signum, frame):
+        # DCV/Open OnDemand puede matar la sesión con SIGTERM/SIGINT al cerrarse
+        # abruptamente. Sin este handler, atexit no llega a ejecutarse y el
+        # mount FUSE queda colgado para la siguiente sesión.
+        nombre_senal = signal.Signals(signum).name if hasattr(signal, "Signals") else signum
+        print(f"[signal] Received {nombre_senal}, cleaning up before exit...")
+        _cleanup_on_exit()
+        sys.exit(0)
+
+    for _sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(_sig, _handle_termination_signal)
+        except (ValueError, OSError):
+            pass  # solo se puede registrar en el hilo principal; en otros contextos se ignora
 
     async def on_window_event(e: ft.WindowEvent):
         if e.type == ft.WindowEventType.CLOSE:

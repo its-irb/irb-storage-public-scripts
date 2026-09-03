@@ -88,7 +88,11 @@ STS_RENEWAL_THRESHOLD_DAYS = 3
 # Duración (en días) de las credenciales STS renovadas automáticamente
 STS_AUTO_RENEWAL_DAYS = 7
 
-from meta_fields import FieldType, TAG_PROFILES, build_meta_fields, detect_profile, LAB_ACRONYMS, build_lab_filter_widget, validate_tagset, check_tag_value
+from meta_fields import (
+    FieldType, TAG_PROFILES, build_meta_fields, detect_profile, LAB_ACRONYMS,
+    build_lab_filter_widget, validate_tagset, check_tag_value,
+    WORM_BUCKET_SUFFIX, WORM_ROOT_PREFIXES, WORM_FACILITY_DATA_SUBFOLDERS,
+)
 # ============================================================================
 # PARA EVITAR PROBLEMAS DE CODIFICACIÓN EN CONSOLA (ESPECIALMENTE EN WINDOWS)
 # ============================================================================
@@ -435,7 +439,7 @@ def _build_shares_content(
     if not shares:
         content = ft.Column(
             [
-                build_header(subtitle=f"CIFS Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
+                build_header(subtitle=f"NetApp Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
                 ft.Container(
                     content=ft.Row(
                         [btn_secondary("← Back", on_click=lambda e: on_back())],
@@ -694,7 +698,7 @@ def _build_shares_content(
 
     content = ft.Column(
         [
-            build_header(subtitle=f"CIFS Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
+            build_header(subtitle=f"NetApp Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
             ft.Container(
                 content=ft.Row(
                     [c for c in [back_btn_widget] if c is not None],
@@ -1047,6 +1051,7 @@ def build_rclone_browser(
     endpoint: str | None = None,
     allow_mkdir: bool = True,
     show_files: bool = False,
+    worm_defaults_enabled: bool = False,
 ) -> tuple[ft.Column, Callable]:
     """
     Navegador interactivo de carpetas rclone con breadcrumb.
@@ -1204,6 +1209,26 @@ def build_rclone_browser(
                     if not path:
                         bucket_cache["list"] = list(entries)
                         bucket_cache["tags"] = None
+
+                if worm_defaults_enabled:
+                    path_parts = [p for p in path.split("/") if p]
+                    default_names: list[str] | None = None
+                    if len(path_parts) == 1 and path_parts[0].endswith(WORM_BUCKET_SUFFIX):
+                        default_names = WORM_ROOT_PREFIXES
+                    elif (
+                        len(path_parts) == 2
+                        and path_parts[0].endswith(WORM_BUCKET_SUFFIX)
+                        and path_parts[1] == "facility_data"
+                    ):
+                        default_names = WORM_FACILITY_DATA_SUBFOLDERS
+                    if default_names:
+                        by_name = {e["name"]: e for e in entries}
+                        missing = [n for n in default_names if n not in by_name]
+                        if missing:
+                            print(f"[browser] worm defaults path={path!r} → adding missing virtual folders: {missing}")
+                        ordered = [by_name.pop(n, {"name": n, "is_dir": True}) for n in default_names]
+                        rest = [e for e in entries if e["name"] in by_name]
+                        entries = ordered + rest
 
                 if lab_filter_enabled and filter_state["acronym"] and not path:
                     active = filter_state["acronym"]
@@ -2034,7 +2059,7 @@ def _build_copy_content(
     back_btn  = btn_secondary("← Back", on_click=_back_with_sftp_cleanup) if on_back else None
     tags_btn  = btn_secondary("🏷️ Tags", on_click=lambda e: on_tags()) if on_tags else None
     cifs_btn = (
-        btn_secondary("⊞  Mount CIFS", on_click=lambda e: on_cifs())
+        btn_secondary("⊞  Mount NetApp", on_click=lambda e: on_cifs())
         if IS_WEB and on_cifs is not None
         else None
     )
@@ -2614,6 +2639,7 @@ def _build_copy_content(
         on_select=on_browser_select,
         initial_path=_initial_dest,
         lab_filter_enabled=True,
+        worm_defaults_enabled=True,
         endpoint=endpoint,
     )
     dest_browser_col = ft.Column(
@@ -4391,6 +4417,10 @@ def main(page: ft.Page):
                     ))
                     return
 
+                backend.actualizar_password_perfiles_rclone(
+                    state["credenciales_smb"]["usuario"],
+                    state["credenciales_smb"]["password"],
+                )
                 perfiles = backend.configurar_perfiles_smb_si_faltan(
                     shares,
                     state["credenciales_smb"],

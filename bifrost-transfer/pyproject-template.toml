@@ -55,7 +55,6 @@ dependencies = [
     "uvloop==0.22.1 ; platform_system != 'Windows'",
     "watchfiles==1.1.1",
     "websockets==15.0.1",
-    # "bifrost-shared @ file:////data/its/operez/irb-storage-public-scripts/shared" # cluster
     "bifrost-shared @ file:///__BUILDPATH__/shared" 
 ]
 

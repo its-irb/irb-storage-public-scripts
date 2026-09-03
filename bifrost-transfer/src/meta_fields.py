@@ -89,6 +89,22 @@ LAB_ACRONYMS: dict[str, str] = {
 }
 
 
+WORM_BUCKET_SUFFIX = "-worm"
+
+WORM_ROOT_PREFIXES: list[str] = ["facility_data", "internal", "external"]
+
+WORM_FACILITY_DATA_SUBFOLDERS: list[str] = [
+    "biostats",
+    "cryoservice",
+    "drugsp",
+    "genomics",
+    "histopathology",
+    "masspe",
+    "moumut",
+    "proexp",
+]
+
+
 class FieldType(Enum):
     TEXT          = "text"
     UNISELECT     = "uniselect"
