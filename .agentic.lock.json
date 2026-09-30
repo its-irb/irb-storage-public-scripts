@@ -55,6 +55,10 @@
       "sha256": "3613a52877934e08b7a76623ccf4d5b934f1d893857e3809ede3d08b4cb90412"
     }
   },
+  "documentation": {
+    "last_reviewed_commit": "25e3b888ed7b5b11a7db1b5d6526daa761a7798f",
+    "last_reviewed_at": "2026-09-30T15:41:20+02:00"
+  },
   "framework_remote_url": "https://github.com/its-irb/agentic-repo-framework.git",
   "framework_branch": "main",
   "framework_commit": "ece6c1750aabda7d075ee4dd2a79dcf2e3e92625"
