@@ -99,26 +99,88 @@ When a new release of bifrost-mount or bifrost-transfer is available, the app as
 
 Steps are the same for both apps. Run from the app folder (`bifrost-mount/` or `bifrost-transfer/`).
 
-First time — create the virtual environment:
+### First time — create the virtual environment:
+Steps are the same for both apps. Run from the app folder (`bifrost-mount/` or `bifrost-transfer/`).
+
+1. Create a copy of `pyproject-template.toml` named `pyproject.toml` inside each app folder (`bifrost-mount/` and `bifrost-transfer/`).
+2. Update the `__BUILDPATH__` variable in `pyproject.toml` to point to your local absolute path:
+
 ```bash
+# Inside bifrost-mount/ or bifrost-transfer/
+cp pyproject-template.toml pyproject.toml
+
+# Replace placeholder with current path:
 sed -i '' "s|__BUILDPATH__|${PWD}/..|g" ./pyproject.toml # macOS
-sed -i "s|__BUILDPATH__|${PWD}/..|g" ./pyproject.toml # Linux
+sed -i "s|__BUILDPATH__|${PWD}/..|g" ./pyproject.toml   # Linux / Git Bash
+
+# Sync Python virtual environment
 uv sync
+
+# Activate virtual environment
 source ./.venv/bin/activate          # macOS / Linux
-.\.venv\Scripts\python.exe -m pip install build
+.\.venv\Scripts\python.exe -m pip install build # Windows only
 .\build-local.ps1 -app bifrost-mount  # Windows only
 ```
 
-To force upgrade bifrost shared:
+#### Downloading binaries and assets (`rclone` / `fuse-t`)
+
+Run the appropriate script from inside the target app folder (`bifrost-mount/` or `bifrost-transfer/`)[cite: 3]:
+
+##### For `bifrost-mount`:
+```bash
+cd bifrost-mount/src
+# macOS
+bash ../../shared/macos-assets-downloader.sh
+
+# Linux
+bash ../../shared/linux-assets-downloader.sh
+
+# Windows (Git Bash)
+bash ../../shared/windows-assets-downloader.sh
 ```
+##### For `bifrost-transfer`:
+```bash
+cd bifrost-transfer/src
+# macOS
+bash ../../shared/macos-rclone-downloader.sh
+
+# Linux
+bash ../../shared/linux-assets-downloader.sh
+
+# Windows
+bash ../../shared/windows-assets-downloader.sh
+```
+
+### Working with shared code (`bifrost-shared`)
+
+Both apps depend on `bifrost-shared` (located in `shared/`).
+
+> **Why run `--reinstall-package`?**
+> When you modify files inside the `shared/` directory during local development, `uv` or Python's package manager may still use the previously cached/built version installed in `.venv`.
+>
+> Running the command below forces `uv` to completely reinstall `bifrost-shared` from the local `shared/` directory into your virtual environment. Use this whenever:
+> - You make changes inside `shared/` (e.g., in backend or frontend logic) and want to test them in `bifrost-mount` or `bifrost-transfer`.
+> - You switch git branches that contain different versions of the shared code.
+
+```bash
 uv sync --reinstall-package bifrost-shared
 ```
 
-Each time — load the virtual environment and run:
+### Running the app (each time)
+Each time — load the virtual environment and run.
+
+
 ```bash
-source .venv/bin/activate
+# Activate the virtual environment
+source .venv/bin/activate # macOS / Linux
+source .venv/Scripts/activate # Windows (Git Bash)
+.\.venv\Scripts\Activate.ps1 # Windows (PowerShell)
+.\.venv\Scripts\activate.bat # Windows (Command Prompt - CMD)
+
+# Launch Flet from the app directory (bifrost-mount/ or bifrost-transfer/)
 flet run
 ```
+
 
 Additional options (available in both apps):
 ```bash
