@@ -19,13 +19,10 @@ la aplicación.
 ## Obtener e instalar la aplicación
 
 Las versiones se publican en las **releases de GitHub** del repositorio
-`its-irb/irb-storage-public-scripts` (cada release lleva la etiqueta
-`v1.0.<número de build>`).
+`its-irb/irb-storage-public-scripts`: acceder mediante este link https://github.com/its-irb/irb-storage-public-scripts/releases .
 
 - **Windows**: descarga el instalador `.exe`
   (`bifrost-<app>-<rama>-windows.exe`, **firmado digitalmente**) e instálalo.
-  Si Windows muestra una advertencia, comprueba que el archivo procede de la
-  release de GitHub del repositorio oficial.
 - **macOS**: descarga el archivo **`.dmg`** (`bifrost-<app>-macos.dmg`),
   ábrelo y copia la app a la carpeta Aplicaciones.
 - **Linux / clúster**: bifrost-transfer se sirve en modo web a través de Open
@@ -38,11 +35,7 @@ descarga la release correspondiente.
 
 ## Primeros pasos
 
-1. **Inicia sesión** con tu usuario y contraseña LDAP.
-   - Si tu máquina no tiene acceso a LDAP pero sí a MinIO (p. ej. IVIS), se
-     usa la variable `BIFROST_NO_LDAP=1` para saltar la validación LDAP; en ese
-     caso igualmente introduces usuario y contraseña porque se necesitan para
-     obtener credenciales temporales (STS). Ver [troubleshooting.md](troubleshooting.md).
+1. **Inicia sesión** con tu usuario y contraseña LDAP (username y password que usas para entrar en el ordenador del IRB).
 2. **Selecciona el servidor MinIO** que corresponde a tu grupo de trabajo.
 3. **Credenciales temporales**: la app obtiene credenciales STS
    automáticamente (por defecto con una vida de varios días). No necesitas
@@ -51,15 +44,6 @@ descarga la release correspondiente.
 4. **Elige la vista final** según tu objetivo:
    - `bifrost-transfer` → pantalla de **copia** (ver [transfer-data.md](transfer-data.md)).
    - `bifrost-mount` → pantalla de **montado** (ver [mount-buckets.md](mount-buckets.md)).
-
-## Opciones al iniciar (para desarrolladores)
-
-```bash
-flet run                # ejecución normal
-flet run --customuser   # iniciar sesión con un usuario distinto al del sistema
-flet run --update       # forzar la comprobación de auto-actualización
-flet run --web          # (solo transfer) modo web para desarrollo local
-```
 
 ## Resultado esperado
 

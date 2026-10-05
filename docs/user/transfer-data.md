@@ -1,4 +1,4 @@
-# Subir datos a un bucket (bifrost-transfer)
+# Copiar datos a MinIO (bifrost-transfer)
 
 Objetivo: copiar archivos desde tu equipo, una carpeta de red (SMB/CIFS) o un
 servidor SFTP hasta un bucket de MinIO, verificando la integridad de la copia
@@ -14,22 +14,20 @@ y aplicando metadatos (tags) según un perfil.
 ## Antes de empezar
 
 - VPN de Nexica activa y login completado (ver [getting-started.md](getting-started.md)).
-- Ya estás en la pantalla de **copia** (`view_copy`), tras elegir el servidor MinIO.
+- Ya estás en la pantalla de **copia**, tras elegir el servidor MinIO.
 - Ten claro:
-  - **Origen**: de dónde salen los datos (carpeta local, share SMB o servidor SFTP).
+  - **Origen**: de dónde salen los datos (carpeta local, Z compartida con el laboratorio o servidor SFTP).
   - **Destino**: el bucket y la ruta dentro de MinIO.
   - **Perfil de metadatos**: qué tipo de datos son (IRB Standard, Histopathology, …).
 
 ## Origen disponible
 
-Puedes elegir como origen:
+Puedes elegir como origen **una carpeta o un archivo individual** de:
 
-- **Carpetas de red (SMB/CIFS)**: las shares accesibles que la app detecta.
+- **Carpetas de red (SMB/CIFS)**: son las llamadas "Z" del laboratorio. Para hacer una transferencia de datos de estas carpetas, recomendamos usar **bifrost-transfer en OpenOn Demand**. 
 - **Carpeta local** del equipo.
 - **Servidor SFTP**: pulsa el botón **"🌐 SFTP"** para conectarte. El diálogo
-  de conexión solo exige **host** y **usuario** (la **contraseña es
-  opcional**, porque algunas cuentas SFTP no la tienen). Podrás navegar y
-  elegir como origen **una carpeta o un archivo individual**.
+  de conexión solo exige **host**, **usuario** y **contraseña**.
 
 > Nota: el origen SFTP es efímero. La app crea un perfil rclone temporal para
 > la sesión y lo borra al terminar (al cerrar la conexión, al salir de la
@@ -82,12 +80,6 @@ campo tiene datos, se muestra un diálogo de confirmación antes de borrarlos).
   error. En modo web, el log completo se guarda en el servidor
   (`~/bifrost-logs/…`).
 
-## Limitaciones
-
-- El filtro "Filter by lab…" solo funciona en el **nivel de buckets (raíz)**,
-  no dentro de un bucket.
-- El origen SFTP **no** permite crear carpetas en remoto (tiene sentido crear
-  carpetas solo en el destino S3, que es virtual hasta que se copia).
 - Si la copia falla a mitad, los objetos ya subidos permanecen en el destino;
   relanza la copia para reintentar (rclone no re-copia lo que ya existe y es
   idéntico).
