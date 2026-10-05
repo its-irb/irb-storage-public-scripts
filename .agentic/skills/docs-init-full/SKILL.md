@@ -20,7 +20,17 @@ Primero lee:
 
 ```text
 docs/documentation-methodology.md
+.agentic/instructions/docs-default.md
 ```
+
+Después, si existe, lee también:
+
+```text
+.agentic/instructions/docs-local.md
+```
+
+y aplica ambas instrucciones con la prioridad definida en la metodología
+(«Instrucciones de documentación»).
 
 Después inspecciona:
 
@@ -237,12 +247,24 @@ Antes de dar la generación integral por terminada:
 10. Comprueba que las razones o intenciones no respaldadas por evidencias no se
     hayan presentado como hechos.
 11. Comprueba que ningún fichero propuesto para eliminar, sustituir o mover cumple una función operativa, contractual o de integración que no pueda asumir la documentación nueva.
-12. Marca como pendiente cualquier información que no pueda verificarse.
+12. No asumas información que no puedas verificar: pregúntala al usuario y,
+    si no se puede resolver, márcala como pendiente.
 13. Comprueba que ningún documento propuesto para crear, ampliar o
     modificar contiene información sensible (ver «Información sensible y
     secretos» en la metodología). Si la documentación existente ya contiene
     información sensible, incluye su redacción en la propuesta y avisa al
     usuario (fichero y ubicación, sin mostrar el valor completo).
+14. Comprueba la presentación de los documentos propuestos:
+    - los comandos de terminal están en bloques cerrados con la etiqueta de
+      lenguaje correcta (p. ej. `bash`, `powershell`);
+    - los procedimientos tienen, cuando aplican, prerrequisitos con forma de
+      comprobarlos, pasos exactos, resultado esperado y recuperación ante
+      fallos;
+    - no hay pasos ambiguos ni placeholders sin explicar;
+    - se usan valores exactos cuando son verificables en el repositorio;
+    - se cumplen `.agentic/instructions/docs-default.md` y, si existe,
+      `.agentic/instructions/docs-local.md`, dentro de sus límites de
+      prioridad.
 
 Para las afirmaciones técnicas o funcionales relevantes, identifica su fuente de verdad en:
 
@@ -278,7 +300,9 @@ Al finalizar correctamente:
 - No sustituyas información necesaria por enlaces a otra capa.
 - No crees documentos vacíos para completar una estructura.
 - No modifiques código.
-- Si algo no está claro, márcalo como pendiente de verificar.
+- Si algo no está claro o no puede verificarse, no lo asumas: pregúntalo al
+  usuario indicando qué falta y por qué importa; solo si no se puede
+  resolver, márcalo como pendiente de verificar.
 - No elimines un fichero solo porque su conocimiento haya sido absorbido por las nuevas capas documentales.
 - No trates como documentación pura un fichero que sea consumido por scripts, skills, arneses o herramientas.
 - Las tres capas deben derivarse del repositorio verificado, no unas de otras.
@@ -293,6 +317,9 @@ Al finalizar correctamente:
   falso positivo conocido del caso concreto (fichero, campo, variable o
   contexto), sin el valor completo si pudiera ser sensible, para no volver
   a preguntar.
+- Sigue `.agentic/instructions/docs-default.md` y, si existe,
+  `.agentic/instructions/docs-local.md` (con la prioridad definida en la
+  metodología) en toda la documentación que generes o modifiques.
 
 ## Resultado esperado
 

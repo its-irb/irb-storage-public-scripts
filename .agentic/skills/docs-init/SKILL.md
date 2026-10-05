@@ -12,7 +12,17 @@ Primero lee:
 
 ```text
 docs/documentation-methodology.md
+.agentic/instructions/docs-default.md
 ```
+
+Después, si existe, lee también:
+
+```text
+.agentic/instructions/docs-local.md
+```
+
+y aplica ambas instrucciones con la prioridad definida en la metodología
+(«Instrucciones de documentación»).
 
 No realices una revisión exhaustiva del código ni intentes documentar todo el
 repositorio.
@@ -107,6 +117,9 @@ terminar.
 - Preserva las claves ajenas de `.agentic.lock.json`.
 - No incluyas información sensible en los README creados (ver «Información
   sensible y secretos» en la metodología).
+- Sigue `.agentic/instructions/docs-default.md` y, si existe,
+  `.agentic/instructions/docs-local.md` (con la prioridad definida en la
+  metodología) en toda la documentación que generes o modifiques.
 
 ## Resultado
 

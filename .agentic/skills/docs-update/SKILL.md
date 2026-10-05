@@ -11,7 +11,17 @@ Primero lee:
 
 ```text
 docs/documentation-methodology.md
+.agentic/instructions/docs-default.md
 ```
+
+Después, si existe, lee también:
+
+```text
+.agentic/instructions/docs-local.md
+```
+
+y aplica ambas instrucciones con la prioridad definida en la metodología
+(«Instrucciones de documentación»).
 
 Después lee:
 
@@ -95,7 +105,9 @@ Si existe `documentation.last_reviewed_commit`, continúa con el proceso obligat
    - cambios en manifiestos o configuración;
    - cambios en skills o wrappers;
    - cambios en documentación existente;
-   - cambios de comportamiento, capacidades o limitaciones visibles.
+   - cambios de comportamiento, capacidades o limitaciones visibles;
+   - cambios en los ficheros de `.agentic/instructions/` (`docs-default.md` y,
+     si existe, `docs-local.md`);
 
 5. Para cada conocimiento afectado, evalúa su impacto en:
 
@@ -141,6 +153,8 @@ Si existe `documentation.last_reviewed_commit`, continúa con el proceso obligat
    - el documento afectado;
    - la afirmación o sección actual, cuando exista;
    - el cambio propuesto;
+   - cuando el cambio implique reescribir una sección, qué información
+     preexistente no modificada se conserva en la redacción propuesta;
    - la evidencia que lo justifica;
    - las demás capas donde debe propagarse el mismo conocimiento.
    - qué intención, decisión o restricción de diseño debe explicarse o actualizarse
@@ -267,6 +281,19 @@ La documentación debe describir el estado actual del proyecto, no limitarse a c
    `AGENTS.md` son cambios documentales: se incluyen en la propuesta y solo
    se aplican en la fase 2, tras la confirmación humana, como cualquier otro
    cambio documental.
+
+7. Comprueba la presentación de los documentos afectados:
+
+   - los comandos de terminal están en bloques cerrados con la etiqueta de
+     lenguaje correcta;
+   - los procedimientos tienen, cuando aplican, prerrequisitos, pasos
+     exactos, resultado esperado y recuperación ante fallos;
+   - no hay pasos ambiguos ni placeholders sin explicar;
+   - se cumplen las instrucciones de `.agentic/instructions/` (default y,
+     si existe, local), y siempre si alguna cambió en el rango revisado.
+
+   Los defectos de presentación se incluyen en la propuesta de
+   actualización, sujetos a la confirmación humana obligatoria.
 
 ## Validación de intención y utilidad
 
@@ -427,7 +454,19 @@ Si no existe `.agentic-framework.json`, aplica la lógica normal de baseline y t
 
 ## Reglas
 
-- No inventes información.
+- No inventes ni asumas información: si algo no puede verificarse en el
+  repositorio, no se documenta como hecho ni se deduce; pregúntalo al usuario
+  indicando qué falta y por qué importa, y solo si no se puede resolver
+  márcalo como pendiente (principio 11 de la metodología).
+- Cuando un cambio necesario deja la sección afectada menos coherente que una
+  redacción integrada, propone la redacción integrada aunque implique más
+  cambios: la cohesión, la comprensión y la coherencia de la documentación
+  priman sobre la minimalidad del cambio (principio 13 de la metodología).
+- En toda reescritura, conserva íntegramente la información preexistente sobre
+  aquello que no ha cambiado: antes de aplicar y al validar el resultado,
+  comprueba que ninguna afirmación, procedimiento, ruta, comando, limitación o
+  advertencia preexistente haya desaparecido del documento (principio 13 de la
+  metodología).
 - No actualices documentación si no hace falta.
 - No modifiques código.
 - Este flujo valida documentación, no código: no ejecutes suites de tests
@@ -454,12 +493,20 @@ Si no existe `.agentic-framework.json`, aplica la lógica normal de baseline y t
   falso positivo conocido del caso concreto (fichero, campo, variable o
   contexto), sin el valor completo si pudiera ser sensible, para no volver
   a preguntar.
+- Si `.agentic/instructions/docs-local.md` existe, aplica sus instrucciones
+  en la propuesta. Si cualquiera de los ficheros de
+  `.agentic/instructions/` cambió en el rango revisado, evalúa la
+  conformidad de la documentación existente con las instrucciones actuales
+  e incluye las correcciones necesarias en la propuesta, sujeta a
+  confirmación humana: nunca las apliques directamente.
 
 ## Resultado de la fase de análisis
 
 Antes de solicitar confirmación, explica:
 
 - qué rango de commits revisaste;
+- qué instrucciones de documentación se aplicaron y si alguno de los
+  ficheros de `.agentic/instructions/` cambió en el rango revisado;
 - qué conocimiento cambió;
 - qué impacto evaluaste en cada capa;
 - qué cambios propones;
@@ -468,7 +515,8 @@ Antes de solicitar confirmación, explica:
 - qué contradicciones o dudas detectaste;
 - qué información sensible detectaste (ficheros y ubicaciones, sin valores)
   y, si procede, la propuesta de redacción asociada;
-- qué información no pudo verificarse.
+- qué información no pudo verificarse y qué preguntas plantea al usuario
+  para resolverla.
 
 Termina solicitando confirmación explícita y no modifiques ningún fichero.
 

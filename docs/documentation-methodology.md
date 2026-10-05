@@ -257,9 +257,13 @@ Evita la duplicación innecesaria dentro de una misma capa documental.
 
    Mover o reclasificar documentos no es suficiente si alguna capa sigue siendo incompleta o dependiente de otra.
 
-11. No inventar información.
+11. No inventar ni asumir información.
 
-   Toda afirmación debe poder justificarse con el estado actual del repositorio. Si algo no puede verificarse, debe marcarse como pendiente de validar.
+   Toda afirmación debe poder justificarse con el estado actual del
+   repositorio. No rellenes huecos con deducciones ni con justificaciones
+   plausibles: si algo no puede verificarse, no se documenta como hecho. En
+   ese caso se pregunta al humano indicando qué falta y por qué importa; solo
+   si la cuestión no puede resolverse se la marca como pendiente de validar.
 
    No absorbas ni elimines artefactos operativos del framework por considerar que su contenido aparece también en la documentación.
 
@@ -286,6 +290,24 @@ Evita la duplicación innecesaria dentro de una misma capa documental.
    como potencialmente sensible y se pregunta al usuario. Ver la sección
    «Información sensible y secretos».
 
+13. Al actualizar, la coherencia del conjunto prima sobre la minimalidad
+   del cambio.
+
+   Cuando una modificación necesaria puede integrarse en el texto de forma
+   más ordenada y coherente que como un añadido o un parche puntual, se
+   redacta la sección afectada de forma integrada, aunque implique más
+   cambios: no se minimiza el número de modificaciones a costa de la
+   cohesión, la comprensión ni la coherencia de la documentación. Esta regla
+   no autoriza actualizaciones que no sean necesarias: solo regula cómo
+   se realizan los cambios que lo sean.
+
+   En toda reescritura, la información preexistente sobre aquello que no ha
+   cambiado se conserva íntegramente: puede reformularse, reordenarse o
+   ampliarse, pero no eliminarse ni reducirse. Una reescritura nunca mengúa
+   el conocimiento documentado: antes de aplicarla, se verifica que ninguna
+   afirmación, procedimiento, ruta, comando, decisión, limitación o
+   advertencia preexistente haya desaparecido del resultado.
+
 ## Coherencia documental
 
 La documentación debe mantenerse como un conjunto coherente, no como documentos independientes.
@@ -311,6 +333,7 @@ Al crear o actualizar documentación:
 6. Comprobar además la autosuficiencia de cada capa y completar cualquier conocimiento necesario que solo aparezca en otra.
 7. No considerar la documentación actualizada mientras existan contradicciones conocidas o dependencias evitables entre capas.
 8. Comprobar que la documentación para agentes permite localizar el conocimiento de cada área del repositorio sin obligar a cargar documentación perteneciente a otras áreas conceptualmente independientes.
+9. Si un cambio necesario deja la sección afectada menos coherente que una redacción integrada, redactar la sección de forma integrada en lugar de aplicar un parche mínimo, y verificar que conserva íntegramente toda la información preexistente sobre lo que no ha cambiado (principio 13).
 
 ## Información sensible y secretos
 
@@ -403,7 +426,7 @@ Los agentes deben:
 - ante la duda sobre si un valor es sensible, no decidir de forma unilateral:
   tratarlo provisionalmente como potencialmente sensible y preguntar al
   usuario;
-- proponer o realizar cambios documentales basados en evidencias, sin inventarlos.
+- proponer o realizar cambios documentales basados en evidencias, sin inventarlos ni asumarlos: ante una cuestión no verificable, preguntar al usuario antes de documentarla (principio 11).
 
 ## Skills comunes
 
@@ -423,6 +446,102 @@ Cada arnés implementa un wrapper mínimo:
 La lógica de cada skill vive una única vez en `.agentic/skills/`.
 
 Los wrappers no deben contener lógica de negocio; únicamente deben invocar la implementación común.
+
+## Ubicación de las normas
+
+Cada tipo de norma vive en el lugar que le corresponde por su naturaleza y su
+alcance, no por su forma: que una norma se escriba en imperativo no la convierte
+en una instrucción de presentación.
+
+- **Esta metodología** define qué documentar, cómo se organiza la documentación
+  y los invariantes de integridad del contenido: no inventar ni asumir
+  información, la política de «Información sensible y secretos», la coherencia
+  y la autosuficiencia entre capas. Son reglas que se aplican siempre y que
+  ninguna instrucción ni ningún repositorio puede sobrescribir.
+
+- **`.agentic/instructions/docs-default.md` y `.agentic/instructions/docs-local.md`**
+  definen cómo se presenta la documentación que las skills generan o modifican:
+  estilo, formato, estructura de procedimientos, idioma. Son la capa de
+  presentación y la única que un repositorio puede especializar:
+  `docs-local.md` prevalece sobre `docs-default.md`.
+
+- **`.agentic/skills/<skill>/SKILL.md`** define cómo ejecuta cada skill su
+  acción: fases, verificaciones, detenciones obligatorias y comportamiento ante
+  casos concretos. La confirmación humana previa a cualquier modificación
+  (proponer antes de aplicar, aplicar únicamente lo aprobado) es parte del flujo
+  de ejecución y vive en la skill, no en la capa de presentación.
+
+Criterios de decisión al ubicar una norma:
+
+1. Si regula la **presentación** de los documentos (cómo se ven):
+   instrucciones. `docs-default.md` si la norma es del framework;
+   `docs-local.md` si es propia del repositorio.
+
+2. Si regula la **integridad o el contenido** de la documentación y debe
+   aplicarse siempre, sin sobrescritura: esta metodología.
+
+3. Si regula **cómo ejecuta una skill** una acción concreta: el `SKILL.md` de
+   esa skill.
+
+Una regla puede declararse como invariante en la metodología y aplicarse
+concretamente en una skill (p. ej. la confirmación humana previa o la política
+de secretos): la metodología declara la regla y la skill la aplica con su
+mecanismo y su detalle operativo. Un invariante no se coloca en las
+instrucciones: al ser una capa sobreescrible, es el lugar equivocado para una
+regla que no admite sobrescritura.
+
+## Instrucciones de documentación
+
+Las skills documentales aplican normas de estilo y presentación a la
+documentación que generan o modifican. Esas normas no están en este fichero:
+viven en artefactos operativos consumidos por las skills.
+
+### Ficheros
+
+- `.agentic/instructions/docs-default.md`: normas por defecto del framework
+  (comandos y código, instrucciones completas, formato general). Es un fichero
+  **gestionado por `agentic-sync`**: se instala y se actualiza con el
+  framework. En un repositorio consumidor **no se edita**: si se modifica, el
+  sync lo marca como `CONFLICT` en el próximo `--plan`/`--apply` (la fuente de
+  las normas por defecto es el framework).
+- `.agentic/instructions/docs-local.md` (opcional): instrucciones propias del
+  repositorio. **No es un fichero gestionado**: el sync no lo copia ni lo
+  actualiza. El repositorio lo crea, lo edita y lo versiona a su antojo. Si no
+  existe, no se aplica nada adicional.
+
+### Aplicación y prioridad
+
+- Las skills documentales (`docs-init`, `docs-init-full`, `docs-update`) leen
+  `docs-default.md` inmediatamente después de esta metodología y, si existe,
+  también `docs-local.md`, y aplican ambas a toda la documentación que
+  generen o modifiquen.
+- En caso de conflicto entre `docs-local.md` y `docs-default.md`, las
+  instrucciones locales **prevalecen**: regulan estilo, formato, idioma y
+  convenciones documentales del repositorio.
+- Ni las instrucciones locales ni las por defecto pueden anular:
+  - la política de «Información sensible y secretos»;
+  - el principio de no inventar ni asumir información;
+  - el flujo de propuesta y confirmación humana de las skills;
+  - los requisitos de autosuficiencia y coherencia entre capas.
+- Si una instrucción intentara anular cualquiera de esos puntos, la skill no la
+  aplica en ese punto, la señala en el resultado de su ejecución y pide
+  confirmación humana explícita.
+- `docs-update` evalúa además la conformidad de la documentación existente
+  cuando **cualquiera** de los dos ficheros de instrucciones
+  (`.agentic/instructions/docs-default.md` o `docs-local.md`) cambia en el rango
+  revisado (D9). Las correcciones resultantes se incluyen en la propuesta de
+  actualización, sujeta a confirmación humana obligatoria: nunca se aplican
+  directamente.
+
+### Contenido recomendado de `docs-local.md`
+
+Puede especializar o ampliar las normas de `docs-default.md` para el
+repositorio concreto, por ejemplo: idioma o registro de la documentación,
+convenciones de formato específicas (plantillas, secciones obligatorias
+propias del repo, convenciones de encabezados), referencias a documentación
+externa del equipo que deban citarse, o excepciones justificadas a las normas
+por defecto. No debe contener información sensible (misma política que el
+resto de la documentación).
 
 ## README principal
 
