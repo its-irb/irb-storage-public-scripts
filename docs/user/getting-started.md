@@ -1,53 +1,62 @@
-# Instalación y primeros pasos
+# Install and sign in
 
-## Requisitos previos
+## Goal
 
-- **VPN de Nexica (Forticlient)** activa. Sin ella, BIFROST no puede
-  conectarse a LDAP ni a MinIO.
-- **Cuenta de usuario del IRB**: tu usuario y contraseña habituales (LDAP).
-- **Windows + bifrost-mount**: el sistema necesita **WinFsp** (driver de
-  montaje). No se puede empaquetar dentro de la app porque incluye un driver
-  de kernel, por lo que:
-  - la app detecta que falta al montar y **ofrece descargar e instalar** la
-    última versión oficial desde `github.com/winfsp/winfsp` (requiere permisos
-    de administrador), o
-  - puedes instalarlo manualmente desde `winfsp.dev`.
+Install the BIFROST app you need and sign in for the first time.
 
-**No necesitas** instalar `rclone` ni `fuse-t`: viajan empaquetados dentro de
-la aplicación.
+## Before you start
 
-## Obtener e instalar la aplicación
+- The **Nexica VPN (Forticlient)** must be switched on. Without it, BIFROST
+  cannot reach your IRB account or MinIO.
+- Your **IRB username and password**: the same you use to sign in to your IRB
+  computer.
+- **Windows and Bifrost mount only**: the computer needs a helper program
+  called **WinFsp**. It is not bundled inside the app because it installs a
+  deep system component, so:
+  - the app notices when it is missing and **offers to download and install**
+    the latest official version (it asks for administrator permission), or
+  - you can install it yourself from `winfsp.dev`.
 
-Las versiones se publican en las **releases de GitHub** del repositorio
-`its-irb/irb-storage-public-scripts`: acceder mediante este link https://github.com/its-irb/irb-storage-public-scripts/releases .
+You do **not** need to install anything else: the other tools BIFROST needs
+travel inside the app.
 
-- **Windows**: descarga el instalador `.exe`
-  (`bifrost-<app>-<rama>-windows.exe`, **firmado digitalmente**) e instálalo.
-- **macOS**: descarga el archivo **`.dmg`** (`bifrost-<app>-macos.dmg`),
-  ábrelo y copia la app a la carpeta Aplicaciones.
-- **Linux / clúster**: bifrost-transfer se sirve en modo web a través de Open
-  OnDemand (ver [web-mode-ood.md](web-mode-ood.md)); no hay que instalar nada
-  local.
+## Install the app
 
-Una vez instalada, la aplicación se **auto-actualiza**: al abrir la app, si
-existe una versión nueva en GitHub, te pregunta si quieres actualizarla y
-descarga la release correspondiente.
+New versions are published as *releases* on GitHub, at
+https://github.com/its-irb/irb-storage-public-scripts/releases .
 
-## Primeros pasos
+1. Open that page and choose the latest release.
+2. Download the file for your computer and the app you need:
+   - **Windows**: the installer file ending in `.exe` (it is digitally signed).
+     Run it and follow the installer.
+   - **macOS**: the file ending in `.dmg`. Open it and drag the app to the
+     **Applications** folder.
+   - **Cluster (Linux)**: nothing to install. Bifrost transfer opens in your
+     browser through Open OnDemand (see [web-mode-ood.md](web-mode-ood.md)).
 
-1. **Inicia sesión** con tu usuario y contraseña LDAP (username y password que usas para entrar en el ordenador del IRB).
-2. **Selecciona el servidor MinIO** que corresponde a tu grupo de trabajo.
-3. **Credenciales temporales**: la app obtiene credenciales STS
-   automáticamente (por defecto con una vida de varios días). No necesitas
-   introducir claves; si están por expirarse, se renuevan solas mostrando un
-   progreso.
-4. **Elige la vista final** según tu objetivo:
-   - `bifrost-transfer` → pantalla de **copia** (ver [transfer-data.md](transfer-data.md)).
-   - `bifrost-mount` → pantalla de **montado** (ver [mount-buckets.md](mount-buckets.md)).
+The app **updates itself**: when you open it and a newer version exists, it
+asks if you want to update, and downloads it if you accept.
 
-## Resultado esperado
+## Sign in
 
-Tras el login deberías ver, en `bifrost-transfer`, la pantalla de copia con el
-navegador de destino; en `bifrost-mount`, la pantalla de montado. Si en su
-lugar ves un error de red o de login, consulta
+1. Open the app.
+2. Type your **IRB username and password**.
+3. Choose the **MinIO server** that belongs to your research group.
+4. Wait a moment: the app gets a temporary access pass for MinIO by itself. It
+   lasts 7 days and renews automatically when it is about to expire, showing a
+   progress bar. You never have to type any keys.
+5. You arrive at the main screen of the app:
+   - **Bifrost transfer** → the copy screen
+     (see [transfer-data.md](transfer-data.md)).
+   - **Bifrost mount** → the mount screen
+     (see [mount-buckets.md](mount-buckets.md)).
+
+## Expected result
+
+After signing in you see the copy screen (Bifrost transfer) or the mount screen
+(Bifrost mount).
+
+## If something goes wrong
+
+If you see a network or sign-in error, go to
 [troubleshooting.md](troubleshooting.md).

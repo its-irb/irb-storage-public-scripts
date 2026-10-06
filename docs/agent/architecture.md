@@ -1,97 +1,105 @@
-# Arquitectura
+# Architecture
 
-## Componentes
+## Components
 
-| Componente | Carpeta | Función |
+| Component | Folder | Role |
 |---|---|---|
-| **bifrost-transfer** | `bifrost-transfer/` | Copia datos desde carpetas de red (SMB/CIFS), servidores SFTP o rutas locales a buckets MinIO S3, con verificación de integridad y etiquetado por perfil de metadatos. Incluye **Tag Manager** (etiquetado masivo sin re-subida) y **modo web** (Open OnDemand). |
-| **bifrost-mount** | `bifrost-mount/` | Monta carpetas MinIO S3 como unidad local (Windows/macOS/Linux). Solo modo desktop. |
-| **bifrost-shared** | `shared/` | Paquete wheel común: `bifrost_backend.backend` (toda la lógica de negocio) y `bifrost_frontend.frontend` (paleta + componentes Flet). |
+| **bifrost-transfer** | `bifrost-transfer/` | Copies data from network shares (SMB/CIFS), SFTP servers or local paths to MinIO S3 buckets, with integrity checks and tagging by metadata profile. Includes **Tag Manager** (bulk tagging without re-upload) and **web mode** (Open OnDemand). |
+| **bifrost-mount** | `bifrost-mount/` | Mounts MinIO S3 folders as a local drive (Windows/macOS/Linux). Desktop mode only. |
+| **bifrost-shared** | `shared/` | Common wheel package: `bifrost_backend.backend` (all business logic) and `bifrost_frontend.frontend` (palette + Flet components). |
 
-Ambas apps son Flet con punto de entrada `src/main.py` y `pyproject.toml` por app.
+Both apps are Flet apps with entry point `src/main.py` and one `pyproject.toml`
+per app.
 
-## Estructura del repositorio
+## Repository layout
 
 ```text
-bifrost-mount/            # App de montado (desktop)
+bifrost-mount/            # Mount app (desktop)
   src/
-    main.py               # GUI Flet — punto de entrada
+    main.py               # Flet GUI — entry point
     config.py             # APP_INFO = {"flavour": "mount", ...}
-    version.py            # __version__ (lo escribe CI/build)
-    assets/bin/           # rclone bundled
+    version.py            # __version__ (written by CI/build)
+    assets/bin/           # bundled rclone
     frameworks/           # fuse_t.framework (macOS)
-  pyproject-template.toml # Plantilla; pyproject.toml se genera localmente (no versionado)
-  installer.iss           # Inno Setup (instalador Windows)
+  pyproject-template.toml # Template; pyproject.toml is generated locally (not versioned)
+  installer.iss           # Inno Setup (Windows installer)
   build-macos.sh
 
-bifrost-transfer/         # App de transferencia (desktop + web)
+bifrost-transfer/         # Transfer app (desktop + web)
   src/
-    main.py               # GUI Flet
-    meta_fields.py        # Perfiles, campos de metadatos, filtro por laboratorio
+    main.py               # Flet GUI
+    meta_fields.py        # Profiles, metadata fields, lab filter
     config.py             # APP_INFO = {"flavour": "transfer", ...}
     version.py
     assets/bin/
-    storage/              # Datos temporales de transferencia
+    storage/              # Temporary transfer data
   pyproject-template.toml
   installer.iss
   build-macos.sh
 
-shared/                   # Paquete bifrost-shared (wheel local)
+shared/                   # bifrost-shared package (local wheel)
   bifrost_backend/backend.py
   bifrost_frontend/frontend.py
-  pyproject.toml          # Define el paquete "bifrost-shared"
-  requirements.txt        # Deps comunes en dev
-  *-assets-downloader.sh  # Descarga rclone/fuse-t para CI
+  pyproject.toml          # Defines the "bifrost-shared" package
+  requirements.txt        # Common dev deps
+  *-assets-downloader.sh  # Download rclone/fuse-t (also used by CI)
 
-old/                      # Scripts legacy (no usar)
-build-windows.ps1         # Build local de Windows (pyproject desde plantilla + rclone + flet build)
-.github/workflows/main.yml  # CI: build macOS/Windows + release
+old/                      # Legacy scripts (do not use)
+build-windows.ps1         # Local Windows build (pyproject from template + rclone + flet build)
+.github/workflows/main.yml  # CI: macOS/Windows build + release
+AGENTS.md                 # Entry point for any agent -> docs/agent/
+docs/agent/               # Agent layer (English)
+docs/development/         # Developer layer (Spanish)
+docs/user/                # User layer (English)
+docs/superpowers/         # Historical feature specs and plans
+.agentic/                 # Documentation framework (skills, instructions)
 ```
 
-## Compartido vs específico
+## Shared vs app-specific
 
-**Compartido (`shared/`)**:
-- `bifrost_backend.backend` — LDAP, rclone (exec, perfiles, copy/check, listing), STS, SMB/CIFS, tagging boto3, `ui_call()`, `safe_thread()`, autoupdate.
-- `bifrost_frontend.frontend` — paleta (`C_BG`, `C_PRIMARY`, …), botones (`btn_primary`, `btn_secondary`), `show_dialog`. Cada app hace `from bifrost_frontend.frontend import *`.
+**Shared (`shared/`)**:
+- `bifrost_backend.backend` — LDAP, rclone (exec, profiles, copy/check, listing), STS, SMB/CIFS, boto3 tagging, `ui_call()`, `safe_thread()`, autoupdate.
+- `bifrost_frontend.frontend` — palette (`C_BG`, `C_PRIMARY`, …), buttons (`btn_primary`, `btn_secondary`), `show_dialog`. Each app does `from bifrost_frontend.frontend import *`.
 
-**Específico por app**:
-- `src/main.py` — flujo de vistas Flet (login → minio → credenciales → mount/copy) y toda la UI específica. En `bifrost-transfer` incluye además el Tag Manager y el modo web.
-- `src/meta_fields.py` — **solo en `bifrost-transfer`**: `FieldType`, `TAG_PROFILES`, `build_meta_fields`, `LAB_ACRONYMS`, `build_lab_filter_widget`, `detect_profile`. Fuente canónica de perfiles y campos.
-- `src/config.py` — solo `APP_INFO`. El backend lee `APP_INFO["flavour"]` para resolver rutas de assets en dev.
-- `src/version.py` — escrito por CI/build (`__version__ = "1.0.<run_number>"`).
-- `installer.iss`, `build-macos.sh`, `pyproject-template.toml` (deps congeladas por app).
+**App-specific**:
+- `src/main.py` — Flet view flow (login → minio → credentials → mount/copy) and all app UI. In `bifrost-transfer` it also holds Tag Manager and web mode.
+- `src/meta_fields.py` — **`bifrost-transfer` only**: `FieldType`, `TAG_PROFILES`, `build_meta_fields`, `LAB_ACRONYMS`, `build_lab_filter_widget`, `detect_profile`. Canonical source of profiles and fields.
+- `src/config.py` — only `APP_INFO`. The backend reads `APP_INFO["flavour"]` to resolve asset paths in dev.
+- `src/version.py` — written by CI/build (`__version__ = "1.0.<run_number>"`).
+- `installer.iss`, `build-macos.sh`, `pyproject-template.toml` (frozen deps per app).
 
-## Acoplamiento e invariantes
+## Coupling and invariants
 
-- Las apps importan el backend vía `from bifrost_backend import backend` y
-  `from config import APP_INFO`. **`config.py` debe ser importable como módulo
-  top-level en cada app** (por eso cada app tiene el suyo aunque solo contenga
-  `APP_INFO`).
-- El `pyproject.toml` de cada app referencia
-  `bifrost-shared @ file:///__BUILDPATH__/shared`; el script de build (CI o
-  `build-windows.ps1` o `build-macos.sh`) sustituye `__BUILDPATH__` por la
-  ruta real del paquete compartido.
-  `pyproject.toml` no está versionado: se genera desde `pyproject-template.toml`.
-- El backend importa del frontend (`show_dialog`, `C_ERROR` de
-  `bifrost_frontend.frontend`): no es un backend desacoplado. No introduzcas
-  importaciones circulares nuevas.
-- **Regla de thread-safety**: toda mutación de `control.controls` o llamada a
-  `page.update()` desde un hilo de background debe ir envuelta en
-  `backend.ui_call(page, fn)`. Usar `page.run_thread()` directamente provoca
-  `IndexError` en `_compare_lists`. Para crear hilos, `backend.safe_thread(page, target)`.
-  Ver [backend.md](backend.md) y [frontend.md](frontend.md).
-- `TAG_PROFILES` y `LAB_ACRONYMS` solo se definen en
-  `bifrost-transfer/src/meta_fields.py`; el formulario de copia y el Tag
-  Manager consumen de ahí. No duplicar definiciones en `main.py`.
+- Apps import the backend with `from bifrost_backend import backend` and
+  `from config import APP_INFO`. **`config.py` must be importable as a
+  top-level module in each app** (that is why each app has its own, even though
+  it only contains `APP_INFO`).
+- Each app's `pyproject.toml` references
+  `bifrost-shared @ file:///__BUILDPATH__/shared`; the build script (CI,
+  `build-windows.ps1` or `build-macos.sh`) replaces `__BUILDPATH__` with the
+  real path of the shared package. `pyproject.toml` is not versioned: it is
+  generated from `pyproject-template.toml`.
+- The backend imports from the frontend (`show_dialog`, `C_ERROR` from
+  `bifrost_frontend.frontend`): it is not a decoupled backend. Do not introduce
+  new circular imports.
+- **Thread-safety rule**: any mutation of `control.controls` or call to
+  `page.update()` from a background thread must be wrapped in
+  `backend.ui_call(page, fn)`. Using `page.run_thread()` directly causes
+  `IndexError` in `_compare_lists`. To create threads, use
+  `backend.safe_thread(page, target)`. See [backend.md](backend.md) and
+  [frontend.md](frontend.md).
+- `TAG_PROFILES` and `LAB_ACRONYMS` are defined only in
+  `bifrost-transfer/src/meta_fields.py`; the copy form and Tag Manager consume
+  them from there. Do not duplicate definitions in `main.py`.
 
-## Flujos de alto nivel
+## High-level flows
 
-- Desktop: login (LDAP) → selección de servidor MinIO → obtención automática
-  de credenciales STS temporales → vista de acción (mount o copy).
-- Web (solo transfer, Open OnDemand): igual, con sesión persistente en
-  `_WEB_SESSIONS` y reconexión de pestañas. Ver [frontend.md](frontend.md).
+- Desktop: login (LDAP) → MinIO server selection → automatic temporary STS
+  credentials → action view (mount or copy).
+- Web (transfer only, Open OnDemand): same, with a persistent session in
+  `_WEB_SESSIONS` and tab reconnection. See [frontend.md](frontend.md).
 
-## Zona legacy
+## Legacy zone
 
-`old/` contiene scripts legacy (`backend-old.py`,
-`minio-sts-credentials-request.py`): no usar ni modificar.
+`old/` contains legacy scripts (`backend-old.py`,
+`minio-sts-credentials-request.py`): do not use or modify.

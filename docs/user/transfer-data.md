@@ -1,93 +1,111 @@
-# Copiar datos a MinIO (bifrost-transfer)
+# Copy data to MinIO (Bifrost transfer)
 
-Objetivo: copiar archivos desde tu equipo, una carpeta de red (SMB/CIFS) o un
-servidor SFTP hasta un bucket de MinIO, verificando la integridad de la copia
-y aplicando metadatos (tags) según un perfil.
+## Goal
 
-## Cuándo usarlo
+Copy files or folders from your computer, from the Z drive (the folder shared
+with your lab, sometimes called NetApp) or from an SFTP server into MinIO. The
+app checks that the copy is identical to the original and attaches labels
+(*tags*) that describe the data.
 
-- Necesitas **subir datos** a MinIO (la operación principal).
-- Quieres que los objetos subidos lleven **metadatos gestionados** por
-  laboratorio.
-- Necesitas **comprobar la integridad** de una copia ya realizada.
+> **The app is called "Bifrost transfer", but it only copies.** Your original
+> files are **never deleted** from where they were. In MinIO, the data you copy
+> **cannot be changed or deleted afterwards** (see
+> [minio-permissions-and-folders.md](minio-permissions-and-folders.md)).
 
-## Antes de empezar
+## When to use it
 
-- VPN de Nexica activa y login completado (ver [getting-started.md](getting-started.md)).
-- Ya estás en la pantalla de **copia**, tras elegir el servidor MinIO.
-- Ten claro:
-  - **Origen**: de dónde salen los datos (carpeta local, Z compartida con el laboratorio o servidor SFTP).
-  - **Destino**: el bucket y la ruta dentro de MinIO.
-  - **Perfil de metadatos**: qué tipo de datos son (IRB Standard, Histopathology, …).
+- You want to **put data into MinIO**.
+- You want the data to carry **labels** that describe it (project, sample type,
+  and so on).
+- You want to **check that a copy you already made is complete**.
 
-## Origen disponible
+Use something else if:
 
-Puedes elegir como origen **una carpeta o un archivo individual** de:
+- The data is already in MinIO and you only want to add or fix its labels →
+  [tag-manager.md](tag-manager.md).
+- You want to copy data from the Z drive or a very large amount of data → use
+  Bifrost transfer on the cluster through Open OnDemand, see
+  [web-mode-ood.md](web-mode-ood.md).
 
-- **Carpetas de red (SMB/CIFS)**: son las llamadas "Z" del laboratorio. Para hacer una transferencia de datos de estas carpetas, recomendamos usar **bifrost-transfer en OpenOn Demand**. 
-- **Carpeta local** del equipo.
-- **Servidor SFTP**: pulsa el botón **"🌐 SFTP"** para conectarte. El diálogo
-  de conexión solo exige **host**, **usuario** y **contraseña**.
+## Before you start
 
-> Nota: el origen SFTP es efímero. La app crea un perfil rclone temporal para
-> la sesión y lo borra al terminar (al cerrar la conexión, al salir de la
-> pantalla de copia y al volver a iniciar sesión), por lo que no quedan
-> perfiles SFTP huérfanos en tu máquina.
+1. The Nexica VPN is on and you have signed in (see
+   [getting-started.md](getting-started.md)).
+2. You are on the **copy** screen, after choosing your MinIO server.
+3. You know three things:
+   - the **source**: where the data is now (a folder on your computer, the Z
+     drive, or an SFTP server);
+   - the **destination**: the MinIO folder where it should go (see
+     [minio-permissions-and-folders.md](minio-permissions-and-folders.md));
+   - the **metadata profile**: the type of data you are copying (IRB Standard
+     or Histopathology).
 
-## Destino
+## Choose the source
 
-El navegador de destino te permite recorrer **buckets → carpetas** dentro de
-MinIO.
+You can pick a **folder** or a **single file**.
 
-- En la **raíz** (nivel de buckets) aparece el campo **"Filter by lab…"**:
-  escribe el nombre o acrónimo de un laboratorio para ver sugerencias y
-  filtrar solo los buckets de ese lab. Este filtro se oculta al entrar dentro
-  de un bucket y vuelve a aparecer al volver a la raíz.
-- Los botones de copia/verificación, la sección de metadatos y el panel de log
-  **solo aparecen una vez que has seleccionado un bucket** destino en el
-  navegador.
+| Source | How |
+|---|---|
+| A folder on your computer | Type or browse to its path. |
+| The Z drive (folder shared with your lab) | Use Bifrost transfer on the cluster (see [web-mode-ood.md](web-mode-ood.md)). |
+| An SFTP server | Click **🌐 SFTP** and fill in the connection window. **Host** and **Username** are required; **Password** is optional (some accounts have none); **Port** is 22 unless you change it. |
 
-## Perfiles de metadatos
+> The SFTP connection is temporary. The app removes it when you click
+> **Disconnect (✕)**, when you leave the copy screen and each time you sign in
+> again, so nothing stays saved on your computer.
 
-Los metadatos se organizan en **perfiles**. En la parte superior de la sección
-**METADATA** eliges el perfil con un desplegable. Los perfiles disponibles:
+## Choose the destination
 
-- **IRB Standard** — metadatos generales: proyecto, máquina, tipo de muestra,
-  tipos de datos, solicitante, grupo de investigación.
-- **Histopathology** — campos especializados: propietario, usuarios, fecha,
-  proveedor, instrumento, especie, tipo de muestra, aumento, canales.
+The destination browser lets you walk through MinIO: first the main folders,
+then the folders inside them.
 
-Rellena los campos y los tags se aplicarán automáticamente a los objetos
-subidos. **Si cambias de perfil se borran los campos actuales** (si algún
-campo tiene datos, se muestra un diálogo de confirmación antes de borrarlos).
+- At the top level, a **Filter by lab…** box lets you type a lab name or
+  acronym to show only that lab's folders. It disappears when you enter a
+  folder and comes back at the top level.
+- The **metadata** section, the **copy buttons** and the **log panel** only
+  appear **after you select a destination folder**.
 
-## Ejecutar la copia
+## Choose the metadata profile
 
-1. Selecciona el **origen** (share/local/SFTP).
-2. Navega al **bucket destino** y, si procede, a la carpeta.
-3. Elige el **perfil de metadatos** y rellena los campos.
-4. Pulsa **Copiar**. La app ejecuta `rclone copy` en segundo plano y muestra el
-   progreso en el panel de log en vivo.
-5. Al terminar, puedes lanzar la **verificación de integridad** (rclone
-   `check`) para confirmar que origen y destino coinciden.
+In the **METADATA** section, pick the profile from the drop-down list:
 
-## Resultado esperado
+- **IRB Standard**: general data: project, machine, sample type, data types,
+  requester, research group.
+- **Histopathology**: owner, users, date, provider, instrument, species, sample
+  type, magnification, channels.
 
-- Los objetos aparecen en el bucket destino con la jerarquía de carpetas
-  seleccionada.
-- Llevan los **tags del perfil** rellenado.
-- El log en vivo muestra el progreso y, al final, un resumen de éxito o
-  error. En modo web, el log completo se guarda en el servidor
-  (`~/bifrost-logs/…`).
+Fill in the fields. The labels are attached to everything you copy.
 
-- Si la copia falla a mitad, los objetos ya subidos permanecen en el destino;
-  relanza la copia para reintentar (rclone no re-copia lo que ya existe y es
-  idéntico).
+> If you change the profile, the fields you have filled in are cleared. If any
+> field has data, the app asks you to confirm first.
 
-## Ante errores
+## Copy
 
-- **Error de red / no conecta**: comprueba la VPN de Nexica.
-- **Permisos / no ves el bucket**: es probable que no tengas acceso; contacta
-  con el responsable de datos de tu grupo.
-- **Detalle del log**: en modo web, si se pierde la vista, el log completo
-  está en `~/bifrost-logs/` del servidor (ver [web-mode-ood.md](web-mode-ood.md)).
+1. Choose the **source**.
+2. Choose the **destination** folder in MinIO.
+3. Choose the **profile** and fill in the fields.
+4. Click **Copy**. The log panel shows the progress live.
+5. When it finishes, run the **integrity check** to confirm that the original
+   and the copy are identical.
+
+## Expected result
+
+- The files appear in the destination folder, with the same folder structure
+  as the source.
+- They carry the labels of the profile you filled in.
+- The log ends with a summary saying it finished correctly or with an error.
+- The original files are still where they were.
+
+## Limits
+
+- You cannot delete or replace what you copied.
+- Listing large MinIO folders can be slow.
+
+## If something goes wrong
+
+| Problem | What to do |
+|---|---|
+| Network error or it cannot connect | Check that the Nexica VPN is on. |
+| You do not see the destination folder | You probably do not have access yet. Ask your group's data manager. |
+| The copy stops halfway | Files already copied stay in MinIO. Start the copy again: files that are already there and identical are not copied again. |
+| You lost the log (cluster) | The full log is saved on the cluster server, see [web-mode-ood.md](web-mode-ood.md). |

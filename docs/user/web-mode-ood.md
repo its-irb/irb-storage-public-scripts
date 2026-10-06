@@ -1,83 +1,110 @@
-# Usar BIFROST desde el clúster (Open OnDemand / modo web)
+# Use BIFROST on the cluster (Open OnDemand)
 
-Objetivo: trabajar con **bifrost-transfer** a través del **navegador** en el
-clúster Linux (Open OnDemand), sin instalar nada en tu equipo.
+## Goal
 
-## Cuándo usarlo
+Use BIFROST on the IRB cluster, through your web browser, with **Open
+OnDemand** (the web portal of the cluster). There are two situations:
 
-- Trabajas en el **clúster** y prefieres (o necesitas) usar BIFROST **desde el
-  navegador**.
-- Quieres que la **copia siga corriendo en el servidor** aunque cierres la
-  pestaña o te desconectes brevemente.
+1. **Read MinIO data from a cluster app** (for example QuPath) → Bifrost mount,
+   inside a DCV session.
+2. **Copy large amounts of data to MinIO, or copy data from the Z drive** →
+   Bifrost transfer, in Open OnDemand.
 
-> El modo web solo aplica a **bifrost-transfer**. bifrost-mount no está
-> disponible aquí.
+In both cases the data you copy is **never deleted from where it was**, and
+data in MinIO **cannot be deleted** (see
+[minio-permissions-and-folders.md](minio-permissions-and-folders.md)).
 
-## Cómo se abre
+## Read MinIO data from a cluster app (Bifrost mount)
 
-En el clúster, BIFROST se lanza como un proceso estándar a través de Open
-OnDemand: la app detecta que se está usando en modo web y se sirve por
-navegador (a través de un servidor WebSocket). No hay nada que instalar:
-abres la app desde la interfaz de OOD e **inicias sesión** como siempre.
+*Mounting* a folder means making it appear in your session as if it were local.
 
-## Diferencias respecto al modo escritorio
+### Before you start
 
-En modo web, el proceso del servidor **sigue vivo** aunque cierres la pestaña
-del navegador. Esto cambia el comportamiento en dos puntos importantes:
+- You can start a **DCV** session (the remote desktop of the cluster).
+- Do **not** run the job on node `ccn01`. Bifrost does not work on that node
+  and shows an error straight away. Use another node (for example `sphr`).
 
-1. **La copia no se interrumpe al cerrar la pestaña.** El proceso de copia
-   sigue corriendo en el servidor.
-2. **Puedes volver a conectar y retomar** donde estabas.
+### Steps
 
-## Cerrar y volver a abrir la pestaña (reconexión)
+1. Open a **DCV** session on a node other than `ccn01`.
+2. Inside the DCV session, open **Bifrost mount** and sign in.
+3. Mount the MinIO folders that contain the data you need
+   (see [mount-buckets.md](mount-buckets.md)).
+4. From that same DCV session, open the other apps (for example QuPath). They
+   can read the MinIO data through the mounted folders.
 
-Si cierras la pestaña mientras hay una copia en curso y luego la vuelves a
-abrir:
+### Expected result
 
-1. La app te pide **solo la contraseña** (tu usuario va ya relleno); no
-   repites la selección del servidor MinIO ni la descarga de shares.
-2. Si la contraseña es correcta, vuelves directamente a la **pantalla de
-   copia**.
-3. Se muestra un **banner de reconexión** con el estado actual y se
-   **reproducen las últimas líneas del log** en pantalla.
-4. Si la copia **sigue en curso**, se restaura el botón de **Cancelar** y la
-   app espera a que termine.
-5. Si la copia **ya terminó** mientras estabas fuera, el estado se ajusta a
-   *completada* o *error* según el resultado.
+The mounted MinIO folders appear in your DCV session and the other apps can
+open the files in them.
 
-## Dónde se guardan los logs
+### If something goes wrong
 
-En modo web, al terminar cada copia o verificación, el **log completo** se
-guarda en el **servidor** OOD, en una carpeta de logs. En pantalla solo se
-muestran las últimas líneas; si quieres el historial completo de una copia,
-búscalo en la carpeta de logs del servidor.
+- Bifrost shows an error when it starts → you are probably on `ccn01`. Close
+  the session and start a new one on another node.
 
-> Esto es importante porque en el navegador el log está limitado a las últimas
-> líneas; el registro completo solo existe en disco, en el servidor.
+## Copy data to MinIO (Bifrost transfer)
 
-## Sesión y límite de tiempo
+Use this for large copies, or when you need to copy data from the **Z drive**
+(the folder shared with your lab, sometimes called NetApp) to MinIO, which you
+cannot do from your own computer.
 
-- La **sesión web** vive mientras el **proceso del servidor** (el "job" de OOD)
-  esté activo.
-- La **contraseña LDAP no se guarda** en la sesión: por eso, al reconectar,
-  vuelves a introducirla (es tu re-autenticación).
-- Si el job de OOD termina o se reinicia, la sesión y el estado se pierden; en
-  ese caso, reinicia el flujo normalmente.
+> The app is called "Bifrost transfer", but it only **copies**: your original
+> data stays where it was.
 
-## Limitaciones
+### Steps
 
-- **No hay bifrost-mount** en modo web (no se puede montar una unidad desde el
-  navegador).
-- El **log en pantalla** está limitado a las últimas líneas; el log completo
-  solo está en el servidor.
-- Si el **job de OOD** se cierra, se pierde la sesión y cualquier copia en
-  curso.
+1. Launch **Bifrost** from **Sandbox Apps** in Open OnDemand and sign in.
+2. Choose the **source** of the data:
+   - **The Z drive**: click **Mount NetApp** to make your lab's NetApp folder
+     available first. Once mounted, you find it inside the `netapp-folder`
+     folder.
+   - **SFTP**: click **🌐 SFTP** and enter host and username (password is
+     optional).
+   - **Scratch or other cluster folders**: type their path.
+3. Choose the **destination** in MinIO (see
+   [transfer-data.md](transfer-data.md)).
+4. Fill in the metadata and start the copy.
+5. Remember that the original data is still in its source.
 
-## Ante problemas
+### Expected result
 
-- **Tarda mucho / se queda en "checking for updates"**: suele ser una
-  reconexión en curso; espera a que el banner de reconexión termine de cargar.
-- **Pide la contraseña al reconectar**: es el comportamiento esperado (re-
-  autenticación). Introduce tu contraseña LDAP.
-- **No conecta**: comprueba que estás en la **red/clúster** y que la VPN de
-  Nexica está activa (según la configuración de acceso de tu centro).
+The files appear in the MinIO destination folder, and the log panel shows how
+the copy went.
+
+## If you close the browser tab
+
+The copy **keeps running on the cluster** even if you close the tab or lose
+your connection for a moment. To go back to it:
+
+1. Open BIFROST again from Open OnDemand.
+2. Type **only your password** (your username is already filled in). You do not
+   have to choose the server again.
+3. You return to the copy screen. A banner shows the current state and the
+   last lines of the log appear again.
+4. If the copy is still running, the **Cancel** button is back. If it already
+   finished while you were away, you see whether it ended correctly or with an
+   error.
+
+The password is asked again on purpose: BIFROST never saves it.
+
+## Logs
+
+The screen only shows the **last lines** of the log. When each copy or check
+finishes, the **full log** is saved on the cluster server, in the folder
+`~/bifrost-logs/`. Look there if you need the complete history of a copy.
+
+## Limits
+
+- The browser mode only has **Bifrost transfer**. To mount a folder, use
+  Bifrost mount in a DCV session.
+- The session lasts as long as the Open OnDemand job. If the job ends or
+  restarts, the session and any copy in progress are lost; start again.
+
+## If something goes wrong
+
+| Problem | What to do |
+|---|---|
+| It takes long or says it is checking for updates | It is probably reconnecting. Wait for the reconnection banner to finish loading. |
+| It asks for the password again | It is expected. Type your IRB password. |
+| It cannot connect | Check that you are on the cluster network and that the Nexica VPN is on. |

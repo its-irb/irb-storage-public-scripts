@@ -1,142 +1,153 @@
-# Operación: ejecución, empaquetado, CI y variables de entorno
+# Operation: running, packaging, CI and environment variables
 
-## Desarrollo
+## Development
 
-**Prerrequisitos**: Python **≥ 3.11** (CI usa 3.12), **uv** (gestor de
-entornos), VPN de Nexica (Forticlient) para **ejecutar** las apps (LDAP/MinIO).
-`flet` (0.84.0) y el resto de deps van congeladas en el `pyproject.toml` de
-cada app; las instala `uv sync`.
+**Prerequisites**: Python **≥ 3.11** (CI uses 3.12), **uv** (environment
+manager), Nexica VPN (Forticlient) to **run** the apps (LDAP/MinIO). `flet`
+(0.84.0) and the other deps are frozen in each app's `pyproject.toml`; `uv sync`
+installs them.
 
 ```bash
 pip install uv
 ```
 
-**Importante**: los binarios `rclone` y `fuse-t` **no están versionados**
-(`src/assets/bin/` y `frameworks/` están gitignores, solo los `.keep`): hay
-que descargarlos con los scripts `shared/*-assets-downloader.sh`.
+**Important**: the `rclone` and `fuse-t` binaries are **not versioned**
+(`src/assets/bin/` and `frameworks/` are gitignored, only the `.keep` files
+remain): download them with the `shared/*-assets-downloader.sh` scripts.
 
-Desde la carpeta de la app (`bifrost-mount/` o `bifrost-transfer/`):
+From the app folder (`bifrost-mount/` or `bifrost-transfer/`):
 
 ```bash
-# Primera vez: generar pyproject.toml desde la plantilla y apuntar __BUILDPATH__ a shared/
+# First time: generate pyproject.toml from the template and point __BUILDPATH__ to shared/
 cp pyproject-template.toml pyproject.toml
-sed -i '' "s|__BUILDPATH__|${PWD}/..|g" ./pyproject.toml   # macOS (sin '' en Linux)
+sed -i '' "s|__BUILDPATH__|${PWD}/..|g" ./pyproject.toml   # macOS (no '' on Linux)
 
-# Entorno virtual
+# Virtual environment
 uv sync
 ```
 
-Descarga de binarios (obligatorio; los scripts usan rutas relativas, así que
-se ejecutan desde la `src/` de **cada app** — cada una descarga su propia
-copia, aunque el comando sea el mismo; repetir el paso en la otra app):
+Binary download (mandatory; the scripts use relative paths, so run them from
+the `src/` of **each app** — each one downloads its own copy even though the
+command is the same; repeat the step in the other app):
 
 ```bash
-cd src   # dentro de la app en la que estés (bifrost-mount/ o bifrost-transfer/)
-# Solo el script de la plataforma correspondiente:
+cd src   # inside the app you are in (bifrost-mount/ or bifrost-transfer/)
+# Only the script for your platform:
 bash ../../shared/macos-assets-downloader.sh      # mount macOS: rclone + fuse_t.framework
 bash ../../shared/macos-rclone-downloader.sh      # transfer macOS: rclone
 bash ../../shared/windows-assets-downloader.sh    # Windows: rclone.exe
-bash ../../shared/linux-assets-downloader.sh      # Linux (clúster): rclone
-cd ..   # volver a la carpeta de la app
+bash ../../shared/linux-assets-downloader.sh      # Linux (cluster): rclone
+cd ..   # back to the app folder
 ```
 
 ```bash
-# Activar
+# Activate
 source .venv/bin/activate            # macOS/Linux
 # Windows: .\.venv\Scripts\Activate.ps1 (PowerShell) | .\.venv\Scripts\activate.bat (CMD)
 
-# Ejecutar
+# Run
 flet run
 ```
 
-Flags útiles:
+Useful flags:
 
 ```bash
-flet run --customuser     # Login con usuario distinto al del sistema
-flet run --update         # Forzar autoupdate
-flet run --web            # (solo transfer) modo web para desarrollo local
-BIFROST_CLUSTER=1 python src/main.py --web  # (solo transfer) simular producción OOD
+flet run --customuser     # Sign in with a user different from the system one
+flet run --update         # Force autoupdate
+flet run --web            # (transfer only) web mode for local development
+BIFROST_CLUSTER=1 python src/main.py --web  # (transfer only) simulate OOD production
 ```
 
-Tras cambiar código de `shared/`, reinstalar el paquete compartido:
+After changing code in `shared/`, reinstall the shared package:
 
 ```bash
 uv sync --reinstall-package bifrost-shared
 ```
 
-## Empaquetado
+## Packaging
 
-Prerrequisito común: `pyproject.toml` local generado desde la plantilla con
-`__BUILDPATH__` sustituido, venv sincronizado y assets descargados.
+Common prerequisite: local `pyproject.toml` generated from the template with
+`__BUILDPATH__` replaced, synced venv and downloaded assets.
 
-| Entorno | Notas |
+| Environment | Notes |
 |---|---|
-| Windows local | Regenera `pyproject.toml`, descarga rclone, reinstala `bifrost-shared` y hace `flet build windows`. El instalador (Inno Setup) se empaqueta aparte. |
-| macOS local | Desde la carpeta de la app; requiere Xcode. Versión local `2.0.0.dev`; en mount copia `fuse_t.framework` al bundle. |
-| CI | `.github/workflows/main.yml` — macOS (`.app` → DMG) y Windows (build + Inno Setup + firma del instalador) para ambas apps. **No hay job de Linux.** |
-| Linux (clúster) | Sin empaquetado: `bifrost-transfer` corre desde código en modo web (Open OnDemand, `BIFROST_CLUSTER=1`). |
+| Local Windows | Regenerates `pyproject.toml`, downloads rclone, reinstalls `bifrost-shared` and runs `flet build windows`. The installer (Inno Setup) is packaged separately. |
+| Local macOS | From the app folder; requires Xcode. Local version `2.0.0.dev`; in mount it copies `fuse_t.framework` into the bundle. |
+| CI | `.github/workflows/main.yml` — macOS (`.app` → DMG) and Windows (build + Inno Setup + installer signing) for both apps. **There is no Linux job.** |
+| Linux (cluster) | No packaging: `bifrost-transfer` runs from source in web mode (Open OnDemand, `BIFROST_CLUSTER=1`). |
 
-Builds locales:
+Local builds:
 
 ```bash
-# macOS (desde la carpeta de la app)
+# macOS (from the app folder)
 ./build-macos.sh
 ```
 
 ```powershell
-# Windows (desde la raíz del repo)
-.\build-windows.ps1 -app bifrost-mount    # o -app bifrost-transfer
+# Windows (from the repo root)
+.\build-windows.ps1 -app bifrost-mount    # or -app bifrost-transfer
 ```
 
-Instalador Windows (Inno Setup, aparte del build):
+Windows installer (Inno Setup, separate from the build):
 
 ```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=<version> /DAppName=<app> /DBranchSuffix=<sufijo> <app>\installer.iss
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=<version> /DAppName=<app> /DBranchSuffix=<suffix> <app>\installer.iss
 ```
 
-Al añadir/actualizar dependencias Python (deps congeladas por app):
+`<version>` is the version number, `<app>` the app folder name and `<suffix>`
+the branch suffix of the installer file name.
+
+When adding/updating Python dependencies (frozen per app):
 
 ```bash
 uv add <package>
 ```
 
-## CI y releases
+## CI and releases
 
-- Triggers: push a `main`, `release`, `develop`, `feature/**` (solo con
-  cambios en las apps, `shared/` o el workflow) + `workflow_dispatch`.
-- Toolchain CI: Python 3.12, `uv` vía pip, **Node 24** (necesario para
-  `flet build windows`), `PYTHONUTF8=1` en Windows.
-- La versión se inyecta como `1.0.<run_number>` en `src/version.py` y en el
-  `pyproject.toml` de cada app antes del build (la versión de la plantilla es
-  `2.0.0`).
-- Job `release` (solo en `main` y `release`): publica la release con tag
-  `v1.0.<run_number>` con los artefactos (macOS: `bifrost-<flavour>-macos.dmg`;
-  Windows: instalador `.exe` **firmado** con `signtool`, PFX desde los
-  secrets `IRBCODESIGNING`/`IRBCODESIGNING_PASSWORD`). El autoupdate de las
-  apps descarga de esas releases.
+- Triggers: push to `main`, `release`, `develop`, `feature/**` (only with
+  changes in the apps, `shared/` or the workflow) + `workflow_dispatch`.
+- CI toolchain: Python 3.12, `uv` via pip, **Node 24** (needed for
+  `flet build windows`), `PYTHONUTF8=1` on Windows.
+- The version is injected as `1.0.<run_number>` in `src/version.py` and in each
+  app's `pyproject.toml` before the build (the template version is `2.0.0`).
+- `release` job (only on `main` and `release`): publishes the release with tag
+  `v1.0.<run_number>` and the artifacts (macOS: `bifrost-<flavour>-macos.dmg`;
+  Windows: installer `.exe` **signed** with `signtool`, PFX from the secrets
+  `IRBCODESIGNING`/`IRBCODESIGNING_PASSWORD`). The apps' autoupdate downloads
+  from those releases.
 
 ## Tests
 
-**No hay suite de tests automatizada.** Los cambios se validan ejecutando las
-apps manualmente (`flet run`).
+**There is no automated test suite.** Changes are validated by running the apps
+manually (`flet run`).
 
-## Variables de entorno
+## Environment variables
 
-| Variable | Aplica a | Efecto |
+| Variable | Applies to | Effect |
 |---|---|---|
-| `BIFROST_CLUSTER=1` | transfer | Activa `IS_WEB` (modo web completo; señal de producción OOD) |
-| `BIFROST_NO_LDAP=1` | ambas | Salta la validación LDAP en el login (máquinas sin LDAP pero con acceso MinIO, p. ej. IVIS). El usuario igualmente introduce usuario+contraseña (necesarios para STS). Badge del header: `DESKTOP (NO LDAP)`. En Windows definirla como variable de sistema (ver abajo). |
-| `FLET_ASSETS_DIR` | ambas | La setea Flet en runtime; el backend la usa para localizar el `rclone` empaquetado |
-| `FLET_APP_STORAGE_TEMP` | ambas | Setada por Flet; usada para debug de localización de binarios |
+| `BIFROST_CLUSTER=1` | transfer | Enables `IS_WEB` (full web mode; OOD production signal) |
+| `BIFROST_NO_LDAP=1` | both | Skips LDAP validation at login (machines without LDAP but with MinIO access, for example IVIS). The user still types username+password (needed for STS). Header badge: `DESKTOP (NO LDAP)`. On Windows define it as a system variable (see below). |
+| `FLET_ASSETS_DIR` | both | Set by Flet at runtime; the backend uses it to locate the bundled `rclone` |
+| `FLET_APP_STORAGE_TEMP` | both | Set by Flet; used to debug binary location |
 
 ```powershell
-# BIFROST_NO_LDAP como variable de sistema de Windows (aplica a todos los usuarios)
+# BIFROST_NO_LDAP as a Windows system variable (applies to all users)
 setx BIFROST_NO_LDAP 1 /M
 ```
 
-## Higiene de commits
+## Commit hygiene
 
-No commitear `.venv/`, `dist/`, `build/`, `src/version.py` generado, los
-binarios descargados (`src/assets/**/*`, `frameworks/*`) ni los
-`pyproject.toml` locales de las apps (solo las plantillas
-`pyproject-template.toml`). Ver `.gitignore`.
+Do not commit `.venv/`, `dist/`, `build/`, generated `src/version.py`, the
+downloaded binaries (`src/assets/**/*`, `frameworks/*`) or the local
+`pyproject.toml` of the apps (only the `pyproject-template.toml` templates). See
+`.gitignore`.
+
+## Documentation
+
+Documentation is updated with the `docs-update` skill (invoke `/docs-update`).
+It reviews changes since the last documented commit
+(`documentation.last_reviewed_commit` in `.agentic.lock.json`), proposes the
+changes and applies them only after human confirmation. Layers: `docs/agent/`
+(English), `docs/development/` (Spanish), `docs/user/` (English), plus
+`README.md` and `AGENTS.md`.

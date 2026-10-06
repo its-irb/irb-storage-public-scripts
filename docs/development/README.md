@@ -1,7 +1,7 @@
 # Documentación para desarrollo — BIFROST
 
 Esta capa permite comprender, mantener y ampliar el proyecto sin leer toda la
-documentación heredada. Está organizada por áreas:
+documentación antigua de la raíz. Está organizada por áreas:
 
 | Documento | Contenido |
 |---|---|
@@ -14,8 +14,8 @@ documentación heredada. Está organizada por áreas:
 ## Audiencia y alcance
 
 - Para modificar código con seguridad, esta capa es autosuficiente: no
-  requiere consultar `docs/agent/` ni la documentación heredada de la raíz
-  (`CLAUDE*.md`), pendiente de retirar.
+  requiere consultar `docs/agent/`. Los ficheros `CLAUDE*.md` de la raíz ya
+  solo redirigen a `AGENTS.md` y `docs/agent/`.
 - La documentación de usuario está en [../user/README.md](../user/README.md).
 - Toda afirmación técnica está verificada contra el estado actual del
   repositorio; las que no pudieron verificarse están marcadas como pendientes.

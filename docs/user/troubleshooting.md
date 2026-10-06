@@ -1,86 +1,86 @@
-# Resolución de problemas
+# Fix common problems
 
-Guía de los problemas más habituales y cómo recuperarse de ellos.
+## It cannot connect, or shows network errors
 
-## No conecta / errores de red
+**Symptom**: the app does not reach the sign-in screen, or fails when you
+choose the MinIO server.
 
-**Síntoma**: la app no llega al login o falla al seleccionar el servidor MinIO.
+1. Check that the **Nexica VPN (Forticlient)** is switched on and connected.
+   BIFROST does not work without it.
+2. If you use BIFROST on the cluster, check that you are on the cluster
+   network.
+3. Close the app and open it again after reconnecting the VPN.
 
-- **Comprueba la VPN de Nexica (Forticlient)**: debe estar activa y
-  conectada. BIFROST no funciona sin ella.
-- Si usas el modo web en el clúster, asegúrate de estar en la red del clúster
-  y con el acceso OOD correcto.
-- Reinicia la app después de reconectar la VPN.
+## Sign-in fails
 
-## Problemas de login (LDAP)
+**Symptom**: an error appears when you sign in.
 
-**Síntoma**: error al iniciar sesión.
+- Check your **username and password**: they are the ones you use to sign in
+  to your IRB computer.
+- **Computers that cannot check your IRB account but can reach MinIO** (for
+  example IVIS): an administrator can switch on the system variable
+  `BIFROST_NO_LDAP=1` so the app skips the IRB account check. You still type
+  your username and password, because the app needs them to get access to
+  MinIO. The header then shows `DESKTOP (NO LDAP)`. To set it for all users on
+  Windows, an administrator runs this in PowerShell:
 
-- Confirma que el **usuario y la contraseña** son correctos (son tus credenciales
-  LDAP del IRB).
-- **Máquinas sin acceso a LDAP pero con acceso a MinIO** (p. ej. IVIS): se usa
-  la variable de entorno `BIFROST_NO_LDAP=1` para saltar la validación LDAP.
-   - En Windows, defínela como **variable de sistema** para que aplique a
-     todos los usuarios:
+  ```powershell
+  setx BIFROST_NO_LDAP 1 /M
+  ```
 
-     ```powershell
-     setx BIFROST_NO_LDAP 1 /M
-     ```
-  - Con esta variable, **sigues introduciendo usuario y contraseña** (se
-    necesitan para obtener las credenciales STS), pero no se valida contra
-    LDAP. El badge del encabezado mostrará `DESKTOP (NO LDAP)`.
+  Then close and open the app again.
 
-## No veo el servidor MinIO o el bucket que espero
+## You do not see the MinIO server or folder you expect
 
-- Es probable que **no tengas acceso** a ese servidor o bucket. Contacta con el
-  responsable de datos de tu grupo de trabajo para que te otorgue permisos.
-- Revisa que has iniciado sesión con el **usuario correcto**.
+- You probably do **not have access** yet. Ask your group's data manager to
+  give you permission.
+- Check that you signed in with the **right username**.
 
-## bifrost-mount: el montaje falla (Windows)
+## Bifrost mount does not work on Windows
 
-**Síntoma**: al montar, aparece un error o la unidad no aparece.
+**Symptom**: when you mount, an error appears or the drive does not show up.
 
-- En **Windows** necesitas **WinFsp**. Si falta:
-  - Acepta la **instalación automática** que la app ofrece al detectar la
-    ausencia (requiere permisos de administrador; descarga la última versión
-    oficial).
-  - O instálalo **manualmente** desde `winfsp.dev`.
-- Tras instalar WinFsp, reintenta el montaje.
+1. Windows needs **WinFsp**. If it is missing, accept the **automatic
+   installation** the app offers (it asks for administrator permission), or
+   install it from `winfsp.dev`.
+2. Try to mount again.
 
-## La copia es lenta o el listado tarda
+## Bifrost mount shows an error on the cluster
 
-- El **listado de MinIO sobre discos HDD** es lento. En lugar de navegar
-  carpeta a carpeta en el destino, considera:
-  - usar el campo **"Filter by lab…"** (en la raíz de buckets) para ir directo al bucket de tu laboratorio, y
-  - para mover grandes volúmenes, usar **bifrost-transfer** para copiar en bloque y trabajar en local.
-- La copia en sí (rclone) suele ser más rápida que el listado; espera a que termine.
+If Bifrost shows an error as soon as it starts in a DCV session, you are
+probably on node `ccn01`, where Bifrost does not work. Start a new session on
+another node (for example `sphr`).
 
-## Perdí el log de una copia (modo web)
+## The copy or the folder list is slow
 
-- En el navegador solo se muestran las **últimas líneas**. El **log completo**
-  se guarda en el **servidor OOD**, en la carpeta de logs, al terminar cada
-  copia o verificación.
-- Si te desconectaste, el log sigue en el servidor: búscalo allí.
+- MinIO takes a long time to list large folders. To save time:
+  - use the **Filter by lab…** box at the top level to go straight to your lab's
+    folder;
+  - for large volumes, copy with Bifrost transfer.
+- The copy itself is usually faster than the listing; wait for it to finish.
 
-## La app pregunta por una actualización
+## I lost the log of a copy (cluster)
 
-- Es el **auto-actualización**: si hay una release nueva en GitHub, la app te
-  pregunta si quieres actualizarte y descarga la nueva versión. Acepta para
-  instalar la versión más reciente (o espera y volverá a preguntar más tarde).
+- In the browser you only see the **last lines**. The **full log** is saved on
+  the cluster server, in `~/bifrost-logs/`, when each copy or check ends.
+- If you were disconnected, the log is still there.
 
-## Errores al aplicar metadatos (Tag Manager)
+## The app asks about an update
 
-- Revisa el **log** en pantalla: suelen indicarse errores de **permisos** o de
-  **credenciales STS**.
-- Si los STS están vencidos, la app los renueva automáticamente; reinicia la
-  operación.
-- Si persiste, contacta con el responsable de datos para verificar permisos
-  sobre el bucket.
+The app updates itself: if a new version exists on GitHub, it asks if you want
+to install it. Accept to get the latest version, or wait; it asks again later.
 
-## Aún no lo resuelvo
+## Errors when applying labels (Tag Manager)
 
-- Revisa el **log** de la app para el mensaje de error más específico.
-- Contacta con el equipo que mantiene BIFROST en el IRB, indicando:
-  - la **aplicación** (bifrost-transfer / bifrost-mount) y su **versión**,
-  - el **sistema operativo**,
-  - el **mensaje de error** exacto y, si procede, un **fragmento del log**.
+1. Read the **log** on screen: it usually shows permission or access errors.
+2. The app renews its MinIO access by itself; start the operation again.
+3. If it persists, ask your group's data manager to check your permissions on
+   that folder.
+
+## It is still not solved
+
+Contact the team that maintains BIFROST at the IRB and send:
+
+- the **app** (Bifrost transfer or Bifrost mount) and its **version**;
+- your **operating system**;
+- the exact **error message** and, if you can, a piece of the **log**.

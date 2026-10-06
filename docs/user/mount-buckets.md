@@ -1,76 +1,68 @@
-# Montar un bucket como unidad local (bifrost-mount)
+# Open a MinIO folder as if it were on your computer (Bifrost mount)
 
-Objetivo: abrir una carpeta de un bucket de MinIO **como si fuera una unidad
-local** del equipo, para poder trabajar con los archivos con el explorador o
-con otras herramientas.
+## Goal
 
-## Cuándo usarlo
+Make a MinIO folder appear on your computer as if it were a local folder, so
+you can open its files with your usual programs. This is called **mounting** a
+folder: making it available on your computer (or session) as if it were local.
 
-- Necesitas **acceder directamente** a los archivos de un bucket, sin subir ni
-  bajar nada.
-- Quieres **abrir, editar o mover** archivos dentro de MinIO como si estuvieran
-  en un disco.
-- No necesitas aplicar metadatos (para eso, usa bifrost-transfer).
+## When to use it
 
-> bifrost-mount **solo funciona en modo escritorio** (Windows, macOS, Linux).
-> No está disponible en el modo web del clúster.
+- You want to **open files** in MinIO directly, without copying them first.
+- You want to read MinIO data from a program on the cluster (see
+  [web-mode-ood.md](web-mode-ood.md)).
 
-## Antes de empezar
+Use something else if:
 
-- VPN de Nexica activa y login completado.
-- **Windows**: el sistema debe tener **WinFsp** instalado. Si falta, la app te
-  lo avisa y ofrece instalarlo (requiere permisos de administrador).
+- You want to **put new data into MinIO** → [transfer-data.md](transfer-data.md).
+  Bifrost mount does not add labels to the data.
 
-## Requisitos específicos por sistema
+> Bifrost mount works on your computer's desktop (Windows, macOS, Linux) and in
+> a cluster desktop session (DCV). It does **not** work in the browser mode of
+> Open OnDemand.
 
-- **Windows**: necesita **WinFsp** (driver de montaje). No se empaqueta dentro
-  de la app porque incluye un driver de kernel.
-  - **Automático**: al montar, si falta WinFsp, la app detecta su ausencia y
-    **ofrece descargar e instalar** la última versión oficial desde
-    `github.com/winfsp/winfsp` (requiere UAC/administrador; el instalador se
-    cachea en la carpeta temporal).
-  - **Manual**: también puedes instalarlo tú desde `winfsp.dev`.
-- **macOS**: usa el framework `fuse-t`, que ya está empaquetado dentro de la
-  app; no necesitas instalar nada.
-- **Linux**: montaje vía FUSE del sistema.
+## Before you start
 
-## Cómo funciona
+- The Nexica VPN is on and you have signed in (see
+  [getting-started.md](getting-started.md)).
+- **Windows**: the helper program **WinFsp** must be installed. If it is
+  missing, the app tells you and offers to install it (it asks for
+  administrator permission). You can also install it yourself from
+  `winfsp.dev`.
+- **macOS**: nothing to install; the needed component travels inside the app.
+- **Linux**: uses the FUSE component of your system.
 
-1. Entra a **bifrost-mount** y **inicia sesión**.
-2. **Selecciona el servidor MinIO** correspondiente a tu grupo.
-3. Las **credenciales STS** se obtienen/renuevan automáticamente (igual que en
-   bifrost-transfer).
-4. En la pantalla de **montado**, navega hasta la **carpeta del bucket** que
-   quieres montar.
-5. Pulsa **Montar**. La app asigna una **unidad/punto de montaje** y la
-   carpeta del bucket queda disponible como directorio local.
+## How to mount a folder
 
-## Resultado esperado
+1. Open **Bifrost mount** and sign in.
+2. Choose your **MinIO server**.
+3. On the mount screen, browse to the MinIO folder you want to mount.
+4. Click **Mount**.
 
-- Aparece una **nueva unidad** (en Windows, una letra; en macOS/Linux, un punto
-  de montaje) que refleja el contenido de la carpeta del bucket.
-- Puedes **abrir, copiar, mover o editar** archivos a través de ella.
-- Los cambios que hagas se reflejan en MinIO.
+## Expected result
 
-## Desmontar
+- On Windows a new **drive letter** appears; on macOS and Linux, a new folder.
+  Its contents are the contents of the MinIO folder.
+- You can open and copy files from there.
+- What you can write depends on your permissions (see
+  [minio-permissions-and-folders.md](minio-permissions-and-folders.md)).
+  Data cannot be deleted.
 
-Cuando termines, **desmonta** la unidad para liberar el recurso. La app permite
-desmontar la unidad seleccionada o desmontar todos los shares montados a la
-vez.
+## Unmount when you finish
 
-## Limitaciones
+Click **Unmount** to release the drive. The app can unmount the selected drive
+or all mounted drives at once.
 
-- **Solo modo escritorio**: no está disponible en el modo web de Open
-  OnDemand.
-- El rendimiento al **listar** carpetas grandes de MinIO puede ser lento
-  (MinIO sobre discos HDD tarda más en listar); si notas lentitud, considera
-  usar bifrost-transfer para copiar en bloque y trabajar en local.
-- En **Windows** el montado depende de que WinFsp esté presente y funcional.
+## Limits
 
-## Ante errores
+- Opening very large folders can be slow, because MinIO takes longer to list
+  them. If it is too slow, copy the data you need with Bifrost transfer.
+- On Windows, mounting depends on WinFsp being installed and working.
 
-- **Windows: no se monta / error de driver**: asegúrate de que **WinFsp** está
-  instalado (acepta la instalación automática de la app o instala manualmente
-  desde `winfsp.dev`).
-- **No conecta**: comprueba la **VPN de Nexica**.
-- **No ves el bucket**: revisa que tienes **acceso** a ese bucket.
+## If something goes wrong
+
+| Problem | What to do |
+|---|---|
+| Windows: it does not mount, or a driver error appears | Accept the automatic WinFsp installation offered by the app, or install it from `winfsp.dev`, then try again. |
+| It cannot connect | Check that the Nexica VPN is on. |
+| You do not see the folder | You probably do not have access. Ask your group's data manager. |

@@ -1,82 +1,91 @@
-# Reglas críticas y gotchas
+# Critical rules and gotchas
 
-Conocimiento transversal que condiciona cualquier cambio. Detalles técnicos en
-[backend.md](backend.md) y [frontend.md](frontend.md).
+Cross-cutting knowledge that constrains any change. Technical details in
+[backend.md](backend.md) and [frontend.md](frontend.md).
 
-## threading y Flet
+## Threading and Flet
 
-1. **`ui_call` obligatorio**: toda mutación de `control.controls` o
-   `page.update()` desde un hilo de background debe envolverse en
-   `backend.ui_call(page, fn)`. Usar `page.run_thread()` directamente causa
-   `IndexError` en `_compare_lists` del diff walker de Flet. Para crear hilos,
-   usar `backend.safe_thread(page, target)` — captura excepciones y las
-   muestra en diálogo.
-2. **`threading.Timer`**: envolver el callback
-   (`lambda: ui_call(page, fn)`), nunca pasar la función de navegación
-   directamente.
-3. **Codificación de consola en Windows**: `main.py` reenvuelve
-   `sys.stdout`/`sys.stderr` en UTF-8 al arrancar (bloque `TextIOWrapper`).
-   No tocar.
+1. **`ui_call` is mandatory**: any mutation of `control.controls` or
+   `page.update()` from a background thread must be wrapped in
+   `backend.ui_call(page, fn)`. Using `page.run_thread()` directly causes
+   `IndexError` in `_compare_lists` of Flet's diff walker. To create threads,
+   use `backend.safe_thread(page, target)` — it catches exceptions and shows
+   them in a dialog.
+2. **`threading.Timer`**: wrap the callback (`lambda: ui_call(page, fn)`);
+   never pass the navigation function directly.
+3. **Windows console encoding**: `main.py` re-wraps `sys.stdout`/`sys.stderr`
+   in UTF-8 at startup (`TextIOWrapper` block). Do not touch it.
 
-## Estructura y acoplamiento
+## Structure and coupling
 
-4. **El backend importa del frontend**: `backend.py` usa `show_dialog` y
-   `C_ERROR` de `bifrost_frontend.frontend`. Hay acoplamiento (no es un
-   backend "puro").
-5. **`config.py` debe ser importable como módulo top-level** en cada app — el
-   backend hace `from config import APP_INFO`.
-6. **`TAG_PROFILES` y `LAB_ACRONYMS` son la fuente canónica en
-   `bifrost-transfer/src/meta_fields.py`**: el formulario de copia y el Tag
-   Manager usan `TAG_PROFILES`, `build_meta_fields`, `LAB_ACRONYMS`,
-   `build_lab_filter_widget` y `detect_profile` de ahí. Para añadir, renombrar
-   o reordenar un campo, perfil o lab, cambiarlo **solo** en `meta_fields.py`.
-   `LAB_ACRONYMS` debe contener los acrónimos exactos del tag `acronym` de los
-   buckets MinIO.
+4. **The backend imports from the frontend**: `backend.py` uses `show_dialog`
+   and `C_ERROR` from `bifrost_frontend.frontend`. It is coupled (not a "pure"
+   backend).
+5. **`config.py` must be importable as a top-level module** in each app — the
+   backend does `from config import APP_INFO`.
+6. **`TAG_PROFILES` and `LAB_ACRONYMS` are canonical in
+   `bifrost-transfer/src/meta_fields.py`**: the copy form and Tag Manager use
+   `TAG_PROFILES`, `build_meta_fields`, `LAB_ACRONYMS`,
+   `build_lab_filter_widget` and `detect_profile` from there. To add, rename or
+   reorder a field, profile or lab, change it **only** in `meta_fields.py`.
+   `LAB_ACRONYMS` must contain the exact acronyms of the `acronym` tag of the
+   MinIO buckets. `detect_profile(tags)` finds which profile fits a
+   `dict[str, str]` of tags; `build_meta_fields` accepts the optional
+   `prefill_values: dict[str, str]` to pre-fill controls.
 
-## Comportamiento visible que hay que preservar
+## Visible behaviour to preserve
 
-7. **Credenciales STS**: si quedan >3 días se reutilizan; <3 días se renuevan
-   automáticamente por 7 días (`STS_RENEWAL_THRESHOLD_DAYS` /
-   `STS_AUTO_RENEWAL_DAYS` en `main.py`).
-8. **Auto-instalación de WinFsp (solo `bifrost-mount`, Windows)**: si falta
-   WinFsp al montar, el backend lanza `WinFspMissingError` (subclase de
-   `EnvironmentError`) y la UI ofrece descargar la última release oficial
-   (`github.com/winfsp/winfsp`) vía `backend.install_winfsp_windows()`.
-   Requiere UAC; el MSI se cachea en `%TEMP%`. Mensajes de este flujo en
-   **inglés** (excepción al punto 9). `bifrost-transfer` no tiene este flujo.
-9. **Idioma**: comentarios, docstrings y mensajes de UI en **español**
-   (excepción anterior de WinFsp).
-10. **Visibilidad condicional en el formulario de copia**: las secciones
-    METADATA, botones de acción y LOG OUTPUT (`bottom_col.visible=False`)
-    permanecen ocultos hasta que se selecciona un bucket destino. El toggle
-    vive en `on_browser_select`: `path` no vacío → visible; vuelta a raíz →
-    oculto.
-11. **Filtro de laboratorio en browsers de buckets**: el browser destino de la
-    vista de copia y el del Tag Manager incluyen "Filter by lab…"
-    (`build_lab_filter_widget`), que lee el tag `acronym` de cada bucket con
-    `backend.get_bucket_tags` en paralelo (`ThreadPoolExecutor`). Se oculta al
-    navegar dentro de un bucket y reaparece en la raíz. Solo filtra a nivel de
-    buckets (root).
-12. **Origen SFTP efímero (`bifrost-transfer`)**: el botón "🌐 SFTP" crea un
-    perfil rclone temporal (`sftp-src-<random>`, tipo `sftp`, contraseña
-    ofuscada con `rclone obscure`) en `rclone.conf`. Por seguridad **no debe
-    sobrevivir a la sesión**: se borra al pulsar Disconnect (✕), al salir de
-    la vista de copia (`on_back`) y se barre cualquier `sftp-src-*` huérfano
-    tras cada login (`backend.limpiar_perfiles_rclone_con_prefijo`). El
-    diálogo de conexión solo exige host y usuario (contraseña opcional). El
-    browser SFTP (`allow_mkdir=False, show_files=True`) no ofrece crear
-    carpeta y lista ficheros vía `backend.rclone_lsjson`; el browser destino
-    S3 solo lista carpetas vía `backend.rclone_lsd` porque el listado de MinIO
-    sobre HDD es lento. Se puede elegir como origen una carpeta o un fichero
-    individual (mismo formato `perfil:path`).
+7. **STS credentials**: if more than 3 days remain they are reused; with less
+   than 3 days they are renewed automatically for 7 days
+   (`STS_RENEWAL_THRESHOLD_DAYS` / `STS_AUTO_RENEWAL_DAYS` in `main.py`).
+8. **WinFsp auto-install (`bifrost-mount` only, Windows)**: if WinFsp is
+   missing when mounting, the backend raises `WinFspMissingError` (subclass of
+   `EnvironmentError`) and the UI offers to download the latest official
+   release (`github.com/winfsp/winfsp`) through
+   `backend.install_winfsp_windows()`. It needs UAC; the MSI is cached in
+   `%TEMP%`. The messages of this flow are in **English**. `bifrost-transfer`
+   has no such flow.
+9. **Language of the code**: follow the surrounding code (backend names,
+   comments and docstrings are mostly Spanish; UI strings in the apps are
+   mostly English).
+10. **Conditional visibility in the copy form**: the METADATA section, action
+    buttons and LOG OUTPUT (`bottom_col.visible=False`) stay hidden until a
+    destination bucket is selected. The toggle lives in `on_browser_select`:
+    non-empty `path` → visible; back to root → hidden.
+11. **Lab filter in bucket browsers**: the destination browser of the copy view
+    and the Tag Manager browser include "Filter by lab…"
+    (`build_lab_filter_widget`), which reads the `acronym` tag of each bucket
+    with `backend.get_bucket_tags` in parallel (`ThreadPoolExecutor`). It hides
+    when navigating into a bucket and reappears at the root. It only filters at
+    bucket level (root).
+12. **Ephemeral SFTP source (`bifrost-transfer`)**: the "🌐 SFTP" button creates
+    a temporary rclone profile (`sftp-src-<random>`, type `sftp`, password
+    obscured with `rclone obscure`) in `rclone.conf`. For security it **must not
+    outlive the session**: it is deleted on Disconnect (✕) and on leaving the
+    copy view (`on_back`), and any orphan `sftp-src-*` is swept after every
+    login (`backend.limpiar_perfiles_rclone_con_prefijo`). The connection
+    dialog only requires host and username (password optional; port defaults
+    to 22). The SFTP browser (`allow_mkdir=False, show_files=True`) does not
+    offer creating folders and lists files through `backend.rclone_lsjson`;
+    the S3 destination browser only lists folders through `backend.rclone_lsd`
+    because MinIO listing over HDD is slow. A folder or a single file can be
+    chosen as the source (same `profile:path` format). Background in
+    `docs/superpowers/specs/2026-07-30-sftp-source-design.md`.
+13. **"Mount NetApp" button (`bifrost-transfer`, web mode only)**: the copy
+    view shows `⊞  Mount NetApp` only when `IS_WEB` is true and the `on_cifs`
+    callback exists; it opens the CIFS shares view (`go_cifs`).
+14. **Known cluster limitation (from the maintainers)**: Bifrost mount in a DCV
+    session fails straight away on node `ccn01`; use other nodes (for example
+    `sphr`). This is not enforced in the repository code.
 
-## Higiene de repositorio
+## Repository hygiene
 
-13. **No commitear** `.venv/`, `dist/`, `build/`, `src/version.py` generado ni
-    los `pyproject.toml` locales de las apps. Ver `.gitignore`.
+15. **Do not commit** `.venv/`, `dist/`, `build/`, generated `src/version.py` or
+    the local `pyproject.toml` of the apps. See `.gitignore`.
 
-## Pendiente de verificar
+## Documentation hygiene
 
-- `docs/wiki/` y `docs/superpowers/specs/` son referenciados por la
-  documentación heredada pero **no existen** en el repositorio. No crear
-  referencias nuevas a esas rutas.
+16. `docs/wiki/` is referenced by old documentation but **does not exist**.
+    Do not create new references to it.
+17. Documentation is updated with the `docs-update` skill; the agent entry
+    point is `AGENTS.md`.

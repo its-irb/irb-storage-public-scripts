@@ -1,71 +1,61 @@
-# Etiquetar datos ya subidos (Tag Manager)
+# Add or fix labels on data already in MinIO (Tag Manager)
 
-Objetivo: aplicar o corregir **metadatos (tags)** en objetos que ya están en
-MinIO, **sin re-subir** los datos.
+## Goal
 
-## Cuándo usarlo
+Add or correct the **labels (tags)** of files that are already in MinIO,
+without copying the data again.
 
-- Los datos ya están subidos, pero **falta** etiquetarlos o los tags están
-  **mal/parciales**.
-- Quieres **aplicar un tagset en bloque** a una carpeta o a un prefijo de
-  bucket.
-- No quieres pagar el coste (ni el tiempo) de re-copiar archivos grandes.
+## When to use it
 
-> El Tag Manager vive dentro de **bifrost-transfer**.
+- The data is already in MinIO but has **no labels**, or its labels are **wrong
+  or incomplete**.
+- You want to apply the **same labels to a whole folder** at once.
+- You do not want to copy large files again.
 
-## Antes de empezar
+> The Tag Manager is inside **Bifrost transfer**. It only changes labels; to
+> copy, move or rename files, use the copy screen
+> ([transfer-data.md](transfer-data.md)).
 
-- VPN activa y login completado.
-- Conoces el **bucket**, la **carpeta** o el **archivo** que quieres etiquetar.
-- Sabes qué **perfil de metadatos** corresponde (IRB Standard, Histopathology, …).
+## Before you start
 
-## Cómo funciona
+- The Nexica VPN is on and you have signed in.
+- You know the **folder** or **file** you want to label.
+- You know which **metadata profile** applies (IRB Standard or Histopathology).
 
-El Tag Manager te deja **navegar** buckets, carpetas y archivos dentro de S3 y
-aplicar tags en bloque.
+## How to do it
 
-1. Entra al **Tag Manager**.
-2. **Navega** hasta el objetivo:
-   - un **archivo individual**,
-   - una **carpeta**, o
-   - un **prefijo de bucket** (varias carpetas).
-   - Como en la copia, en la raíz de buckets hay un **"Filter by lab…"** para
-     filtrar por acrónimo de laboratorio.
-3. **Selecciona** el perfil de metadatos y rellena los campos.
-4. **Aplica** el tagset. La app usa boto3 para poner los tags directamente en
-   los objetos existentes (o a todo el prefijo), sin tocar los datos.
+1. Open **Bifrost transfer** and go to the **Tag Manager**.
+2. Browse to what you want to label: a single **file**, a **folder**, or a
+   whole **folder tree** inside a bucket. At the top level, the **Filter by
+   lab…** box helps you find your lab's folders.
+3. Choose the **profile** and fill in the fields.
+4. Click apply. The labels are written on the existing files; the data itself is
+   not touched.
 
-## Pre-rellenado automático
+### Automatic pre-fill
 
-Cuando seleccionas un **archivo individual** y sus tags existentes **encajan
-con un perfil conocido**, el editor se conmuta automáticamente a la vista del
-perfil con los **valores ya rellenos**. Así puedes revisar y corregir usando
-los mismos desplegables, selectores de fecha y campos multi-valor que se usan
-al subir.
+When you select a **single file** whose existing labels match a known profile,
+the editor switches to that profile and **fills in the current values**. You
+can review and correct them with the same drop-down lists and date pickers
+used when copying. Click **Ver tags raw** to switch to the plain list of
+label names and values at any moment.
 
-- El botón **"Ver tags raw"** te deja volver en cualquier momento a la lista
-  cruda de pares clave/valor.
-- Esto evita tener que re-introducir a mano lo que ya estaba.
+## Expected result
 
-## Resultado esperado
+- The selected files carry the new labels.
+- No data was copied or moved.
+- If you labelled a folder, every file inside it received the labels.
 
-- Los objetos del objetivo llevan el **tagset aplicado** (nuevo o corregido).
-- **No se mueve ni se re-copia ningún dato**: solo cambia la información de
-  metadatos asociada.
-- Si aplicas a un prefijo, todos los objetos bajo esa jerarquía reciben los
-  tags.
+## Limits
 
-## Limitaciones
+- Only labels change, never the content of the files.
+- Pre-fill only happens when the existing labels match a profile; otherwise the
+  form starts empty (or use **Ver tags raw**).
+- Labelling a large folder can take time; the log shows the progress.
 
-- El Tag Manager opera sobre **metadatos**, no sobre el contenido: no sirve
-  para mover, renombrar ni copiar archivos (para eso, usa la vista de copia).
-- El pre-rellenado automático solo ocurre cuando los tags existentes **se
-  reconocen como un perfil**; si no, parte en blanco (o usa "Ver tags raw").
-- Aplicar a un prefijo extenso puede tardar; el log muestra el progreso.
+## If something goes wrong
 
-## Ante errores
-
-- **No ves el bucket/archivo**: revisa que el login es correcto y que tienes
-  acceso a ese bucket.
-- **Los tags no se aplican**: comprueba en el log los errores de permisos o de
-  credenciales STS; si persiste, consulta [troubleshooting.md](troubleshooting.md).
+| Problem | What to do |
+|---|---|
+| You do not see the folder or file | Check that you signed in with the right user and that you have access to that folder. |
+| The labels are not applied | Read the log for permission or access errors. The app renews its MinIO access automatically; start the operation again. If it persists, see [troubleshooting.md](troubleshooting.md). |

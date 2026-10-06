@@ -24,42 +24,59 @@ On Windows, `bifrost-mount` additionally requires **WinFsp** installed on the sy
 
 ---
 
+## Documentation
+
+| Audience | Where | Language |
+|---|---|---|
+| Users (researchers, lab staff) | [docs/user/README.md](docs/user/README.md) | English |
+| Developers and maintainers | [docs/development/README.md](docs/development/README.md) | Spanish |
+| Coding agents | [AGENTS.md](AGENTS.md) and [docs/agent/README.md](docs/agent/README.md) | English |
+
+The documentation is kept up to date with the `docs-update` skill (`/docs-update`).
+This README is a quick reference for running and packaging the apps.
+
+---
+
 ## Repository structure
 
 ```
-bifrost-mount/          # S3 bucket mounting app
+bifrost-mount/            # MinIO folder mounting app
   src/
-    main.py             # GUI (Flet). Entry point.
+    main.py               # GUI (Flet). Entry point.
+    config.py             # APP_INFO
     version.py
-    assets/bin/         # Bundled binaries (rclone, etc.)
-    frameworks/         # fuse-t framework (macOS)
-  pyproject.toml        # flet build configuration
-  installer.iss         # Inno Setup (Windows installer)
+    assets/bin/           # Bundled binaries (rclone) — downloaded, not versioned
+    frameworks/           # fuse-t framework (macOS)
+  pyproject-template.toml # Template; pyproject.toml is generated locally
+  installer.iss           # Inno Setup (Windows installer)
+  build-macos.sh
 
-bifrost-transfer/       # Data transfer app
+bifrost-transfer/         # Data copy app (desktop + web)
   src/
-    main.py             # GUI (Flet). Entry point.
-    pip-requirements.txt
+    main.py               # GUI (Flet). Entry point.
+    meta_fields.py        # Metadata profiles, lab filter
+    config.py             # APP_INFO
     version.py
-    assets/bin/         # Bundled binaries (rclone, etc.)
-    frameworks/
-    storage/            # Temporary transfer data
-  pyproject.toml        # flet build configuration
-  installer.iss         # Inno Setup (Windows installer)
-  build.sh              # Build script
+    assets/bin/           # Bundled binaries (rclone) — downloaded, not versioned
+    storage/              # Temporary transfer data
+  pyproject-template.toml
+  installer.iss
+  build-macos.sh
 
-shared/
-  backend.py            # Shared business logic (LDAP, rclone, SMB, S3)
+shared/                   # bifrost-shared package
+  bifrost_backend/backend.py    # Shared business logic (LDAP, rclone, SMB, S3)
+  bifrost_frontend/frontend.py  # Palette and shared Flet components
   linux-assets-downloader.sh
   macos-assets-downloader.sh
   macos-rclone-downloader.sh
   windows-assets-downloader.sh
-  requirements.txt      # Shared requirements for both apps
+  requirements.txt        # Shared requirements for both apps
 
-old/
-  minio-sts-credentials-request.py  # Legacy script for STS credentials
-
-build-local.ps1      # Local Windows development build (flet build)
+docs/                     # agent/ (English), development/ (Spanish), user/ (English)
+AGENTS.md                 # Entry point for coding agents
+old/                      # Legacy scripts (do not use)
+build-windows.ps1         # Local Windows build (flet build)
+.github/workflows/main.yml  # CI: macOS/Windows build + release
 ```
 
 ---
@@ -119,7 +136,7 @@ uv sync
 # Activate virtual environment
 source ./.venv/bin/activate          # macOS / Linux
 .\.venv\Scripts\python.exe -m pip install build # Windows only
-.\build-local.ps1 -app bifrost-mount  # Windows only
+.\build-windows.ps1 -app bifrost-mount  # Windows only
 ```
 
 #### Downloading binaries and assets (`rclone` / `fuse-t`)

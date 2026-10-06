@@ -1,35 +1,43 @@
-# Documentación para agentes — BIFROST
+# Agent documentation — BIFROST
 
-BIFROST es un conjunto de dos aplicaciones de escritorio (Flet/Python) para el
-servidor MinIO S3 del IRB Barcelona: **bifrost-transfer** (copiar datos a
-buckets con verificación y etiquetado; incluye Tag Manager y modo web) y
-**bifrost-mount** (montar buckets como unidad local). Ambas comparten el
-paquete `bifrost-shared` (`shared/`).
+BIFROST is a pair of desktop apps (Flet/Python) for IRB Barcelona's MinIO S3
+server: **bifrost-transfer** (copy data to buckets with integrity checks and
+tagging; includes Tag Manager and web mode) and **bifrost-mount** (mount
+buckets as a local drive). Both share the `bifrost-shared` package (`shared/`).
 
-Lee solo el módulo necesario para la tarea. Índice:
+Read only the module you need for the task. Index:
 
-| Módulo | Cuándo consultarlo |
+| Module | When to read it |
 |---|---|
-| [architecture.md](architecture.md) | Cualquier tarea: qué es cada componente, estructura del repo, acoplamiento e invariantes. |
-| [backend.md](backend.md) | Cambios en `shared/bifrost_backend/` (rclone, STS, LDAP, SMB, S3, tagging, autoupdate). |
-| [frontend.md](frontend.md) | Cambios en `bifrost-*/src/` (vistas Flet, modo web, `meta_fields.py`, convenciones UI). |
-| [operations.md](operations.md) | Ejecutar, empaquetar, CI, releases, variables de entorno. |
-| [conventions-gotchas.md](conventions-gotchas.md) | Antes de modificar código: reglas críticas y errores conocidos. |
+| [architecture.md](architecture.md) | Any task: what each component is, repo layout, coupling and invariants. |
+| [backend.md](backend.md) | Changes in `shared/bifrost_backend/` (rclone, STS, LDAP, SMB, S3, tagging, autoupdate). |
+| [frontend.md](frontend.md) | Changes in `bifrost-*/src/` (Flet views, web mode, `meta_fields.py`, UI conventions). |
+| [operations.md](operations.md) | Running, packaging, CI, releases, environment variables. |
+| [conventions-gotchas.md](conventions-gotchas.md) | Before modifying code: critical rules and known pitfalls. |
 
-## Notas de contexto
+## Context notes
 
-- Comentarios, docstrings y mensajes de UI están en **español**.
-- **No hay suite de tests automatizada**: la validación es manual con `flet run`.
-- `docs/agent/` debe bastar para el trabajo habitual; consulta
-  `docs/development/` solo para profundizar en un área al actualizar esa capa.
-- Existe documentación heredada en la raíz (`CLAUDE.md`, `CLAUDE_BACKEND.md`,
-  `CLAUDE_FRONTEND.md`, `README.md`) pendiente de retirar. Si contradice esta
-  capa, prevalece el estado real del repositorio; avisa si detectas la
-  contradicción. No la uses como fuente para nuevos cambios documentales.
+- **Language of the documentation**: `docs/agent/` and `docs/user/` are written
+  in **English**; `docs/development/` is written in **Spanish**.
+- **Language of the code**: follow the surrounding code. Backend function names,
+  many comments and docstrings are in Spanish; UI strings in the apps are mostly
+  English (for example "Source path", "Connect"). The WinFsp flow of
+  `bifrost-mount` is in English.
+- **There is no automated test suite**: validation is manual with `flet run`.
+- `docs/agent/` should be enough for routine work; consult `docs/development/`
+  only to go deeper when updating that layer.
+- **Entry point for any agent**: `AGENTS.md` at the repo root points here.
+  `CLAUDE.md`, `CLAUDE_BACKEND.md` and `CLAUDE_FRONTEND.md` only redirect to this
+  documentation. Do not add content to them.
+- `docs/superpowers/` holds historical design specs and plans for individual
+  features (for example the SFTP source). They are background, not the source
+  of truth; the current state of the repository prevails.
 
-## Convenciones de estilo documental
+## Documentation style conventions
 
-- Los comandos que se presentan como **instrucción** van siempre en bloques
-  de código (bloque `bash` para bash, bloque `powershell` para comandos de
-  Windows); solo se usa formato inline para referencias nominales en el texto
-  (nombres de herramientas, scripts, ficheros o flags mencionados en prosa).
+- Commands presented as **instructions** always go in fenced code blocks
+  (`bash` for bash, `powershell` for Windows commands); inline formatting is
+  used only for nominal references in prose (tool, script, file or flag names).
+- User documentation (`docs/user/`) follows `.agentic/instructions/docs-local.md`:
+  always "MinIO" (never "S3"), "copy" (never "transfer" or "move"), and every
+  technical term explained in plain words.

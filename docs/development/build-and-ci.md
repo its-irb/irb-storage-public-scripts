@@ -251,7 +251,7 @@ funciones críticas a probar manualmente tras un cambio:
   documentación heredada) no corresponde al estado actual del repo: no existe
   ese fichero en `bifrost-transfer/src/`. Confirmar con el equipo si el flujo
   vigente es únicamente `uv add` sobre el `pyproject.toml` por app.
-- La documentación heredada (CLAUDE.md, README.md) cita un script
+- La documentación antigua (versiones previas de CLAUDE.md y README.md) citaba un script
   `build-local.ps1` que **ya no existe**; el script actual de build local de
   Windows es `build-windows.ps1`.
 - La documentación heredada afirma que «el repo trae los binarios bajo
