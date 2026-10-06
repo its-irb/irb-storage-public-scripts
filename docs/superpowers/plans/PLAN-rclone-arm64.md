@@ -37,10 +37,8 @@
 - `file bifrost-mount/src/assets/bin/rclone` → `Mach-O 64-bit executable x86_64`
   (igual en `bifrost-transfer/`).
 - Los dos scripts macos **hardcodean la build Intel**:
-  - `shared/macos-assets-downloader.sh:6` (mount) → `rclone-v1.72.1-osx-amd64.zip`
-    (y el unzip en `:26`).
-  - `shared/macos-rclone-downloader.sh:5` (transfer) → `rclone-v1.72.1-osx-amd64.zip`
-    (y el unzip en `:19`).
+   - `shared/macos-assets-downloader.sh:6` (mount, URL) y `:26` (`cp` del binario).
+   - `shared/macos-rclone-downloader.sh:5` (transfer, URL) y `:19` (`cp` del binario).
 - **No hay detección de arquitectura en ningún sitio** del pipeline: grep de
   `uname`/`arm64`/`ARCH` en `shared/*.sh` + `bifrost-{mount,transfer}/build-macos.sh`
   → 0 coincidencias.
@@ -99,9 +97,9 @@ parten.*
 > **todo `.dmg` publicado lleva rclone x86_64 dentro.** Dev y producción comparten el
 > mismo pipeline de descarga, así que ambos salen con la arquitectura equivocada.
 
-Evidencia: CI `main.yml:55` `runs-on: macos-latest` (arm64). El historial del workflow
-(`git log -p`) muestra que siempre ha sido runner arm64 (`macos-14` ya era M1) → **todos
-los `.dmg` recientes son app arm64 + rclone x86_64**.
+Evidencia: CI `main.yml:55` `runs-on: macos-latest`, que hoy es ARM (la imagen
+`macos-14` empezó en runners Intel y pasó a ARM en 2024; `macos-13` fue la última
+exclusivamente Intel) → **todos los `.dmg` recientes son app arm64 + rclone x86_64**.
 
 | Quién | Cómo obtiene rclone | Arquitectura | ¿Problema? |
 |---|---|---|---|
@@ -123,18 +121,30 @@ vez — el dev local y el próximo `.dmg` de CI — porque ambos pasan por el mi
   diría `arm64` y haría falta forzar `amd64`):
 
   ```bash
-  RCLONE_ARCH="${RCLONE_ARCH:-$(case "$(uname -m)" in arm64) echo arm64 ;; *) echo amd64 ;; esac)}"
+  case "${RCLONE_ARCH:-}" in
+    arm64|amd64) ;;
+    *) case "$(uname -m)" in
+         arm64) RCLONE_ARCH=arm64 ;;
+         *)     RCLONE_ARCH=amd64 ;;
+       esac ;;
+  esac
   ```
 
+  - La versión one-liner (`RCLONE_ARCH="${RCLONE_ARCH:-$(case ... esac)}"`) es
+    **bash inválido**: el `)` del patrón `in arm64)` cierra la sustitución de
+    comando dentro de las comillas (verificado al ejecutar). Se usa el bloque
+    multi-línea.
   - Sin override, fallback `*` → `amd64`: comportamiento actual en Intel y en
-    cualquier caso extraño.
+    cualquier caso extraño. Un valor de override no reconocido (`RCLONE_ARCH=weird`)
+    cae a la detección nativa.
   - rclone publica builds por arquitectura (`osx-arm64` existe desde v1.59; usamos
     1.72.1 → disponible). No hay build universal para macOS → lo correcto es la build
     nativa por arquitectura (recomendación de rclone).
 - **CI queda arreglada sola**: el runner arm64 (`macos-latest`) descargará arm64 → el
   `.dmg` contendrá rclone nativo → usuarios M-series sin Rosetta funcionan.
 - No se tocan los scripts de Windows/Linux ni los `build-macos.sh` (llaman a los
-  downloaders; no eligen arquitectura).
+  downloaders; no eligen arquitectura). Nota: `bifrost-mount/build-macos.sh` llama a
+  los **dos** downloaders en la build local; ambos quedan corregidos con este PR.
 - Los binarios descargados están gitignored (`.gitignore:29-33`) → **lo único que se
   commitea son los 2 scripts**.
 
@@ -143,15 +153,24 @@ vez — el dev local y el próximo `.dmg` de CI — porque ambos pasan por el mi
 ### 5.1 `shared/macos-assets-downloader.sh` (bifrost-mount)
 
 ```bash
-# ANTES (:4-5)
+# ANTES (:5-6)
 RCLONE_VERSION="1.72.1"
 RCLONE_URL="https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-osx-amd64.zip"
 
 # DESPUÉS
 RCLONE_VERSION="1.72.1"
-RCLONE_ARCH="${RCLONE_ARCH:-$(case "$(uname -m)" in arm64) echo arm64 ;; *) echo amd64 ;; esac)}"
+case "${RCLONE_ARCH:-}" in
+  arm64|amd64) ;;
+  *) case "$(uname -m)" in
+       arm64) RCLONE_ARCH=arm64 ;;
+       *)     RCLONE_ARCH=amd64 ;;
+     esac ;;
+esac
 RCLONE_URL="https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-osx-${RCLONE_ARCH}.zip"
 ```
+
+(También se actualizan a `${RCLONE_ARCH}` el nombre local del zip en el `curl -o`
+y el `unzip`, que tenían `osx-amd64` fijo — solo cosmético, es un nombre temporal.)
 
 ```bash
 # ANTES (:26)
@@ -272,14 +291,25 @@ cd bifrost-mount && source .venv/bin/activate && flet run
 
 ## 9. Definition of done
 
-- [ ] Rama `feature/rclone-arm64-macos` creada desde `develop`
-- [ ] `macos-assets-downloader.sh` + `macos-rclone-downloader.sh` arch-aware
-      (`arm64`/`amd64` según `uname -m`)
-- [ ] Binarios locales del Mac dev regenerados y verificados (`file` → arm64,
+Ejecución del 2026-10-06 (estado real):
+
+- [x] Rama `feature/rclone-arm64-macos` creada desde `develop`
+- [x] `macos-assets-downloader.sh` + `macos-rclone-downloader.sh` arch-aware
+      (`arm64`/`amd64` según `uname -m`). El one-liner del §4 resultó ser bash
+      inválido (ver nota en §4) → bloque `case` multi-línea.
+- [x] Binarios locales del Mac dev regenerados y verificados (`file` → arm64,
       `rclone version` OK)
-- [ ] `flet run`: STS se completa sin `EBADCPU`
-- [ ] CI: los 2 artefactos `.dmg` contienen rclone **arm64** (chequeo §7.2)
-- [ ] `curl -I` a la URL arm64 1.72.1 (sanity)
-- [ ] Nota de arquitectura en `README.md` + `CLAUDE.md` (incl. referencia a
-      `PLAN-rclone-intel-macos.md` para el soporte Intel)
-- [ ] Commits + push a origin (CI builda ambas apps)
+- [x] `curl -I` a la URL arm64 1.72.1 (sanity) → HTTP 200
+- [x] Nota de arquitectura en `README.md` + `AGENTS.md` + `docs/agent/operations.md`.
+      Desviación: `CLAUDE.md` es un stub ("Do not add content here") → la nota vive en
+      `AGENTS.md`/`operations.md`; sin referencia a `PLAN-rclone-intel-macos.md` (aún
+      sin commitear; se añadirá cuando exista).
+- [x] Verificación parcial §7.1: la llamada de backend que fallaba
+      (`obtener_ruta_rclone_conf` → `rclone config file`) ejecutada desde los venvs de
+      ambas apps con `FLET_ASSETS_DIR` → OK, sin `EBADCPU`.
+- [ ] `flet run`: login → STS se completa sin `EBADCPU` — **pendiente del usuario**:
+      requiere VPN (Nexica) y credenciales. Al ejecutar el 2026-10-06 la VPN estaba
+      desconectada.
+- [ ] CI: los 2 artefactos `.dmg` contienen rclone **arm64** (chequeo §7.2) —
+      **pendiente del push** (a petición del usuario, los commits quedaron sin hacer).
+- [ ] Commits + push a origin (CI builda ambas apps) — **pendiente del usuario**

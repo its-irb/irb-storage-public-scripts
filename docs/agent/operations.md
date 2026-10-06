@@ -40,6 +40,9 @@ bash ../../shared/linux-assets-downloader.sh      # Linux (cluster): rclone
 cd ..   # back to the app folder
 ```
 
+The macOS scripts pick the rclone architecture from `uname -m` (`arm64` on Apple
+Silicon, `amd64` on Intel); override with the `RCLONE_ARCH` env var.
+
 ```bash
 # Activate
 source .venv/bin/activate            # macOS/Linux

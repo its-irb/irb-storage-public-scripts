@@ -168,6 +168,10 @@ bash ../../shared/linux-assets-downloader.sh
 bash ../../shared/windows-assets-downloader.sh
 ```
 
+> **macOS:** the macOS scripts download the `rclone` build matching the machine's
+> architecture (`arm64` on Apple Silicon, `amd64` on Intel, detected via `uname -m`
+> — overridable with the `RCLONE_ARCH` env var). No Rosetta is needed.
+
 ### Working with shared code (`bifrost-shared`)
 
 Both apps depend on `bifrost-shared` (located in `shared/`).

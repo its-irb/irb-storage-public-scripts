@@ -24,6 +24,8 @@ English). Documentation methodology: `docs/documentation-methodology.md`.
 
 - Any UI mutation from a background thread goes through `backend.ui_call(page, fn)`;
   create threads with `backend.safe_thread(page, target)`.
+- The macOS asset downloaders pick the rclone architecture from `uname -m`
+  (`arm64` Apple Silicon / `amd64` Intel); override with the `RCLONE_ARCH` env var.
 - Profiles and lab acronyms are defined only in `bifrost-transfer/src/meta_fields.py`.
 - There is no automated test suite: validate by running the app (`flet run`).
 - Never commit `.venv/`, `dist/`, `build/`, generated `src/version.py` or local `pyproject.toml` files.
