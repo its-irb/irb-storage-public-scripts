@@ -137,7 +137,7 @@ jobs:
 
 
       - name: Crear DMG
-        uses: L-Super/create-dmg-actions@v1.0.3
+        uses: L-Super/create-dmg-actions@v1.1.0
         with:
           dmg_name: ${{ matrix.app }}-macos
           src_dir: ${{ matrix.app }}/dist/${{ matrix.app }}.app
@@ -237,7 +237,7 @@ jobs:
             "${APP_BUNDLE}/Contents/Frameworks/"
 
       - name: Crear DMG
-        uses: L-Super/create-dmg-actions@v1.0.3
+        uses: L-Super/create-dmg-actions@v1.1.0
         with:
           dmg_name: ${{ matrix.app }}-macos-intel
           src_dir: ${{ matrix.app }}/dist/${{ matrix.app }}.app
