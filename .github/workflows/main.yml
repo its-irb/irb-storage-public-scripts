@@ -94,9 +94,9 @@ jobs:
           RCLONE_ARCH: arm64
         run: |
           if [ "${{ matrix.app }}" = "bifrost-mount" ]; then
-            cd ${{ matrix.app }}/src && bash ../../shared/macos-assets-downloader-arm.sh
+            cd ${{ matrix.app }}/src && bash ../../shared/macos-assets-downloader.sh
           else
-            cd ${{ matrix.app }}/src && bash ../../shared/macos-rclone-downloader-arm.sh
+            cd ${{ matrix.app }}/src && bash ../../shared/macos-rclone-downloader.sh
           fi
 
       - name: Limpiar nombre de rama
@@ -193,11 +193,13 @@ jobs:
           echo "$GITHUB_WORKSPACE/${{ matrix.app }}/.venv/bin" >> $GITHUB_PATH
 
       - name: Descargar rclone y fuse-t para macOS (Intel)
+        env:
+          RCLONE_ARCH: amd64
         run: |
           if [ "${{ matrix.app }}" = "bifrost-mount" ]; then
-            cd ${{ matrix.app }}/src && bash ../../shared/macos-assets-downloader-intel.sh
+            cd ${{ matrix.app }}/src && bash ../../shared/macos-assets-downloader.sh
           else
-            cd ${{ matrix.app }}/src && bash ../../shared/macos-rclone-downloader-intel.sh
+            cd ${{ matrix.app }}/src && bash ../../shared/macos-rclone-downloader.sh
           fi
 
       - name: Limpiar nombre de rama

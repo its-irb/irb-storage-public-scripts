@@ -66,14 +66,14 @@ la carpeta de la app:
 
     ```bash
     cd src
-    bash ../../shared/macos-assets-downloader-arm.sh   # rclone + fuse_t.framework
+    bash ../../shared/macos-assets-downloader.sh   # rclone + fuse_t.framework
     ```
 
     `bifrost-transfer` en macOS (dentro de `bifrost-transfer/`):
 
     ```bash
     cd src
-    bash ../../shared/macos-rclone-downloader-arm.sh   # rclone
+    bash ../../shared/macos-rclone-downloader.sh   # rclone
     ```
 
     Windows, Git Bash (dentro de cada app — `bifrost-mount/` y
@@ -95,15 +95,14 @@ la carpeta de la app:
     Cada script descarga en `./assets/bin/` el binario de rclone (versión
     `1.72.1`, fijada en los scripts) y la fuente
     `NotoColorEmoji-noflags.ttf` en `./assets/fonts/`;
-    `macos-assets-downloader-arm.sh` añade además
+    `macos-assets-downloader.sh` añade además
     `../frameworks/fuse_t.framework` (versión `1.0.49`, solo
     `bifrost-mount` en macOS).
 
-    En macOS existen dos variantes por app: los scripts `*-arm.sh`
-    (auto-detect de arquitectura, para el job ARM de la CI y el dev local) y
-    los `*-intel.sh` (rclone `osx-amd64` hardcodeado, solo para el job Intel
-    de la CI — stopgap hasta nov-2026). En desarrollo local se usan siempre
-    los `*-arm.sh`.
+    En macOS la arquitectura de `rclone` se auto-detecta con `uname -m`
+    (`arm64` en Apple Silicon, `amd64` en Intel) y se puede forzar con la
+    variable `RCLONE_ARCH`. La CI la fija explícitamente: `arm64` en el job
+    ARM y `amd64` en el job Intel (stopgap hasta nov-2026).
 
 ### Activar y ejecutar (cada vez)
 
@@ -217,15 +216,15 @@ solo la hace la CI; ver abajo.)
   (la de la plantilla es `2.0.0`) y se escribe
   `__version__ = "1.0.<run_number>"` en `src/version.py`.
 - **Job `build-macos`** (matriz por app, runner `macos-latest`, Apple
-  Silicon): descarga assets (mount: `macos-assets-downloader-arm.sh`;
-  transfer: `macos-rclone-downloader-arm.sh`, con `RCLONE_ARCH=arm64` para
+  Silicon): descarga assets (mount: `macos-assets-downloader.sh`;
+  transfer: `macos-rclone-downloader.sh`, con `RCLONE_ARCH=arm64` para
   determinismo), `uv sync`, `flet build macos --output dist --no-rich-output`
   (con `echo "y" |` para autoconfirmar); en mount copia `fuse_t.framework` al
   bundle; genera un **DMG** (action `create-dmg`) → artefacto
   `bifrost-<flavour>-macos.dmg`.
 - **Job `build-macos-intel`** (matriz por app, runner `macos-14`): copia del
-  job anterior usando los scripts `*-intel.sh` (rclone `osx-amd64`
-  hardcodeado) → artefacto `bifrost-<flavour>-macos-intel.dmg`. **Stopgap
+  job anterior usando los mismos scripts de descarga con `RCLONE_ARCH=amd64`
+  → artefacto `bifrost-<flavour>-macos-intel.dmg`. **Stopgap
   hasta el 2-nov-2026** (fecha en la que GitHub retira el runner `macos-14`,
   el último Intel hosted): lleva `continue-on-error: true` para que, tras esa
   fecha, su fallo no bloquee la release; hay que eliminar el job por completo

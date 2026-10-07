@@ -67,10 +67,8 @@ shared/                   # bifrost-shared package
   bifrost_backend/backend.py    # Shared business logic (LDAP, rclone, SMB, S3)
   bifrost_frontend/frontend.py  # Palette and shared Flet components
   linux-assets-downloader.sh
-  macos-assets-downloader-arm.sh
-  macos-assets-downloader-intel.sh
-  macos-rclone-downloader-arm.sh
-  macos-rclone-downloader-intel.sh
+  macos-assets-downloader.sh
+  macos-rclone-downloader.sh
   windows-assets-downloader.sh
   requirements.txt        # Shared requirements for both apps
 
@@ -156,7 +154,7 @@ Run the appropriate script from inside the target app folder (`bifrost-mount/` o
 ```bash
 cd bifrost-mount/src
 # macOS
-bash ../../shared/macos-assets-downloader-arm.sh
+bash ../../shared/macos-assets-downloader.sh
 
 # Linux
 bash ../../shared/linux-assets-downloader.sh
@@ -168,7 +166,7 @@ bash ../../shared/windows-assets-downloader.sh
 ```bash
 cd bifrost-transfer/src
 # macOS
-bash ../../shared/macos-rclone-downloader-arm.sh
+bash ../../shared/macos-rclone-downloader.sh
 
 # Linux
 bash ../../shared/linux-assets-downloader.sh

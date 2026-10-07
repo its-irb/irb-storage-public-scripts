@@ -33,18 +33,17 @@ command is the same; repeat the step in the other app):
 ```bash
 cd src   # inside the app you are in (bifrost-mount/ or bifrost-transfer/)
 # Only the script for your platform:
-bash ../../shared/macos-assets-downloader-arm.sh  # mount macOS: rclone + fuse_t.framework
-bash ../../shared/macos-rclone-downloader-arm.sh  # transfer macOS: rclone
+bash ../../shared/macos-assets-downloader.sh      # mount macOS: rclone + fuse_t.framework
+bash ../../shared/macos-rclone-downloader.sh      # transfer macOS: rclone
 bash ../../shared/windows-assets-downloader.sh    # Windows: rclone.exe
 bash ../../shared/linux-assets-downloader.sh      # Linux (cluster): rclone
 cd ..   # back to the app folder
 ```
 
-The `*-arm.sh` macOS scripts pick the rclone architecture from `uname -m`
+The macOS scripts pick the rclone architecture from `uname -m`
 (`arm64` on Apple Silicon, `amd64` on Intel); override with the `RCLONE_ARCH`
-env var. The `*-intel.sh` variants are hardcoded to `osx-amd64` and are only
-used by the CI Intel job (stopgap until Nov-2026) — for local dev and the ARM
-CI job, always use the `*-arm.sh` scripts.
+env var. CI pins it explicitly: `arm64` in the ARM job and `amd64` in the
+Intel job (stopgap until Nov-2026).
 
 ```bash
 # Activate

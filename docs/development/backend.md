@@ -14,10 +14,8 @@ shared/
     __init__.py
     frontend.py           # ~434 líneas — paleta + componentes Flet
   linux-assets-downloader.sh
-  macos-assets-downloader-arm.sh
-  macos-assets-downloader-intel.sh
-  macos-rclone-downloader-arm.sh
-  macos-rclone-downloader-intel.sh
+  macos-assets-downloader.sh
+  macos-rclone-downloader.sh
   windows-assets-downloader.sh
 ```
 
@@ -124,10 +122,8 @@ para desarrollar sin instalar el wheel.
 
 | Script | Para qué |
 |---|---|
-| `macos-assets-downloader-arm.sh` | `rclone` + `fuse-t.framework` (`bifrost-mount` en macOS) — arquitectura auto-detectada (job ARM de la CI y dev local) |
-| `macos-assets-downloader-intel.sh` | lo anterior con `rclone` `osx-amd64` hardcodeado (job Intel de la CI, stopgap hasta nov-2026) |
-| `macos-rclone-downloader-arm.sh` | solo `rclone` (`bifrost-transfer` en macOS) — arquitectura auto-detectada |
-| `macos-rclone-downloader-intel.sh` | solo `rclone` `osx-amd64` hardcodeado (job Intel de la CI) |
+| `macos-assets-downloader.sh` | `rclone` + `fuse-t.framework` (`bifrost-mount` en macOS) — arquitectura auto-detectada (`uname -m`, override con `RCLONE_ARCH`; el job Intel de la CI lo usa con `RCLONE_ARCH=amd64`, stopgap hasta nov-2026) |
+| `macos-rclone-downloader.sh` | solo `rclone` (`bifrost-transfer` en macOS) — arquitectura auto-detectada (mismo mecanismo; job Intel de la CI con `RCLONE_ARCH=amd64`) |
 | `windows-assets-downloader.sh` | `rclone.exe` |
 | `linux-assets-downloader.sh` | `rclone` (clúster Linux) |
 
