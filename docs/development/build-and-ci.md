@@ -247,7 +247,10 @@ solo la hace la CI; ver abajo.)
     (firmado)
 
   De estas releases descarga el autoupdate de las apps
-  (`backend.download_new_binary()`).
+  (`backend.download_new_binary()`): en macOS elige el sufijo según la
+  arquitectura de la máquina (`platform.machine()`: arm64 → `-macos.dmg`,
+  x86_64 → `-macos-intel.dmg`); solo los Macs Intel con release pre-stopgap
+  necesitan una instalación manual del `-macos-intel.dmg`.
 
 ## Política de validación
 

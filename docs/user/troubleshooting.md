@@ -70,6 +70,12 @@ another node (for example `sphr`).
 The app updates itself: if a new version exists on GitHub, it asks if you want
 to install it. Accept to get the latest version, or wait; it asks again later.
 
+**Intel Macs:** if you are still on an older version of the app, the in-app
+update may offer a build that does not run on your Mac. In that case, download
+the file ending in `-macos-intel.dmg` once from
+[the releases page](https://github.com/its-irb/irb-storage-public-scripts/releases)
+and install it; from then on the app will update itself.
+
 ## Errors when applying labels (Tag Manager)
 
 1. Read the **log** on screen: it usually shows permission or access errors.

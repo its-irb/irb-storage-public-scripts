@@ -153,6 +153,9 @@ disco como ficheros no versionados (gitignores; solo se versionan los
 
 `check_update_version()` consulta las releases de GitHub;
 `should_check_for_updates()` decide si toca comprobar;
-`download_new_binary()` descarga el binario de la release nueva. El flujo de
-versionado (`1.0.<run_number>`) y la publicación están en
+`download_new_binary()` descarga el binario de la release nueva. En macOS el
+sufijo del archivo lo elige `get_update_file_suffix()` según la arquitectura
+(`platform.machine()`: arm64 → `-macos.dmg`, x86_64 → `-macos-intel.dmg`,
+stopgap Intel hasta nov-2026). El flujo de versionado
+(`1.0.<run_number>`) y la publicación están en
 [build-and-ci.md](build-and-ci.md).

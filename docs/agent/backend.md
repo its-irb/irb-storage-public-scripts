@@ -72,5 +72,8 @@ Consequences:
 ## Autoupdate
 
 `check_update_version()`, `should_check_for_updates()` and
-`download_new_binary()` check GitHub releases and download the new binary. See
+`download_new_binary()` check GitHub releases and download the new binary. On
+macOS, `get_update_file_suffix()` picks the file suffix from the machine
+architecture (`platform.machine()`: arm64 → `-macos.dmg`, x86_64 →
+`-macos-intel.dmg`; Intel stopgap until Nov-2026). See
 [operations.md](operations.md) for the versioning flow.

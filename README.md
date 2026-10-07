@@ -113,8 +113,11 @@ The Tag Manager bucket browser also includes the same **"Filter by lab…"** fie
 When a new release of bifrost-mount or bifrost-transfer is available, the app asks the user whether they want to upgrade. If so, the new release is downloaded from this git repo.
 
 > **macOS:** releases include `bifrost-<app>-macos.dmg` (Apple Silicon) and
-> `bifrost-<app>-macos-intel.dmg` (Intel, stopgap until Nov-2026 — manual
-> download from the release page; autoupdate always uses the arm64 build).
+> `bifrost-<app>-macos-intel.dmg` (Intel, stopgap until Nov-2026). Autoupdate
+> downloads the build matching the Mac's architecture (arm64 →
+> `bifrost-<app>-macos.dmg`, Intel → `bifrost-<app>-macos-intel.dmg`). Intel
+> Macs still on a pre-stopgap release must install
+> `bifrost-<app>-macos-intel.dmg` once, manually, from the release page.
 
 ---
 

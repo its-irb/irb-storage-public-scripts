@@ -128,11 +128,14 @@ uv add <package>
   whole job must be removed in the follow-up after that date.
 - `release` job (only on `main` and `release`): publishes the release with tag
   `v1.0.<run_number>` and the artifacts (macOS:
-  `bifrost-<flavour>-macos.dmg` (arm64, the autoupdate target) +
-  `bifrost-<flavour>-macos-intel.dmg` (Intel, stopgap, manual download);
-  Windows: installer `.exe` **signed** with `signtool`, PFX from the secrets
+  `bifrost-<flavour>-macos.dmg` (arm64) +
+  `bifrost-<flavour>-macos-intel.dmg` (Intel, stopgap); Windows: installer
+  `.exe` **signed** with `signtool`, PFX from the secrets
   `IRBCODESIGNING`/`IRBCODESIGNING_PASSWORD`). The apps' autoupdate downloads
-  from those releases.
+  from those releases, picking the macOS suffix from the machine architecture
+  (`platform.machine()`: arm64 → `-macos.dmg`, x86_64 →
+  `-macos-intel.dmg`); Intel Macs on a pre-stopgap release need one manual
+  install of the `-macos-intel.dmg`.
 
 ## Tests
 
