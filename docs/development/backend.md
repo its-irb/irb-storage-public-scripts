@@ -122,8 +122,8 @@ para desarrollar sin instalar el wheel.
 
 | Script | Para qué |
 |---|---|
-| `macos-assets-downloader.sh` | `rclone` + `fuse-t.framework` (`bifrost-mount` en macOS) |
-| `macos-rclone-downloader.sh` | solo `rclone` (`bifrost-transfer` en macOS) |
+| `macos-assets-downloader.sh` | `rclone` + `fuse-t.framework` (`bifrost-mount` en macOS) — arquitectura auto-detectada (`uname -m`, override con `RCLONE_ARCH`; el job Intel de la CI lo usa con `RCLONE_ARCH=amd64`, stopgap hasta nov-2026) |
+| `macos-rclone-downloader.sh` | solo `rclone` (`bifrost-transfer` en macOS) — arquitectura auto-detectada (mismo mecanismo; job Intel de la CI con `RCLONE_ARCH=amd64`) |
 | `windows-assets-downloader.sh` | `rclone.exe` |
 | `linux-assets-downloader.sh` | `rclone` (clúster Linux) |
 
@@ -149,6 +149,9 @@ disco como ficheros no versionados (gitignores; solo se versionan los
 
 `check_update_version()` consulta las releases de GitHub;
 `should_check_for_updates()` decide si toca comprobar;
-`download_new_binary()` descarga el binario de la release nueva. El flujo de
-versionado (`1.0.<run_number>`) y la publicación están en
+`download_new_binary()` descarga el binario de la release nueva. En macOS el
+sufijo del archivo lo elige `get_update_file_suffix()` según la arquitectura
+(`platform.machine()`: arm64 → `-macos.dmg`, x86_64 → `-macos-intel.dmg`,
+stopgap Intel hasta nov-2026). El flujo de versionado
+(`1.0.<run_number>`) y la publicación están en
 [build-and-ci.md](build-and-ci.md).

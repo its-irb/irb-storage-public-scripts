@@ -40,6 +40,11 @@ bash ../../shared/linux-assets-downloader.sh      # Linux (cluster): rclone
 cd ..   # back to the app folder
 ```
 
+The macOS scripts pick the rclone architecture from `uname -m`
+(`arm64` on Apple Silicon, `amd64` on Intel); override with the `RCLONE_ARCH`
+env var. CI pins it explicitly: `arm64` in the ARM job and `amd64` in the
+Intel job (stopgap until Nov-2026).
+
 ```bash
 # Activate
 source .venv/bin/activate            # macOS/Linux
@@ -111,11 +116,25 @@ uv add <package>
   `flet build windows`), `PYTHONUTF8=1` on Windows.
 - The version is injected as `1.0.<run_number>` in `src/version.py` and in each
   app's `pyproject.toml` before the build (the template version is `2.0.0`).
+- `build-macos` job (runner `macos-latest`, Apple Silicon): DMGs from the
+  `*-arm.sh` downloaders (with `RCLONE_ARCH=arm64`) →
+  `bifrost-<flavour>-macos.dmg`.
+- `build-macos-intel` job (runner `macos-14`, Intel): same job with the
+  `*-intel.sh` downloaders (hardcoded `osx-amd64`) →
+  `bifrost-<flavour>-macos-intel.dmg`. **Stopgap until Nov-2026** (GitHub
+  retires `macos-14`, the last Intel hosted runner): it runs with
+  `continue-on-error: true` so its failure never blocks the release, and the
+  whole job must be removed in the follow-up after that date.
 - `release` job (only on `main` and `release`): publishes the release with tag
-  `v1.0.<run_number>` and the artifacts (macOS: `bifrost-<flavour>-macos.dmg`;
-  Windows: installer `.exe` **signed** with `signtool`, PFX from the secrets
+  `v1.0.<run_number>` and the artifacts (macOS:
+  `bifrost-<flavour>-macos.dmg` (arm64) +
+  `bifrost-<flavour>-macos-intel.dmg` (Intel, stopgap); Windows: installer
+  `.exe` **signed** with `signtool`, PFX from the secrets
   `IRBCODESIGNING`/`IRBCODESIGNING_PASSWORD`). The apps' autoupdate downloads
-  from those releases.
+  from those releases, picking the macOS suffix from the machine architecture
+  (`platform.machine()`: arm64 → `-macos.dmg`, x86_64 →
+  `-macos-intel.dmg`); Intel Macs on a pre-stopgap release need one manual
+  install of the `-macos-intel.dmg`.
 
 ## Tests
 

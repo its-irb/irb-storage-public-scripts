@@ -110,6 +110,13 @@ The Tag Manager bucket browser also includes the same **"Filter by lab…"** fie
 
 When a new release of bifrost-mount or bifrost-transfer is available, the app asks the user whether they want to upgrade. If so, the new release is downloaded from this git repo.
 
+> **macOS:** releases include `bifrost-<app>-macos.dmg` (Apple Silicon) and
+> `bifrost-<app>-macos-intel.dmg` (Intel, stopgap until Nov-2026). Autoupdate
+> downloads the build matching the Mac's architecture (arm64 →
+> `bifrost-<app>-macos.dmg`, Intel → `bifrost-<app>-macos-intel.dmg`). Intel
+> Macs still on a pre-stopgap release must install
+> `bifrost-<app>-macos-intel.dmg` once, manually, from the release page.
+
 ---
 
 ## Running (development)
@@ -167,6 +174,10 @@ bash ../../shared/linux-assets-downloader.sh
 # Windows
 bash ../../shared/windows-assets-downloader.sh
 ```
+
+> **macOS:** the macOS scripts download the `rclone` build matching the machine's
+> architecture (`arm64` on Apple Silicon, `amd64` on Intel, detected via `uname -m`
+> — overridable with the `RCLONE_ARCH` env var). No Rosetta is needed.
 
 ### Working with shared code (`bifrost-shared`)
 
