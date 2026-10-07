@@ -16,7 +16,7 @@ python -m uv sync --project bifrost-transfer
 source bifrost-transfer/.venv/bin/activate
 cd ./bifrost-transfer/src
 
-bash ../../shared/macos-rclone-downloader.sh
+bash ../../shared/macos-rclone-downloader-arm.sh
 
 echo "__version__ = '2.0.0.dev'" > version.py
 

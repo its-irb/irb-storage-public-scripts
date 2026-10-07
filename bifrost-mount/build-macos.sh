@@ -16,8 +16,8 @@ python -m uv sync --project bifrost-mount
 source bifrost-mount/.venv/bin/activate
 cd ./bifrost-mount/src
 
-bash ../../shared/macos-rclone-downloader.sh
-bash ../../shared/macos-assets-downloader.sh
+bash ../../shared/macos-rclone-downloader-arm.sh
+bash ../../shared/macos-assets-downloader-arm.sh
 
 echo "__version__ = '2.0.0.dev'" > version.py
 
