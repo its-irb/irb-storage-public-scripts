@@ -90,11 +90,13 @@ jobs:
           echo "$GITHUB_WORKSPACE/${{ matrix.app }}/.venv/bin" >> $GITHUB_PATH
 
       - name: Descargar rclone y fuse-t para macOS
+        env:
+          RCLONE_ARCH: arm64
         run: |
           if [ "${{ matrix.app }}" = "bifrost-mount" ]; then
-            cd ${{ matrix.app }}/src && bash ../../shared/macos-assets-downloader.sh
+            cd ${{ matrix.app }}/src && bash ../../shared/macos-assets-downloader-arm.sh
           else
-            cd ${{ matrix.app }}/src && bash ../../shared/macos-rclone-downloader.sh
+            cd ${{ matrix.app }}/src && bash ../../shared/macos-rclone-downloader-arm.sh
           fi
 
       - name: Limpiar nombre de rama
@@ -144,6 +146,106 @@ jobs:
         uses: actions/upload-artifact@v7.0.0
         with:
           name: ${{ matrix.app }}-macos
+          path: "*.dmg"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # macOS Intel — stopgap hasta nov-2026 (macos-14 es el último runner Intel)
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-macos-intel:
+    runs-on: macos-14
+    # Tras el 2-nov-2026 (macos-14 retirado) este job fallará: no debe bloquear
+    # la release. Eliminar el job por completo en el follow-up post-nov-2026.
+    continue-on-error: true
+    strategy:
+      matrix:
+        app: [bifrost-transfer, bifrost-mount]
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v6.0.2
+
+      - name: Instalar Python
+        uses: actions/setup-python@v6.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Escribir versión
+        run: echo "__version__ = '1.0.${{ github.run_number }}'" > ${{ matrix.app }}/src/version.py
+
+      - name: Añadir ruta al paquete de backend pyproject.toml
+        shell: bash
+        run: |
+          WORKSPACE="${GITHUB_WORKSPACE//\\//}"
+          cp ${{ matrix.app }}/pyproject-template.toml ${{ matrix.app }}/pyproject.toml
+          sed -i '' "s|__BUILDPATH__|${WORKSPACE}|g" \
+            ${{ matrix.app }}/pyproject.toml
+
+      - name: Escribir versión en pyproject.toml
+        run: |
+          sed -i '' 's/^version = .*/version = "1.0.${{ github.run_number }}"/' \
+            ${{ matrix.app }}/pyproject.toml
+
+      - name: Instalar dependencias Python
+        run: |
+          pip install --upgrade pip
+          pip install uv
+          cd ${{ matrix.app }}
+          uv sync
+          echo "$GITHUB_WORKSPACE/${{ matrix.app }}/.venv/bin" >> $GITHUB_PATH
+
+      - name: Descargar rclone y fuse-t para macOS (Intel)
+        run: |
+          if [ "${{ matrix.app }}" = "bifrost-mount" ]; then
+            cd ${{ matrix.app }}/src && bash ../../shared/macos-assets-downloader-intel.sh
+          else
+            cd ${{ matrix.app }}/src && bash ../../shared/macos-rclone-downloader-intel.sh
+          fi
+
+      - name: Limpiar nombre de rama
+        id: clean_branch
+        run: |
+          clean=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
+          echo "name=$clean" >> $GITHUB_OUTPUT
+
+      - name: Build macOS
+        run: |
+          cd ${{ matrix.app }}
+          echo "y" | flet build macos --output dist --no-rich-output
+
+      - name: Debug - verificar contingut del bundle
+        if: matrix.app == 'bifrost-mount'
+        run: |
+          APP_BUNDLE=$(find ${{ matrix.app }}/dist -maxdepth 1 -name "*.app" | head -1)
+          echo "=== Mida total ==="
+          du -sh "$APP_BUNDLE"
+          echo "=== site-packages ==="
+          find "$APP_BUNDLE" -name "site-packages" -type d | head -5
+          find "$APP_BUNDLE" -name "site-packages" -type d -exec du -sh {} \; 2>/dev/null | head -5
+          echo "=== bifrost_shared ==="
+          find "$APP_BUNDLE" -name "bifrost_shared*" 2>/dev/null
+          echo "=== boto3 ==="
+          find "$APP_BUNDLE" -name "boto3" -type d | head -5
+          echo "=== ldap3 ==="
+          find "$APP_BUNDLE" -name "ldap3" -type d | head -5
+          echo "=== app.zip ==="
+          find "$APP_BUNDLE" -name "app.zip" | head -3
+
+      - name: Añadir fuse_t.framework al bundle
+        if: matrix.app == 'bifrost-mount'
+        run: |
+          APP_BUNDLE=$(find ${{ matrix.app }}/dist -maxdepth 1 -name "*.app" | head -1)
+          cp -R ${{ matrix.app }}/frameworks/fuse_t.framework \
+            "${APP_BUNDLE}/Contents/Frameworks/"
+
+      - name: Crear DMG
+        uses: L-Super/create-dmg-actions@v1.0.3
+        with:
+          dmg_name: ${{ matrix.app }}-macos-intel
+          src_dir: ${{ matrix.app }}/dist/${{ matrix.app }}.app
+
+      - name: Subir artefacto
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: ${{ matrix.app }}-macos-intel
           path: "*.dmg"
 
   # ─────────────────────────────────────────────────────────────────────────────
@@ -282,7 +384,7 @@ jobs:
   # Recoge los artefactos de los tres jobs y crea una GitHub Release
   # ─────────────────────────────────────────────────────────────────────────────
   release:
-    needs: [build-macos, build-windows]
+    needs: [build-macos, build-windows, build-macos-intel]
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -67,8 +67,10 @@ shared/                   # bifrost-shared package
   bifrost_backend/backend.py    # Shared business logic (LDAP, rclone, SMB, S3)
   bifrost_frontend/frontend.py  # Palette and shared Flet components
   linux-assets-downloader.sh
-  macos-assets-downloader.sh
-  macos-rclone-downloader.sh
+  macos-assets-downloader-arm.sh
+  macos-assets-downloader-intel.sh
+  macos-rclone-downloader-arm.sh
+  macos-rclone-downloader-intel.sh
   windows-assets-downloader.sh
   requirements.txt        # Shared requirements for both apps
 
@@ -110,6 +112,10 @@ The Tag Manager bucket browser also includes the same **"Filter by lab…"** fie
 
 When a new release of bifrost-mount or bifrost-transfer is available, the app asks the user whether they want to upgrade. If so, the new release is downloaded from this git repo.
 
+> **macOS:** releases include `bifrost-<app>-macos.dmg` (Apple Silicon) and
+> `bifrost-<app>-macos-intel.dmg` (Intel, stopgap until Nov-2026 — manual
+> download from the release page; autoupdate always uses the arm64 build).
+
 ---
 
 ## Running (development)
@@ -147,7 +153,7 @@ Run the appropriate script from inside the target app folder (`bifrost-mount/` o
 ```bash
 cd bifrost-mount/src
 # macOS
-bash ../../shared/macos-assets-downloader.sh
+bash ../../shared/macos-assets-downloader-arm.sh
 
 # Linux
 bash ../../shared/linux-assets-downloader.sh
@@ -159,7 +165,7 @@ bash ../../shared/windows-assets-downloader.sh
 ```bash
 cd bifrost-transfer/src
 # macOS
-bash ../../shared/macos-rclone-downloader.sh
+bash ../../shared/macos-rclone-downloader-arm.sh
 
 # Linux
 bash ../../shared/linux-assets-downloader.sh
