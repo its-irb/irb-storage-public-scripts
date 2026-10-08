@@ -24,42 +24,59 @@ On Windows, `bifrost-mount` additionally requires **WinFsp** installed on the sy
 
 ---
 
+## Documentation
+
+| Audience | Where | Language |
+|---|---|---|
+| Users (researchers, lab staff) | [docs/user/README.md](docs/user/README.md) | English |
+| Developers and maintainers | [docs/development/README.md](docs/development/README.md) | Spanish |
+| Coding agents | [AGENTS.md](AGENTS.md) and [docs/agent/README.md](docs/agent/README.md) | English |
+
+The documentation is kept up to date with the `docs-update` skill (`/docs-update`).
+This README is a quick reference for running and packaging the apps.
+
+---
+
 ## Repository structure
 
 ```
-bifrost-mount/          # S3 bucket mounting app
+bifrost-mount/            # MinIO folder mounting app
   src/
-    main.py             # GUI (Flet). Entry point.
+    main.py               # GUI (Flet). Entry point.
+    config.py             # APP_INFO
     version.py
-    assets/bin/         # Bundled binaries (rclone, etc.)
-    frameworks/         # fuse-t framework (macOS)
-  pyproject.toml        # flet build configuration
-  installer.iss         # Inno Setup (Windows installer)
+    assets/bin/           # Bundled binaries (rclone) — downloaded, not versioned
+    frameworks/           # fuse-t framework (macOS)
+  pyproject-template.toml # Template; pyproject.toml is generated locally
+  installer.iss           # Inno Setup (Windows installer)
+  build-macos.sh
 
-bifrost-transfer/       # Data transfer app
+bifrost-transfer/         # Data copy app (desktop + web)
   src/
-    main.py             # GUI (Flet). Entry point.
-    pip-requirements.txt
+    main.py               # GUI (Flet). Entry point.
+    meta_fields.py        # Metadata profiles, lab filter
+    config.py             # APP_INFO
     version.py
-    assets/bin/         # Bundled binaries (rclone, etc.)
-    frameworks/
-    storage/            # Temporary transfer data
-  pyproject.toml        # flet build configuration
-  installer.iss         # Inno Setup (Windows installer)
-  build.sh              # Build script
+    assets/bin/           # Bundled binaries (rclone) — downloaded, not versioned
+    storage/              # Temporary transfer data
+  pyproject-template.toml
+  installer.iss
+  build-macos.sh
 
-shared/
-  backend.py            # Shared business logic (LDAP, rclone, SMB, S3)
+shared/                   # bifrost-shared package
+  bifrost_backend/backend.py    # Shared business logic (LDAP, rclone, SMB, S3)
+  bifrost_frontend/frontend.py  # Palette and shared Flet components
   linux-assets-downloader.sh
   macos-assets-downloader.sh
   macos-rclone-downloader.sh
   windows-assets-downloader.sh
-  requirements.txt      # Shared requirements for both apps
+  requirements.txt        # Shared requirements for both apps
 
-old/
-  minio-sts-credentials-request.py  # Legacy script for STS credentials
-
-build-local.ps1      # Local Windows development build (flet build)
+docs/                     # agent/ (English), development/ (Spanish), user/ (English)
+AGENTS.md                 # Entry point for coding agents
+old/                      # Legacy scripts (do not use)
+build-windows.ps1         # Local Windows build (flet build)
+.github/workflows/main.yml  # CI: macOS/Windows build + release
 ```
 
 ---
@@ -93,32 +110,105 @@ The Tag Manager bucket browser also includes the same **"Filter by lab…"** fie
 
 When a new release of bifrost-mount or bifrost-transfer is available, the app asks the user whether they want to upgrade. If so, the new release is downloaded from this git repo.
 
+> **macOS:** releases include `bifrost-<app>-macos.dmg` (Apple Silicon) and
+> `bifrost-<app>-macos-intel.dmg` (Intel, stopgap until Nov-2026). Autoupdate
+> downloads the build matching the Mac's architecture (arm64 →
+> `bifrost-<app>-macos.dmg`, Intel → `bifrost-<app>-macos-intel.dmg`). Intel
+> Macs still on a pre-stopgap release must install
+> `bifrost-<app>-macos-intel.dmg` once, manually, from the release page.
+
 ---
 
 ## Running (development)
 
 Steps are the same for both apps. Run from the app folder (`bifrost-mount/` or `bifrost-transfer/`).
 
-First time — create the virtual environment:
+### First time — create the virtual environment:
+Steps are the same for both apps. Run from the app folder (`bifrost-mount/` or `bifrost-transfer/`).
+
+1. Create a copy of `pyproject-template.toml` named `pyproject.toml` inside each app folder (`bifrost-mount/` and `bifrost-transfer/`).
+2. Update the `__BUILDPATH__` variable in `pyproject.toml` to point to your local absolute path:
+
 ```bash
+# Inside bifrost-mount/ or bifrost-transfer/
+cp pyproject-template.toml pyproject.toml
+
+# Replace placeholder with current path:
 sed -i '' "s|__BUILDPATH__|${PWD}/..|g" ./pyproject.toml # macOS
-sed -i "s|__BUILDPATH__|${PWD}/..|g" ./pyproject.toml # Linux
+sed -i "s|__BUILDPATH__|${PWD}/..|g" ./pyproject.toml   # Linux / Git Bash
+
+# Sync Python virtual environment
 uv sync
+
+# Activate virtual environment
 source ./.venv/bin/activate          # macOS / Linux
-.\.venv\Scripts\python.exe -m pip install build
-.\build-local.ps1 -app bifrost-mount  # Windows only
+.\.venv\Scripts\python.exe -m pip install build # Windows only
+.\build-windows.ps1 -app bifrost-mount  # Windows only
 ```
 
-To force upgrade bifrost shared:
+#### Downloading binaries and assets (`rclone` / `fuse-t`)
+
+Run the appropriate script from inside the target app folder (`bifrost-mount/` or `bifrost-transfer/`)[cite: 3]:
+
+##### For `bifrost-mount`:
+```bash
+cd bifrost-mount/src
+# macOS
+bash ../../shared/macos-assets-downloader.sh
+
+# Linux
+bash ../../shared/linux-assets-downloader.sh
+
+# Windows (Git Bash)
+bash ../../shared/windows-assets-downloader.sh
 ```
+##### For `bifrost-transfer`:
+```bash
+cd bifrost-transfer/src
+# macOS
+bash ../../shared/macos-rclone-downloader.sh
+
+# Linux
+bash ../../shared/linux-assets-downloader.sh
+
+# Windows
+bash ../../shared/windows-assets-downloader.sh
+```
+
+> **macOS:** the macOS scripts download the `rclone` build matching the machine's
+> architecture (`arm64` on Apple Silicon, `amd64` on Intel, detected via `uname -m`
+> — overridable with the `RCLONE_ARCH` env var). No Rosetta is needed.
+
+### Working with shared code (`bifrost-shared`)
+
+Both apps depend on `bifrost-shared` (located in `shared/`).
+
+> **Why run `--reinstall-package`?**
+> When you modify files inside the `shared/` directory during local development, `uv` or Python's package manager may still use the previously cached/built version installed in `.venv`.
+>
+> Running the command below forces `uv` to completely reinstall `bifrost-shared` from the local `shared/` directory into your virtual environment. Use this whenever:
+> - You make changes inside `shared/` (e.g., in backend or frontend logic) and want to test them in `bifrost-mount` or `bifrost-transfer`.
+> - You switch git branches that contain different versions of the shared code.
+
+```bash
 uv sync --reinstall-package bifrost-shared
 ```
 
-Each time — load the virtual environment and run:
+### Running the app (each time)
+Each time — load the virtual environment and run.
+
+
 ```bash
-source .venv/bin/activate
+# Activate the virtual environment
+source .venv/bin/activate # macOS / Linux
+source .venv/Scripts/activate # Windows (Git Bash)
+.\.venv\Scripts\Activate.ps1 # Windows (PowerShell)
+.\.venv\Scripts\activate.bat # Windows (Command Prompt - CMD)
+
+# Launch Flet from the app directory (bifrost-mount/ or bifrost-transfer/)
 flet run
 ```
+
 
 Additional options (available in both apps):
 ```bash

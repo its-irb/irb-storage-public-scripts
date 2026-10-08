@@ -1,0 +1,68 @@
+{
+  "framework_version": "0.1.2",
+  "installed_at": "2026-10-05T13:33:31.107767+00:00",
+  "source": "/Users/nrodriguez/IRB/Project/agentic-repo-framework",
+  "managed_core_skills": [
+    "commit-work",
+    "docs-init",
+    "docs-init-full",
+    "docs-update"
+  ],
+  "managed_files": {
+    ".agentic/instructions/docs-default.md": {
+      "sha256": "9b67bd061305c780ec373983f1aa0cf086ba49f09145eb0eefc63cb01ca23339"
+    },
+    ".agentic/skills/commit-work/SKILL.md": {
+      "sha256": "7656055ec8d873730494e68d2994ecd21196e364d6686564a7dfde4c2652b17b"
+    },
+    ".agentic/skills/docs-init-full/SKILL.md": {
+      "sha256": "23e452dfd63c3b18222966b36ef3bf415aa294c08ed5b791d9b55986623398c8"
+    },
+    ".agentic/skills/docs-init/SKILL.md": {
+      "sha256": "52d334d0ab9cbeaeae0ce439ee23a7dfba88d3196bb83820d3987bfce5f34fbe"
+    },
+    ".agentic/skills/docs-update/SKILL.md": {
+      "sha256": "2559a56a5ca4cd8e0b2811f3c7c3776ce26f365f60dbc935cfba864391de490c"
+    },
+    ".agentic/tools/check-framework-updates.py": {
+      "sha256": "7c90d0be6a0307b2badd074dad4cd37bdf717e9f9026efab4ac5bd799ef074ee"
+    },
+    ".claude/skills/commit-work/SKILL.md": {
+      "sha256": "4eb8db12d90a1ca36f1654b79a961213da3df224ba8cf78a256630a94467c963"
+    },
+    ".claude/skills/docs-init-full/SKILL.md": {
+      "sha256": "8ab02cc98187b5e1d3da5f066f059beee7804279c0fc1bee6a81751a84fe6840"
+    },
+    ".claude/skills/docs-init/SKILL.md": {
+      "sha256": "6b6c4c6630b8757b94697f26bc94e21e7bcc3c9cf58695816f31ee54e542a0db"
+    },
+    ".claude/skills/docs-update/SKILL.md": {
+      "sha256": "5cb7daaf3e6d33eadc5e24d6af2e71e6002d2a06cb3b2d751a11cfeb4fa6e15e"
+    },
+    ".opencode/plugins/agentic-update-check.js": {
+      "sha256": "0f7f20721ab6e81785af900d09525b784c43e896358e7eb2b0b043292dac7b33"
+    },
+    ".opencode/skills/commit-work/SKILL.md": {
+      "sha256": "c283bcd0813f57731b3de88e02f0d15691f4b33b7cb83a4d3629f480c30b6573"
+    },
+    ".opencode/skills/docs-init-full/SKILL.md": {
+      "sha256": "8ab02cc98187b5e1d3da5f066f059beee7804279c0fc1bee6a81751a84fe6840"
+    },
+    ".opencode/skills/docs-init/SKILL.md": {
+      "sha256": "6b6c4c6630b8757b94697f26bc94e21e7bcc3c9cf58695816f31ee54e542a0db"
+    },
+    ".opencode/skills/docs-update/SKILL.md": {
+      "sha256": "5cb7daaf3e6d33eadc5e24d6af2e71e6002d2a06cb3b2d751a11cfeb4fa6e15e"
+    },
+    "docs/documentation-methodology.md": {
+      "sha256": "68e41122004c82b0cb0943c0ba2f9134785806a3cae9dacd22095b8dc0b5d8f7"
+    }
+  },
+  "documentation": {
+    "last_reviewed_commit": "9f4ec2cef3500f827e6987804b22a3ff252dea75",
+    "last_reviewed_at": "2026-10-06T15:42:12+02:00"
+  },
+  "framework_remote_url": "https://github.com/its-irb/agentic-repo-framework.git",
+  "framework_branch": "main",
+  "framework_commit": "eb9d683a23ea755fac9d0e01cf4271aaeff74d9f"
+}

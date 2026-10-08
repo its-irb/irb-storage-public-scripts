@@ -263,7 +263,10 @@ def get_update_file_suffix() -> str:
     if sistema == "linux":
         return "-linux"
     elif sistema == "darwin":
-        return "-macos.dmg"
+        # Stopgap hasta nov-2026: los Macs Intel se actualizan al .dmg x86_64.
+        # Eliminar esta rama junto con el job build-macos-intel
+        # (follow-up post-nov-2026).
+        return "-macos.dmg" if platform.machine() == "arm64" else "-macos-intel.dmg"
     elif sistema == "win32":
         return "-main-windows.exe"
     return ""

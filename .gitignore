@@ -195,9 +195,6 @@ src/storage/data/
 
 .claude/
 
-# Wiki LLM y superpowers
-docs/
-.superpowers/
 
 #diff 
 historial*
@@ -212,3 +209,48 @@ node_modules/
 
 */pyproject.toml
 !shared/pyproject.toml
+# >>> agentic-framework managed
+# Este bloque está gestionado automáticamente por agentic-sync.
+# No lo edites manualmente: se regenera en cada sincronización.
+# Política: versionar .agentic.lock.json y los ficheros gestionados;
+# ignorar el estado local y generado dentro de los directorios de herramientas.
+# El repositorio conserva el control absoluto sobre el resto del fichero.
+!.agentic.lock.json
+!.agentic/
+/.agentic/**/__pycache__/
+!.opencode/
+.opencode/*
+!.opencode/plugins/
+.opencode/plugins/*
+!.opencode/skills/
+.opencode/skills/*
+!.opencode/plugins/agentic-update-check.js
+!.opencode/skills/commit-work/
+.opencode/skills/commit-work/*
+!.opencode/skills/docs-init/
+.opencode/skills/docs-init/*
+!.opencode/skills/docs-init-full/
+.opencode/skills/docs-init-full/*
+!.opencode/skills/docs-update/
+.opencode/skills/docs-update/*
+!.opencode/skills/commit-work/SKILL.md
+!.opencode/skills/docs-init-full/SKILL.md
+!.opencode/skills/docs-init/SKILL.md
+!.opencode/skills/docs-update/SKILL.md
+!.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/commit-work/
+.claude/skills/commit-work/*
+!.claude/skills/docs-init/
+.claude/skills/docs-init/*
+!.claude/skills/docs-init-full/
+.claude/skills/docs-init-full/*
+!.claude/skills/docs-update/
+.claude/skills/docs-update/*
+!.claude/skills/commit-work/SKILL.md
+!.claude/skills/docs-init-full/SKILL.md
+!.claude/skills/docs-init/SKILL.md
+!.claude/skills/docs-update/SKILL.md
+# <<< agentic-framework managed
