@@ -541,19 +541,29 @@ def _macos_app_bundle_frameworks() -> Path | None:
     return None
 
 
-def _check_fuse_macos() -> bool:
-    """Detecta fuse-t en macOS. Comprueba rutas del sistema y el framework bundled en el .app."""
-    candidates = [
-        Path("/usr/local/lib/libfuse-t.dylib"),
-        Path("/Library/Filesystems/fuse-t.fs"),
-        Path("/usr/local/include/fuse-t"),
-        # modo desarrollo
-        Path(__file__).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / "Versions" / "Current" / "fuse_t",
-    ]
+def _get_fuse_macos() -> Path | None:
+    """Ruta del dylib fuse-t en macOS: .app empaquetado (bundle) o dev (FLET_ASSETS_DIR). None si no existe."""
+
+    fuse_t_path: Path | None = None
+
     bundle_fw = _macos_app_bundle_frameworks()
     if bundle_fw:
-        candidates.append(bundle_fw / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
-    return any(p.exists() for p in candidates)
+        fuse_t_path = bundle_fw / "fuse_t.framework" / "Versions" / "Current" / "fuse_t"
+    else:
+        # modo desarrollo
+        flet_assets = os.environ.get("FLET_ASSETS_DIR")
+        if flet_assets:
+            # mirar si existe la ruta, si no existe notificar por print debug 
+            fuse_t_path = Path(flet_assets).parent.parent / "frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t"
+            
+    if fuse_t_path is not None and fuse_t_path.exists():
+        print("[debug] path fuse-t:" + str(fuse_t_path))
+        return fuse_t_path
+    else:
+        print("[debug] path fuse-t not found:" + str(fuse_t_path))
+        return None
+        
+    
 
 def _check_fuse_linux() -> bool:
     """Detecta FUSE en Linux."""
@@ -813,30 +823,26 @@ def _cleanup_stale_mount_point(mount_point: Path) -> None:
 
 
 def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> None:
-    try:
-        rclone = get_rclone_executable()
-    except EnvironmentError as e:
-        raise EnvironmentError(str(e))
-
+    rclone = get_rclone_executable()
     sistema = platform.system()
     env = {**os.environ}
+
     if sistema == "Darwin":
-        if not _check_fuse_macos():     
-            raise EnvironmentError("fuse-t not detected. Download it with macos-third-party-assets-downloader.sh")
-        bundle_fw = _macos_app_bundle_frameworks()
-        if bundle_fw:
-            env["CGOFUSE_LIBFUSE_PATH"] = str(bundle_fw / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
-        elif (Path(__file__).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / "Versions" / "Current" / "fuse_t").exists():
-            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(__file__).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / "Versions" / "Current" / "fuse_t")
-        elif getattr(sys, "frozen", False):
-            env["CGOFUSE_LIBFUSE_PATH"] = str(Path(sys.executable).parents[1] / "Frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t")
+        fuse_path = _get_fuse_macos()
+        if fuse_path is None:
+            print(f"[mount] fuse-t dylib not found (profile={rclone_profile!r}) — see [fuse-t] OK/MISS lines above", flush=True)
+            raise EnvironmentError(
+                "The folder driver (fuse-t) is missing. Reinstall BIFROST — or, if running from source, "
+                "run shared/macos-assets-downloader.sh from bifrost-mount/src."
+            )
+
         else:
-            dev_path = Path(sys.executable).parent.parent.parent / 'bifrost-{0:s}'.format(APP_INFO["flavour"]) / 'src' / 'frameworks' / 'fuse_t.framework' / 'Versions' / 'Current' / 'fuse_t'
-            if dev_path.exists():
-                env["CGOFUSE_LIBFUSE_PATH"] = str(dev_path)
+            env["CGOFUSE_LIBFUSE_PATH"] = str(fuse_path)
+
     elif sistema == "Windows":
         if not _check_winfsp_windows():
             raise WinFspMissingError("WinFsp not detected on this system.")
+        
     elif sistema == "Linux":
         if not _check_fuse_linux():
             raise EnvironmentError(
@@ -846,9 +852,16 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     else:
         raise EnvironmentError(f"Unsupported OS: {sistema}")
 
+
     mount_base = _get_s3_mount_base() / rclone_profile
-    prefix_sanitizado = s3_prefix.strip("/").replace("/", "_")
+    s3_prefix_limpio = s3_prefix.strip().strip("/")
+    if not s3_prefix_limpio:
+        print(f"[mount] Empty s3_prefix rejected (profile={rclone_profile!r}, prefix={s3_prefix!r})", flush=True)
+        raise EnvironmentError("No folder selected to mount — pick a bucket or folder first.")
+
+    prefix_sanitizado = s3_prefix_limpio.replace("/", "_")
     mount_point = mount_base / prefix_sanitizado
+    print(f"[mount] Mounting {rclone_profile}:{s3_prefix} to {mount_point} ...", flush=True)
 
     if sistema != "Windows":
         _cleanup_stale_mount_point(mount_point)
@@ -882,22 +895,7 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     proceso = subprocess.Popen(comando,env=env, **_subprocess_kwargs())
     _s3_mount_processes.append(proceso)
 
-    #import time
-    #for _ in range(30):
-    #    time.sleep(0.5)
-    #    if os.path.ismount(mount_point):
-    #        break
-    #else:
-    #    print(f"[mount] Warning: mount point not ready after 15s: {mount_point}")
 
-    #try:
-    #    if sistema == "Windows":
-    #        os.startfile(str(mount_point))
-    #    else:
-    #        opener = {"Darwin": ["open"], "Linux": ["xdg-open"]}
-    #        subprocess.Popen(opener[sistema] + [str(mount_point)])
-    #except Exception as e:
-    #    print(f"Mount successful, but could not open file explorer: {e}")
 
 
 # ============================================================================
