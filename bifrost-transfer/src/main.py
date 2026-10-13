@@ -2296,17 +2296,8 @@ def _build_copy_content(
             padding=ft.Padding.symmetric(horizontal=16, vertical=12),
         ),
     )
-    mount_btn = btn_secondary("⊞  Mount destination")
-    #mount_btn.visible = not IS_WEB
-    mount_btn.visible = False
+    
     save_btn  = btn_secondary("↓  Save log")
-    close_btn = btn_secondary("✕  Close")
-
-    def enable_btn(btn):
-        def _do():
-            btn.disabled = False
-            btn.update()
-        backend.ui_call(page, _do)
 
     _cancelling: list = [False]   # mutable flag; reset each time a new operation starts
 
@@ -2752,21 +2743,6 @@ def _build_copy_content(
 
         backend.safe_thread(page, _run_check).start()
 
-    # ── Montar destino ─────────────────────────────────────────────────────
-    def do_mount(e):
-        ruta = _dest_path["value"].strip()
-        if not ruta:
-            show_dialog(page, "Error", "Specify a destination path to mount.", C_ERROR)
-            return
-        try:
-            backend.mount_rclone_S3_prefix_to_folder(perfil_rclone, ruta)
-        except EnvironmentError as ex:
-            err_str = str(ex)
-            show_dialog(page, "FUSE / WinFSP not detected", err_str, C_ERROR)
-        except Exception as ex:
-            err_str = str(ex)
-            show_dialog(page, "Mount error", err_str, C_ERROR)
-
     # ── Guardar log ────────────────────────────────────────────────────────
     def _log_content_from_buffer() -> str:
         """Return log text from the session buffer (web) or the visible list (desktop)."""
@@ -2838,29 +2814,10 @@ def _build_copy_content(
         else:
             page.run_task(_save_log_picker, f"bifrost-{ts}.log")
 
-    # ── Cierre ─────────────────────────────────────────────────────────────
-    def _do_close_cleanup():
-        log("\n🧹 Unmounting mount points...\n")
-        ruta_dest = _dest_path["value"].strip()
-        if ruta_dest:
-            mp = backend.resolver_mount_point_destino(perfil_rclone, ruta_dest)
-            backend.desmontar_punto_montaje(mp, log_fn=log)
-        log("✅ Done.\n")
-        backend.ui_call(page, on_close)
-
-    def do_close(e):
-        show_confirm(
-            page,
-            "Close BIFROST",
-            "This will unmount all mount points and close the application.",
-            on_yes=lambda: backend.safe_thread(page, _do_close_cleanup).start(),
-        )
-
+ 
     copy_btn.on_click  = do_copy
     check_btn.on_click = do_check
-    mount_btn.on_click = do_mount
     save_btn.on_click  = do_save_log
-    close_btn.on_click = do_close
     # cancel_btn.on_click already wired above
 
     bottom_col = ft.Column(
@@ -2873,7 +2830,7 @@ def _build_copy_content(
             card(meta_container),
             ft.Container(height=16),
             ft.Row(
-                [copy_btn, check_btn, cancel_btn, mount_btn, save_btn, close_btn],
+                [copy_btn, check_btn, cancel_btn, save_btn],
                 spacing=8,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 wrap=True,
@@ -4147,7 +4104,6 @@ def main(page: ft.Page):
     
     def _cleanup_on_exit():
         print("[atexit] Cleaning up...")
-        backend.desmontar_todos_los_mounts_s3()
         mounts = state.get("mounts_activos", [])
         if mounts and IS_WEB:
             usuario = (state.get("credenciales_smb") or {}).get("usuario") or getpass.getuser()
@@ -4279,7 +4235,6 @@ def main(page: ft.Page):
         state["servidor_minio"]    = session["servidor_minio"]
         state["perfil_rclone"]     = session["perfil_rclone"]
         state["endpoint"]          = session["endpoint"]
-        # mounts_activos stays [] — OOD web mode has no CIFS shares
 
         def _sweep_sftp_huerfanos():
             try:

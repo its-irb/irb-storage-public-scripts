@@ -45,7 +45,10 @@ la carpeta de la app:
    sed -i '' "s|__BUILDPATH__|${PWD}/..|g" ./pyproject.toml   # macOS
    sed -i "s|__BUILDPATH__|${PWD}/..|g" ./pyproject.toml      # Linux / Git Bash
    ```
-
+   ```bash
+   Copy-Item pyproject-template.toml pyproject.toml
+   (Get-Content pyproject.toml -Raw) -replace '__BUILDPATH__', ((Resolve-Path ..).Path -replace '\\','/') | Set-Content pyproject.toml -NoNewline -Encoding utf8 # Windows
+   ```
 2. Sincronizar el entorno virtual (instala las dependencias y
    `bifrost-shared` desde la ruta local):
 
