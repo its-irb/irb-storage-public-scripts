@@ -1,5 +1,4 @@
 from __future__ import annotations
-import time
 
 """
 IRB MinIO Rclone Data Transfer Tool — FRONTEND (Flet)
@@ -24,12 +23,9 @@ Notas sobre credenciales STS:
 import os
 import sys
 import io
-import stat
 import getpass
-import tempfile
 import subprocess
 import threading
-import traceback
 from typing import Callable
 import pathlib
 from datetime import datetime
@@ -96,45 +92,6 @@ def _log_event(msg: str) -> None:
 
 
 
-
-
-
-
-# ============================================================================
-# DIÁLOGOS GENÉRICOS
-# ============================================================================
-
-
-
-def show_confirm(
-    page: ft.Page,
-    title: str,
-    message: str,
-    on_yes: Callable,
-    on_no: Callable | None = None,
-):
-    def yes(e):
-        page.pop_dialog()
-        on_yes()
-
-    def no(e):
-        page.pop_dialog()
-        if on_no:
-            on_no()
-
-    dlg = ft.AlertDialog(
-        modal=True,
-        title=ft.Text(title, color=C_TEXT, size=15, weight=ft.FontWeight.W_600),
-        content=ft.Text(message, color=C_TEXT_DIM, size=13),
-        actions=[btn_secondary("No", on_click=no), btn_primary("Yes", on_click=yes)],
-        bgcolor=C_OVERLAY,
-        shape=ft.RoundedRectangleBorder(radius=10),
-    )
-    page.show_dialog(dlg)
-    page.update()
-
-
-
 # ============================================================================
 # VISTA: LOGIN LDAP
 # ============================================================================
@@ -142,7 +99,6 @@ def show_confirm(
 def _build_login_content(
     page: ft.Page,
     on_success: Callable,
-    allow_custom_user: bool = True,
 ) -> ft.Control:
 
     try:
@@ -416,7 +372,6 @@ def _build_credentials_content(
 
     def _do_renew():
         import time
-        from datetime import timedelta
 
         duracion_segundos = (duracion_dias or STS_AUTO_RENEWAL_DAYS) * 86400
 
@@ -489,7 +444,7 @@ def _build_credentials_content(
                 dias_renovados = duracion_dias or STS_AUTO_RENEWAL_DAYS
                 log(f"   New credentials expire in: {dias_renovados} days", C_ACCENT)
 
-        log(f"\n✅ Done. Loading mount interface...", C_ACCENT)
+        log("\n✅ Done. Loading mount interface...", C_ACCENT)
 
         def _finish():
             progress.visible  = False
@@ -605,27 +560,6 @@ def build_rclone_browser(
     unmount_all_btn = btn_secondary("⊠  Unmount all")
     unmount_all_btn.visible = False
 
-    def _unmount_bucket(bucket_name: str):
-        mp = mounted_state.get(bucket_name)
-        if not mp:
-            return
-        def _do():
-            _log_event(f"UNMOUNT — bucket: {bucket_name}, path: {mp}")
-            try:
-                backend.desmontar_punto_montaje(mp)
-            except Exception as ex:
-                _log_event(f"UNMOUNT error — bucket: {bucket_name} — {ex}")
-                print(f"[unmount] Error: {ex}")
-            finally:
-                mounted_state.pop(bucket_name, None)
-            def _refresh():
-                if selected_state["bucket"] == bucket_name:
-                    selected_state["bucket"] = None
-                    on_select("")          # notificar al caller
-                _render_buckets(selected_state.get("_all_buckets", []))
-            backend.ui_call(page, _refresh)
-        threading.Thread(target=_do, daemon=True).start()
-
 
     def _unmount_all():
         def _do():
@@ -697,14 +631,6 @@ def build_rclone_browser(
                     icon_color   = C_PRIMARY
                     text_weight  = ft.FontWeight.W_400
 
-                unmount_btn = ft.IconButton(
-                    icon=ft.Icons.EJECT_OUTLINED,
-                    icon_color=C_ERROR,
-                    icon_size=16,
-                    tooltip="Unmount",
-                    visible=is_mounted,
-                    on_click=lambda e, b=bname: _unmount_bucket(b),
-                )
 
                 row = ft.GestureDetector(
                     content=ft.Container(
@@ -725,7 +651,6 @@ def build_rclone_browser(
                                     padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                                     visible=is_mounted,
                                 ),
-                                #unmount_btn,
                             ],
                             spacing=10,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -800,7 +725,6 @@ def build_rclone_browser(
                 height=220,
                 padding=ft.Padding.all(8),
             ),
-            #unmount_all_btn,
         ],
         spacing=6,
         tight=True,
@@ -816,8 +740,6 @@ def build_rclone_browser(
 def _build_mount_bucket(
     page: ft.Page,
     perfil_rclone: str,
-    mounts_activos: list,
-    on_close: Callable,
     endpoint: str,
     credenciales_ldap: dict,
     extra_config: dict | None,
@@ -826,8 +748,7 @@ def _build_mount_bucket(
     mounted_state: dict | None = None,
     on_back: Callable | None = None,
 ) -> ft.Control:
-    usuario_actual = credenciales_ldap["usuario"]
-
+    
     # ── Badge de expiración de credenciales ───────────────────────────────
     token_actual  = backend.get_rclone_session_token(perfil_rclone)
     tiempo_expira = backend.get_expiration_from_session_token(token_actual) if token_actual else None
@@ -938,19 +859,12 @@ def _build_mount_bucket(
     if mounted_state is None:
         mounted_state = {}
 
-    ruta_label = ft.Text(
-        f"→ {perfil_rclone}: (select a bucket above)",
-        size=12,
-        color=C_WARNING,
-        font_family=FONT_MONO,
-        font_family_fallback=MONO_FALLBACK,
-    )
 
     def on_browser_select(path: str):
         _dest_path["value"] = path
 
     # ── Montar bucket ─────────────────────────────────────────────────────
-    mount_btn    = btn_secondary("⊞  Mount bucket")
+    mount_btn = btn_secondary("⊞  Mount bucket")
     mount_status = ft.Text("", size=12, color=C_TEXT_DIM, visible=False)
 
     def _prompt_install_winfsp(on_success):
@@ -1081,8 +995,6 @@ def _build_mount_bucket(
 
                 # Abrir explorador
                 try:
-                    import time, platform as _platform
-                    sistema = _platform.system()
                     if sistema == "Windows":
                         os.startfile(mp)
                     else:
@@ -1198,43 +1110,6 @@ def _build_mount_bucket(
     return content
 
 
-# ============================================================================
-# UPDATER WINDOWS
-# ============================================================================
-
-def _escribir_y_lanzar_updater_windows(ruta_actual: str, nueva_ruta: str) -> None:
-    updater_code = f"""@echo off
-setlocal
-set "OLD_EXE={ruta_actual}"
-set "NEW_EXE={nueva_ruta}"
-echo Waiting for the application to close...
-set /a i=0
-:waitloop
-if %i% geq 30 goto timeout_err
-del /f "%OLD_EXE%" >nul 2>&1
-if not exist "%OLD_EXE%" goto do_move
-timeout /t 1 /nobreak >nul
-set /a i+=1
-goto waitloop
-:do_move
-move /y "%NEW_EXE%" "%OLD_EXE%"
-if errorlevel 1 (echo ERROR: Could not replace executable. & pause & exit /b 1)
-echo Update completed! Please reopen the application.
-pause
-exit /b 0
-:timeout_err
-echo ERROR: Timeout waiting for old executable.
-pause
-exit /b 1
-"""
-    with tempfile.NamedTemporaryFile(
-        delete=False, suffix=".bat", mode="w", encoding="utf-8"
-    ) as f:
-        f.write(updater_code)
-        updater_path = f.name
-    subprocess.Popen(["cmd.exe", "/c", "start", "", updater_path], shell=False)
-    os._exit(0)
-
 
 # ============================================================================
 # FUNCIÓN PRINCIPAL
@@ -1246,7 +1121,6 @@ def main(page: ft.Page):
 
     state = {
         "credenciales_ldap": None,
-        "mounts_activos":    [],
         "servidor_minio":    None,
         "perfil_rclone":     None,
         "endpoint":          None,
@@ -1303,27 +1177,6 @@ def main(page: ft.Page):
     def show_screen(content: ft.Control):
         body.content = content
         page.update()
-
-    def show_loading(message: str = "Loading..."):
-        show_screen(
-            ft.Column(
-                [
-                    ft.Container(expand=True),
-                    ft.Column(
-                        [
-                            ft.ProgressRing(color=C_PRIMARY, width=48, height=48, stroke_width=4),
-                            ft.Container(height=16),
-                            ft.Text(message, size=14, color=C_TEXT_DIM),
-                        ],
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=0,
-                    ),
-                    ft.Container(expand=True),
-                ],
-                expand=True,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            )
-        )
 
     def go_login():
         show_screen(_build_login_content(page, on_success=on_login_success))
@@ -1391,8 +1244,6 @@ def main(page: ft.Page):
         show_screen(_build_mount_bucket(
             page,
             perfil_rclone=state["perfil_rclone"],
-            mounts_activos=state["mounts_activos"],
-            on_close=do_close,
             endpoint=state["endpoint"],
             credenciales_ldap=state["credenciales_ldap"],
             extra_config=extra_config,
@@ -1402,8 +1253,6 @@ def main(page: ft.Page):
             on_back=go_minio,
         ))
 
-    def do_close():
-        page.window.close()
 
     show_screen(build_update_content(page, on_continue=go_login))
 
