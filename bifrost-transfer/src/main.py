@@ -280,10 +280,17 @@ def show_confirm(
 # VISTA: LOGIN LDAP
 # ============================================================================
 
+_LDAP_ERROR_MESSAGES = {
+    "vpn":     "⚠️ Cannot reach the IRB network. Are you connected to the VPN?",
+    "network": "⚠️ Could not reach the LDAP server. Try again or contact ITS.",
+    "error":   "⚠️ Unexpected error validating credentials. Contact ITS.",
+}
+# user_not_found / invalid_password no están a propósito: usan el mensaje por defecto.
+
+
 def _build_login_content(
     page: ft.Page,
     on_success: Callable,
-    allow_custom_user: bool = True,
     prefill_user: str = "",
 ) -> ft.Control:
 
@@ -295,7 +302,6 @@ def _build_login_content(
     user_tf, user_col = styled_field(
         "Username",
         value=default_user,
-        disabled=False,  # siempre editable
         hint="your.username",
     )
 
@@ -306,17 +312,27 @@ def _build_login_content(
                                   color=C_PRIMARY, visible=False)
     login_btn  = btn_primary("Authenticate", width=280)
 
+    def _set_busy(busy: bool):
+        """Bloquea el formulario mientras se valida (evita doble envío y edición)."""
+        login_btn.disabled = user_tf.disabled = pass_tf.disabled = busy
+        loading.visible = busy
+
+    def _show_error(msg: str):
+        error_text.value   = msg
+        error_text.visible = True
+        _set_busy(False)
+        page.update()
+
     def do_login(e=None):
         user = (user_tf.value or "").strip()
-        pwd  = (pass_tf.value or "").strip()
+        pwd  = pass_tf.value or ""
         if not user or not pwd:
-            error_text.value   = "Username and password are required."
+            error_text.value   = "Username is required." if not user else "Password is required."
             error_text.visible = True
             page.update()
             return
 
-        login_btn.disabled = True
-        loading.visible    = True
+        _set_busy(True)
         error_text.visible = False
         page.update()
 
@@ -329,18 +345,9 @@ def _build_login_content(
             if ok:
                 backend.ui_call(page, lambda: on_success(creds))
             else:
-                msg = (
-                    "⚠️ Cannot reach the IRB network. Are you connected to the VPN?"
-                    if motivo == "vpn"
-                    else "Invalid credentials. Please try again."
-                )
-                def _fail():
-                    error_text.value   = msg
-                    error_text.visible = True
-                    login_btn.disabled = False
-                    loading.visible    = False
-                    page.update()
-                backend.ui_call(page, _fail)
+                msg = _LDAP_ERROR_MESSAGES.get(motivo, "Invalid credentials. Please try again.")
+                print(f"[login] failed — user: {user} — reason: {motivo}")
+                backend.ui_call(page, lambda: _show_error(msg))
 
         backend.safe_thread(page, _auth).start()
 
@@ -4129,8 +4136,6 @@ def main(page: ft.Page):
     page.window.prevent_close = True
     
 
-    ALLOW_CUSTOM_USER = True # "--customuser" in sys.argv or "-c" in sys.argv
-
     body = ft.Container(expand=True, bgcolor=C_BG)
     page.scroll = ft.ScrollMode.AUTO
     page.add(body)
@@ -4201,12 +4206,10 @@ def main(page: ft.Page):
                 show_screen(_build_login_content(
                     page,
                     on_success=lambda creds: on_login_success_with_restore(creds, session),
-                    allow_custom_user=ALLOW_CUSTOM_USER,
                     prefill_user=last_user,
                 ))
                 return
-        show_screen(_build_login_content(page, on_success=on_login_success,
-                                          allow_custom_user=ALLOW_CUSTOM_USER))
+        show_screen(_build_login_content(page, on_success=on_login_success))
 
     def on_login_success_with_restore(creds: dict, session: dict) -> None:
         """

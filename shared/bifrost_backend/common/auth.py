@@ -8,10 +8,14 @@ import requests
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from ldap3 import Connection, SIMPLE, SUBTREE, Server
+from ldap3.core.exceptions import LDAPCommunicationError
+from ldap3.utils.conv import escape_filter_chars
 from xml.etree import ElementTree as etree
 
 from .constants import LDAP_BASE_DN, LDAP_SERVER_URL
 from .rclone import obtener_ruta_rclone_conf
+
+LDAP_TIMEOUT = 10  # segundos: conexión y respuesta
 
 
 def get_credentials(endpoint: str, username: str, password: str, durationseconds: int = 86400) -> dict | None:
@@ -165,29 +169,44 @@ def get_session_info(profile_name: str) -> SessionInfo | None:
 
 
 def validar_credenciales_ldap(credenciales_ldap: dict | None) -> tuple[bool, str | None]:
-    """Valida credenciales LDAP mediante un bind autenticado."""
+    """
+    Valida credenciales LDAP mediante un bind autenticado.
+
+    Returns:
+        (True, None) si son correctas. Si no, (False, motivo) con motivo en:
+          "invalid"          sin credenciales
+          "user_not_found"   el usuario no existe en LDAP
+          "invalid_password" el usuario existe pero la contraseña no es correcta
+          "vpn"              no se resuelve el servidor (sin red del IRB / VPN)
+          "network"          otro fallo de comunicación (timeout, conexión rechazada)
+          "error"            cualquier otra excepción
+    """
     if not credenciales_ldap:
-        return False, "invalid", "invalid"
+        return False, "invalid"
     usuario  = credenciales_ldap["usuario"]
     password = credenciales_ldap["password"]
-    server = Server(LDAP_SERVER_URL)
+    server = Server(LDAP_SERVER_URL, connect_timeout=LDAP_TIMEOUT)
     try:
-        conn = Connection(server, auto_bind=True)
-        conn.search(LDAP_BASE_DN, f"(cn={usuario})", SUBTREE, attributes=["dn"])
+        conn = Connection(server, auto_bind=True, receive_timeout=LDAP_TIMEOUT)
+        conn.search(LDAP_BASE_DN, f"(cn={escape_filter_chars(usuario)})", SUBTREE, attributes=["dn"])
         print(f"[debug] - LDAP: Search for user '{usuario}' returned {len(conn.entries)} entries.")
         if not conn.entries:
-            print("[debug] - LDAP: No se encontró el usuario. conn.entries")
-            return False, "invalid"
+            print("[debug] - LDAP: No se encontró el usuario.")
+            return False, "user_not_found"
         user_dn = conn.entries[0].entry_dn
-        conn_auth = Connection(server, user=user_dn, password=password, authentication=SIMPLE)
+        conn_auth = Connection(server, user=user_dn, password=password,
+                               authentication=SIMPLE, receive_timeout=LDAP_TIMEOUT)
         print(f"[debug] - LDAP: Validating credentials for user: {conn_auth}")
         if conn_auth.bind():
             conn_auth.unbind()
             conn.unbind()
             return True, None
-        return False, "invalid"
-    except Exception as e:
-        print(f"LDAP validation error: {e}")
+        return False, "invalid_password"
+    except LDAPCommunicationError as e:
+        print(f"LDAP communication error: {e}")
         if "invalid server address" in str(e).lower():
             return False, "vpn"
-        return False, "invalid"
+        return False, "network"
+    except Exception as e:
+        print(f"LDAP validation error: {type(e).__name__}: {e}")
+        return False, "error"
