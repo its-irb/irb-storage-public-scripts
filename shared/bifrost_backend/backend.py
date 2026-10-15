@@ -23,10 +23,8 @@ from .common.rclone import (
 )
 from .common.auth import (
     get_credentials,
-    get_usuario_from_session_token,
     configure_rclone,
-    get_rclone_session_token,
-    get_expiration_from_session_token,
+    get_session_info,
     validar_credenciales_ldap,
 )
 from .common.updates import (

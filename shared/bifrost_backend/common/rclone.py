@@ -7,6 +7,7 @@ import re
 import shutil
 import stat
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 from sys import platform as sys_platform
 
@@ -90,6 +91,7 @@ def _subprocess_kwargs() -> dict:
     return {}
 
 
+@lru_cache(maxsize=1)
 def obtener_ruta_rclone_conf() -> Path:
     """Ejecuta `rclone config file` y devuelve la ruta absoluta al rclone.conf activo."""
     rclone = get_rclone_executable()

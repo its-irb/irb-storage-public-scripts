@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import configparser
 import jwt
-import os
 import requests
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from ldap3 import Connection, SIMPLE, SUBTREE, Server
-from sys import platform as sys_platform
 from xml.etree import ElementTree as etree
 
 from .constants import LDAP_BASE_DN, LDAP_SERVER_URL
@@ -29,7 +28,7 @@ def get_credentials(endpoint: str, username: str, password: str, durationseconds
         "DurationSeconds": durationseconds,
         "Version": "2011-06-15",
     }
-    r = requests.post(endpoint, data=payload)
+    r = requests.post(endpoint, data=payload, timeout=30)
 
     print(f"[STS] HTTP {r.status_code}")
     if r.status_code >= 400:
@@ -45,7 +44,7 @@ def get_credentials(endpoint: str, username: str, password: str, durationseconds
 
     ns = {"ns": "https://sts.amazonaws.com/doc/2011-06-15/"}
 
-    err = root.find("ns:Error", ns) or root.find(".//ns:Error", ns)
+    err = root.find(".//ns:Error", ns)
     if err is not None:
         code  = err.findtext("ns:Code", namespaces=ns)
         msg   = err.findtext("ns:Message", namespaces=ns)
@@ -64,19 +63,6 @@ def get_credentials(endpoint: str, username: str, password: str, durationseconds
         _, _, tag = el.tag.rpartition("}")
         credentials[tag] = el.text
     return credentials
-
-
-def get_usuario_from_session_token(session_token: str) -> str | None:
-    """Extrae el usuario del JWT del session_token de MinIO."""
-    try:
-        payload = jwt.decode(session_token, options={"verify_signature": False})
-        #print(f"[token] payload keys: {list(payload.keys())}")
-        usuario = payload.get("ldapUsername") or payload.get("sub")
-        print(f"[token] ldapUsername={usuario!r}")
-        return usuario
-    except Exception as e:
-        print(f"Error leyendo usuario del token: {e}")
-        return None
 
 
 def configure_rclone(
@@ -121,59 +107,67 @@ def configure_rclone(
         config.write(f)
 
 
-def get_rclone_session_token(profile_name: str, config_path: str | None = None) -> str:
-    """Lee el session_token del perfil rclone dado. Devuelve '' si no existe."""
-    if not config_path:
-        if sys_platform == "darwin":
-            config_path = os.path.expanduser("~/.config/rclone/rclone.conf")
-        elif sys_platform == "win32":
-            config_path = os.path.join(
-                os.path.expanduser("~"), "AppData", "Roaming", "rclone", "rclone.conf"
-            )
-        else:
-            config_path = os.path.expanduser("~/.config/rclone/rclone.conf")
+@dataclass(frozen=True)
+class SessionInfo:
+    """Usuario y tiempo restante del session_token STS guardado en un perfil rclone."""
+    usuario: str | None = None
+    remaining: timedelta | None = None   # None si el JWT no se pudo leer o no trae 'exp'
 
-    if not os.path.isfile(config_path):
-        print(f"El fichero de configuracion de rclone {config_path} no existe")
-        return ""
+    @property
+    def expired(self) -> bool:
+        return self.remaining is not None and self.remaining <= timedelta(0)
 
-    config = configparser.ConfigParser()
-    config.read(config_path)
+    def needs_renewal(self, usuario: str, threshold_days: int) -> bool:
+        """True si el token es de otro usuario, no se puede leer o caduca en <= threshold_days."""
+        return (
+            self.usuario != usuario
+            or self.remaining is None
+            or self.remaining <= timedelta(days=threshold_days)
+        )
 
-    if profile_name not in config:
-        print(f"Perfil '{profile_name}' no encontrado en {config_path}")
-        return ""
+    def remaining_text(self) -> str:
+        if self.remaining is None:
+            return "unknown"
+        if self.expired:
+            return "expired"
+        return f"{self.remaining.days}d {self.remaining.seconds // 3600}h"
 
-    return config[profile_name].get("session_token", "")
 
-
-def get_expiration_from_session_token(session_token: str):
+def get_session_info(profile_name: str) -> SessionInfo | None:
     """
-    Decodifica el JWT del session_token y devuelve el tiempo restante hasta expiración.
+    Lee el session_token del perfil rclone y lo decodifica una sola vez.
 
     Returns:
-        timedelta restante o None si no se puede leer.
+        None si no se puede leer rclone.conf o el perfil no existe / no tiene token (= no hay credenciales).
+        SessionInfo con usuario y remaining a None si el token existe pero no se puede leer.
     """
     try:
-        payload = jwt.decode(session_token, options={"verify_signature": False})
-        exp_timestamp = payload.get("exp")
-        if not exp_timestamp:
-            print("El token no contiene 'exp'.")
-            return None
-        exp_time = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc)
-        now = datetime.now(timezone.utc)
-        remaining = exp_time - now
-        print(f"Expira en: {remaining} ({exp_time})")
-        return remaining
+        config = configparser.ConfigParser(interpolation=None)
+        config.read(obtener_ruta_rclone_conf())   # read() ignora ficheros inexistentes
     except Exception as e:
-        print(f"Error decodificando token: {e}")
+        print(f"[token] No pude leer rclone.conf: {e}")
         return None
+
+    token = config[profile_name].get("session_token", "") if profile_name in config else ""
+    if not token:
+        print(f"[token] Sin session_token para el perfil '{profile_name}'")
+        return None
+
+    try:
+        payload = jwt.decode(token, options={"verify_signature": False})
+    except Exception as e:
+        print(f"[token] Error decodificando token: {e}")
+        return SessionInfo()
+
+    exp = payload.get("exp")
+    remaining = datetime.fromtimestamp(exp, tz=timezone.utc) - datetime.now(timezone.utc) if exp else None
+    return SessionInfo(usuario=payload.get("ldapUsername") or payload.get("sub"), remaining=remaining)
 
 
 def validar_credenciales_ldap(credenciales_ldap: dict | None) -> tuple[bool, str | None]:
     """Valida credenciales LDAP mediante un bind autenticado."""
     if not credenciales_ldap:
-        return False
+        return False, "invalid", "invalid"
     usuario  = credenciales_ldap["usuario"]
     password = credenciales_ldap["password"]
     server = Server(LDAP_SERVER_URL)

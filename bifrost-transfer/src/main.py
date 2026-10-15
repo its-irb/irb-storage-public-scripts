@@ -54,7 +54,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import traceback
 import pathlib
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Callable
 
 import flet as ft
@@ -897,22 +897,18 @@ def _build_credentials_content(
 
     def _do_renew():
         import time
-        from datetime import timedelta
 
         duracion_segundos = (duracion_dias or STS_AUTO_RENEWAL_DAYS) * 86400
 
-        token_actual = backend.get_rclone_session_token(perfil_rclone)
-        if token_actual:
-            tiempo = backend.get_expiration_from_session_token(token_actual)
-            if tiempo:
-                log(f"⚠️  Current credentials expire in: {tiempo}", C_WARNING)
-                log(f"    (threshold: {STS_RENEWAL_THRESHOLD_DAYS} days → renewal required)", C_TEXT_DIM)
-            else:
-                log("⚠️  Could not read expiry from current token.", C_WARNING)
-        else:
+        info = backend.get_session_info(perfil_rclone)
+        if info is None:
             log("⚠️  No credentials found for this profile.", C_WARNING)
+        elif info.remaining is None:
+            log("⚠️  Could not read expiry from current token.", C_WARNING)
+        else:
+            log(f"⚠️  Current credentials expire in: {info.remaining_text()}", C_WARNING)
 
-        log(f"\n🔄 Requesting new STS credentials ({STS_AUTO_RENEWAL_DAYS} days)...", C_PRIMARY)
+        log(f"\n🔄 Requesting new STS credentials ({duracion_dias or STS_AUTO_RENEWAL_DAYS} days)...", C_PRIMARY)
         log(f"   Profile  : {perfil_rclone}", C_TEXT_DIM)
         log(f"   Endpoint : {endpoint}", C_TEXT_DIM)
         log(f"   User     : {credenciales_ldap['usuario']}", C_TEXT_DIM)
@@ -963,12 +959,11 @@ def _build_credentials_content(
             extra_config=extra_config,
         )
 
-        new_token = backend.get_rclone_session_token(perfil_rclone)
-        if new_token:
-            nuevo_tiempo = backend.get_expiration_from_session_token(new_token)
-            if nuevo_tiempo:
-                dias_renovados = duracion_dias or STS_AUTO_RENEWAL_DAYS
-                log(f"   New credentials expire in: {dias_renovados} days", C_ACCENT)
+        new_info = backend.get_session_info(perfil_rclone)
+        if new_info and new_info.remaining is not None:
+            log(f"   New credentials expire in: {new_info.remaining_text()}", C_ACCENT)
+        else:
+            log("⚠️  Could not verify the new token in rclone config.", C_WARNING)
 
         log(f"\n✅ Done. Continuing to copy interface...", C_ACCENT)
 
@@ -1945,13 +1940,12 @@ def _build_copy_content(
     rclone_config_path = str(backend.obtener_ruta_rclone_conf())
 
     # ── Badge de expiración de credenciales ───────────────────────────────
-    token_actual = backend.get_rclone_session_token(perfil_rclone)
-    tiempo_expira = backend.get_expiration_from_session_token(token_actual) if token_actual else None
+    info = backend.get_session_info(perfil_rclone)
 
-    if tiempo_expira:
-        dias = tiempo_expira.days
+    if info and info.remaining is not None:
+        dias = info.remaining.days
         color_badge = C_ERROR if dias < 1 else C_WARNING if dias <= STS_RENEWAL_THRESHOLD_DAYS else C_ACCENT
-        expiry_text = f"🔑 Credentials expire in {dias}d {tiempo_expira.seconds // 3600}h"
+        expiry_text = "🔑 Credentials expired" if info.expired else f"🔑 Credentials expire in {info.remaining_text()}"
     else:
         color_badge = C_TEXT_DIM
         expiry_text = "🔑 Credentials: unknown expiry"
@@ -4274,31 +4268,17 @@ def main(page: ft.Page):
         _go_credentials_or_copy()
 
     def _go_credentials_or_copy():
-        from datetime import timedelta
-
         perfil  = state["perfil_rclone"]
-        token   = backend.get_rclone_session_token(perfil)
         usuario_actual = state["credenciales_ldap"]["usuario"]
 
-        needs_renewal = True
-        if token:
-            usuario_token = backend.get_usuario_from_session_token(token)
-            tiempo = backend.get_expiration_from_session_token(token)
-            if (
-                usuario_token == usuario_actual
-                and tiempo
-                and tiempo > timedelta(days=STS_RENEWAL_THRESHOLD_DAYS)
-            ):
-                needs_renewal = False
-                print(
-                    f"[credentials] Token valid for {tiempo} "
-                    f"(> {STS_RENEWAL_THRESHOLD_DAYS} days) and belongs to {usuario_actual} → skipping renewal"
-                )
-            else:
-                print(
-                    f"[credentials] Renewal needed — token user: {usuario_token!r}, "
-                    f"login user: {usuario_actual!r}, expiry: {tiempo}"
-                )
+        info = backend.get_session_info(perfil)
+        needs_renewal = info is None or info.needs_renewal(usuario_actual, STS_RENEWAL_THRESHOLD_DAYS)
+        if info is not None:
+            print(
+                f"[credentials] {'Renewal needed' if needs_renewal else 'Token valid → skipping renewal'} — "
+                f"token user: {info.usuario!r}, login user: {usuario_actual!r}, "
+                f"expiry: {info.remaining_text()}"
+            )
 
         if needs_renewal:
             servidor     = state["servidor_minio"]
