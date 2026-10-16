@@ -226,46 +226,6 @@ def _ws_clear(usuario: str) -> None:
     print(f"[session] Cleared session for {usuario!r}")
 
 
-
-
-
-
-# ============================================================================
-# DIÁLOGOS GENÉRICOS
-# ============================================================================
-
-
-def show_confirm(
-    page: ft.Page,
-    title: str,
-    message: str,
-    on_yes: Callable,
-    on_no: Callable | None = None,
-):
-    def yes(e):
-        page.pop_dialog()
-        on_yes()
-
-    def no(e):
-        page.pop_dialog()
-        if on_no:
-            on_no()
-
-    dlg = ft.AlertDialog(
-        modal=True,
-        title=ft.Text(title, color=C_TEXT, size=15, weight=ft.FontWeight.W_600),
-        content=ft.Text(message, color=C_TEXT_DIM, size=13),
-        actions=[btn_secondary("No", on_click=no), btn_primary("Yes", on_click=yes)],
-        bgcolor=C_OVERLAY,
-        shape=ft.RoundedRectangleBorder(radius=10),
-    )
-    #page.overlay.append(dlg)
-    #dlg.open = True
-    page.show_dialog(dlg)
-    page.update()
-
-
-
 # ============================================================================
 # VISTA: LOGIN LDAP
 # ============================================================================
