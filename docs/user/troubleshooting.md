@@ -15,6 +15,20 @@ choose the MinIO server.
 
 **Symptom**: an error appears when you sign in.
 
+While the app checks your account, the **Authenticate** button and both fields
+turn grey and a small spinner appears. This can take up to about 10 seconds;
+wait until the spinner disappears.
+
+Find the message you see in red under the password field:
+
+| Message | What it means | What to do |
+|---|---|---|
+| Username is required. / Password is required. | One of the two fields is empty. | Type the missing field and click **Authenticate** again. |
+| Invalid credentials. Please try again. | The username or the password is not correct. | Check your **username and password**: they are the ones you use to sign in to your IRB computer. |
+| ⚠️ Cannot reach the IRB network. Are you connected to the VPN? | The app cannot reach the IRB network. | Switch on the **Nexica VPN (Forticlient)** and try again. |
+| ⚠️ Could not reach the LDAP server. Try again or contact ITS. | The IRB service that checks your account did not answer. | Wait a moment and try again. If it keeps happening, contact ITS. |
+| ⚠️ Unexpected error validating credentials. Contact ITS. | Something unexpected went wrong while checking your account. | Contact ITS and tell them the time it happened. |
+
 - Check your **username and password**: they are the ones you use to sign in
   to your IRB computer.
 - **Computers that cannot check your IRB account but can reach MinIO** (for

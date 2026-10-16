@@ -11,7 +11,7 @@ Read only the module you need for the task. Index:
 |---|---|
 | [architecture.md](architecture.md) | Any task: what each component is, repo layout, coupling and invariants. |
 | [backend.md](backend.md) | Changes in `shared/bifrost_backend/` (rclone, STS, LDAP, SMB, S3, tagging, autoupdate). |
-| [frontend.md](frontend.md) | Changes in `bifrost-*/src/` (Flet views, web mode, `meta_fields.py`, UI conventions). |
+| [frontend.md](frontend.md) | Changes in `bifrost-*/src/` and `shared/bifrost_frontend/` (Flet views, shared views, web mode, `meta_fields.py`, UI conventions). |
 | [operations.md](operations.md) | Running, packaging, CI, releases, environment variables. |
 | [conventions-gotchas.md](conventions-gotchas.md) | Before modifying code: critical rules and known pitfalls. |
 

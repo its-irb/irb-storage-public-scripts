@@ -43,7 +43,8 @@ asks if you want to update, and downloads it if you accept.
 2. Type your **IRB username and password**.
 3. Choose the **MinIO server** that belongs to your research group.
 4. Wait a moment: the app gets a temporary access pass for MinIO by itself. It
-   lasts 7 days and renews automatically when it is about to expire, showing a
+   lasts 7 days. Each time you sign in, if it has 3 days or less left (or you
+   do not have one yet), the app renews it for 7 days by itself, showing a
    progress bar. You never have to type any keys.
 5. You arrive at the main screen of the app:
    - **Bifrost transfer** → the copy screen
@@ -55,6 +56,36 @@ asks if you want to update, and downloads it if you accept.
 
 After signing in you see the copy screen (Bifrost transfer) or the mount screen
 (Bifrost mount).
+
+## Renew your MinIO access pass by hand
+
+The app only renews the access pass by itself when you sign in. If you keep
+the app open for several days, or you are about to start a long copy, renew it
+by hand so it does not run out in the middle.
+
+At the top of the mount screen and of the copy screen there is a label that
+shows how long your access pass lasts, for example
+**🔑 Credentials expire in 6d 23h** (6 days and 23 hours). It turns red when
+less than 1 day is left and orange when 3 days or less are left.
+
+1. Click **🔑 Renew credentials** (in the same row as that label, at the right
+   end).
+2. A small window opens. Next to **Renew for:**, type how many days you want
+   (from 1 to 30; it shows 7 by default).
+3. Click **🔄 Renew**. To close the window without renewing, click
+   **Cancel**.
+4. A screen shows the progress of the renewal. When it finishes, you go back to
+   the screen where you were.
+
+**Expected result**: the label at the top shows the new time left.
+
+**If something goes wrong**:
+
+- **Enter a value between 1 and 30 days.** or **Invalid number.**: type a whole
+  number from 1 to 30 and click **🔄 Renew** again.
+- If the renewal screen shows **❌ Connection error.** or **❌ Renewal failed.**,
+  check that the Nexica VPN is on, close and open the app, sign in again and
+  repeat. If it keeps failing, see [troubleshooting.md](troubleshooting.md).
 
 ## If something goes wrong
 

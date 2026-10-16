@@ -57,10 +57,30 @@ flet run
 Useful flags:
 
 ```bash
-flet run --customuser     # Sign in with a user different from the system one
-flet run --update         # Force autoupdate
+flet run --update         # Meant to force autoupdate — currently has no effect (see below)
 flet run --web            # (transfer only) web mode for local development
 BIFROST_CLUSTER=1 python src/main.py --web  # (transfer only) simulate OOD production
+```
+
+- `--update` currently does nothing: `check_update_version()` receives
+  `force_update`, but the test block that simulates version `999.999.999` is
+  commented out. Uncomment it in
+  `shared/bifrost_backend/common/updates.py` (and reinstall the shared package)
+  to test the update screen.
+- The username field of the login is always editable; there is no flag to sign
+  in with another user.
+- With Flet 0.84, `flet run --web` fails with
+  `ModuleNotFoundError: No module named 'flet_desktop'` if `flet run` (desktop)
+  has never been run in that venv (`flet_cli` imports `flet_desktop` even in web
+  mode). It also installs `flet-web`, `fastapi`, `uvicorn` and others in the
+  venv and can change pinned versions (it upgraded `httptools`). Alternative
+  without the Flet CLI, from `bifrost-transfer/`, serving on port 8000 (change
+  it with `FLET_SERVER_PORT`; open `http://localhost:8000` by hand). Flet also
+  installs `flet-web` automatically if it is missing (the app's dependencies
+  only include it on Linux):
+
+```bash
+FLET_FORCE_WEB_SERVER=true python src/main.py --web
 ```
 
 After changing code in `shared/`, reinstall the shared package:

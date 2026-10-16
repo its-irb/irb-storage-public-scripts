@@ -18,11 +18,13 @@ Cross-cutting knowledge that constrains any change. Technical details in
 
 ## Structure and coupling
 
-4. **The backend imports from the frontend**: `backend.py` uses `show_dialog`
-   and `C_ERROR` from `bifrost_frontend.frontend`. It is coupled (not a "pure"
-   backend).
+4. **The backend imports from the frontend in one place only**:
+   `common/ui_helpers.safe_thread` imports `show_dialog` and `C_ERROR` from
+   `bifrost_frontend.frontend` lazily (inside the function) to show unhandled
+   exceptions. Keep it lazy: a top-level import creates a circular import.
 5. **`config.py` must be importable as a top-level module** in each app — the
-   backend does `from config import APP_INFO`.
+   backend (`common/rclone.py`, `common/updates.py`) and the frontend modules
+   do `from config import APP_INFO`.
 6. **`TAG_PROFILES` and `LAB_ACRONYMS` are canonical in
    `bifrost-transfer/src/meta_fields.py`**: the copy form and Tag Manager use
    `TAG_PROFILES`, `build_meta_fields`, `LAB_ACRONYMS`,
@@ -32,33 +34,44 @@ Cross-cutting knowledge that constrains any change. Technical details in
    MinIO buckets. `detect_profile(tags)` finds which profile fits a
    `dict[str, str]` of tags; `build_meta_fields` accepts the optional
    `prefill_values: dict[str, str]` to pre-fill controls.
+7. **`IS_WEB` lives only in `bifrost-transfer/src/main.py`** (it depends on
+   `__name__ != "__main__"`, and `main()` updates it with `page.web`). Modules
+   that read it declare `IS_WEB = False` and receive the real value from
+   `_propagar_is_web()`. If a new module reads `IS_WEB`, add it to the tuple in
+   `_propagar_is_web()`; otherwise it silently behaves as desktop.
+8. **Views never import `main`** (`main.py` imports the views; the reverse is a
+   circular import). Shared constants (`STS_*`, `NO_LDAP`) come from
+   `bifrost_backend.common.constants`; the mount session log from
+   `session_log.py`; web sessions from `web_session.py`.
 
 ## Visible behaviour to preserve
 
-7. **STS credentials**: if more than 3 days remain they are reused; with less
-   than 3 days they are renewed automatically for 7 days
-   (`STS_RENEWAL_THRESHOLD_DAYS` / `STS_AUTO_RENEWAL_DAYS` in `main.py`).
-8. **WinFsp auto-install (`bifrost-mount` only, Windows)**: if WinFsp is
-   missing when mounting, the backend raises `WinFspMissingError` (subclass of
-   `EnvironmentError`) and the UI offers to download the latest official
-   release (`github.com/winfsp/winfsp`) through
-   `backend.install_winfsp_windows()`. It needs UAC; the MSI is cached in
-   `%TEMP%`. The messages of this flow are in **English**. `bifrost-transfer`
-   has no such flow.
-9. **Language of the code**: follow the surrounding code (backend names,
-   comments and docstrings are mostly Spanish; UI strings in the apps are
-   mostly English).
-10. **Conditional visibility in the copy form**: the METADATA section, action
+9. **STS credentials**: if more than 3 days remain and the token belongs to the
+   user who signed in, they are reused; otherwise they are renewed
+   automatically for 7 days (`STS_RENEWAL_THRESHOLD_DAYS` /
+   `STS_AUTO_RENEWAL_DAYS` in `bifrost_backend.common.constants`). The mount
+   and copy views also offer manual renewal ("🔑 Renew credentials", 1–30 days).
+10. **WinFsp auto-install (`bifrost-mount` only, Windows)**: if WinFsp is
+    missing when mounting, the backend raises `WinFspMissingError` (subclass of
+    `EnvironmentError`) and the UI offers to download the latest official
+    release (`github.com/winfsp/winfsp`) through
+    `backend.install_winfsp_windows()`. It needs UAC; the MSI is cached in
+    `%TEMP%`. The messages of this flow are in **English**. `bifrost-transfer`
+    has no such flow.
+11. **Language of the code**: follow the surrounding code (backend names,
+    comments and docstrings are mostly Spanish; UI strings in the apps are
+    mostly English).
+12. **Conditional visibility in the copy form**: the METADATA section, action
     buttons and LOG OUTPUT (`bottom_col.visible=False`) stay hidden until a
     destination bucket is selected. The toggle lives in `on_browser_select`:
     non-empty `path` → visible; back to root → hidden.
-11. **Lab filter in bucket browsers**: the destination browser of the copy view
+13. **Lab filter in bucket browsers**: the destination browser of the copy view
     and the Tag Manager browser include "Filter by lab…"
     (`build_lab_filter_widget`), which reads the `acronym` tag of each bucket
     with `backend.get_bucket_tags` in parallel (`ThreadPoolExecutor`). It hides
     when navigating into a bucket and reappears at the root. It only filters at
     bucket level (root).
-12. **Ephemeral SFTP source (`bifrost-transfer`)**: the "🌐 SFTP" button creates
+14. **Ephemeral SFTP source (`bifrost-transfer`)**: the "🌐 SFTP" button creates
     a temporary rclone profile (`sftp-src-<random>`, type `sftp`, password
     obscured with `rclone obscure`) in `rclone.conf`. For security it **must not
     outlive the session**: it is deleted on Disconnect (✕) and on leaving the
@@ -71,21 +84,21 @@ Cross-cutting knowledge that constrains any change. Technical details in
     because MinIO listing over HDD is slow. A folder or a single file can be
     chosen as the source (same `profile:path` format). Background in
     `docs/superpowers/specs/2026-07-30-sftp-source-design.md`.
-13. **"Mount NetApp" button (`bifrost-transfer`, web mode only)**: the copy
+15. **"Mount NetApp" button (`bifrost-transfer`, web mode only)**: the copy
     view shows `⊞  Mount NetApp` only when `IS_WEB` is true and the `on_cifs`
     callback exists; it opens the CIFS shares view (`go_cifs`).
-14. **Known cluster limitation (from the maintainers)**: Bifrost mount in a DCV
+16. **Known cluster limitation (from the maintainers)**: Bifrost mount in a DCV
     session fails straight away on node `ccn01`; use other nodes (for example
     `sphr`). This is not enforced in the repository code.
 
 ## Repository hygiene
 
-15. **Do not commit** `.venv/`, `dist/`, `build/`, generated `src/version.py` or
+17. **Do not commit** `.venv/`, `dist/`, `build/`, generated `src/version.py` or
     the local `pyproject.toml` of the apps. See `.gitignore`.
 
 ## Documentation hygiene
 
-16. `docs/wiki/` is referenced by old documentation but **does not exist**.
+18. `docs/wiki/` is referenced by old documentation but **does not exist**.
     Do not create new references to it.
-17. Documentation is updated with the `docs-update` skill; the agent entry
+19. Documentation is updated with the `docs-update` skill; the agent entry
     point is `AGENTS.md`.

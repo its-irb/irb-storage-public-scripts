@@ -109,3 +109,4 @@ Fill in the fields. The labels are attached to everything you copy.
 | You do not see the destination folder | You probably do not have access yet. Ask your group's data manager. |
 | The copy stops halfway | Files already copied stay in MinIO. Start the copy again: files that are already there and identical are not copied again. |
 | You lost the log (cluster) | The full log is saved on the cluster server, see [web-mode-ood.md](web-mode-ood.md). |
+| The label at the top is red or orange (**🔑 Credentials expire in …**), or you are about to start a long copy | Your MinIO access pass is about to run out. Click **🔑 Renew credentials** before copying (see [getting-started.md](getting-started.md#renew-your-minio-access-pass-by-hand)). |

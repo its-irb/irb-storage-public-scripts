@@ -42,18 +42,22 @@ This README is a quick reference for running and packaging the apps.
 ```
 bifrost-mount/            # MinIO folder mounting app
   src/
-    main.py               # GUI (Flet). Entry point.
+    main.py               # GUI (Flet). Entry point: startup, navigation, exit cleanup
+    session_log.py        # Persistent session log (~/bifrost-mount-logs/)
+    views/                # mount.py: bucket selector + mount view
     config.py             # APP_INFO
     version.py
     assets/bin/           # Bundled binaries (rclone) — downloaded, not versioned
-    frameworks/           # fuse-t framework (macOS)
+  frameworks/             # fuse-t framework (macOS) — downloaded, not versioned
   pyproject-template.toml # Template; pyproject.toml is generated locally
   installer.iss           # Inno Setup (Windows installer)
   build-macos.sh
 
 bifrost-transfer/         # Data copy app (desktop + web)
   src/
-    main.py               # GUI (Flet). Entry point.
+    main.py               # GUI (Flet). Entry point: web-mode detection, navigation, OOD ASGI app
+    web_session.py        # Web-mode session store
+    views/                # shares, rclone_browser, local_fs, copy, tag_manager
     meta_fields.py        # Metadata profiles, lab filter
     config.py             # APP_INFO
     version.py
@@ -64,13 +68,14 @@ bifrost-transfer/         # Data copy app (desktop + web)
   build-macos.sh
 
 shared/                   # bifrost-shared package
-  bifrost_backend/backend.py    # Shared business logic (LDAP, rclone, SMB, S3)
-  bifrost_frontend/frontend.py  # Palette and shared Flet components
+  bifrost_backend/        # Shared business logic (LDAP, STS, rclone, SMB, S3)
+    backend.py            #   facade re-exporting common/, mount/ and transfer/
+  bifrost_frontend/       # Theme, shared Flet components and shared views
+    frontend.py           #   facade re-exporting theme.py, components.py and views/
   linux-assets-downloader.sh
   macos-assets-downloader.sh
   macos-rclone-downloader.sh
   windows-assets-downloader.sh
-  requirements.txt        # Shared requirements for both apps
 
 docs/                     # agent/ (English), development/ (Spanish), user/ (English)
 AGENTS.md                 # Entry point for coding agents
@@ -210,16 +215,32 @@ flet run
 ```
 
 
-Additional options (available in both apps):
+Additional option (available in both apps):
 ```bash
-flet run --customuser   # Log in as a different user
-flet run --update       # Force auto-update
+flet run --update       # Meant to force auto-update — currently has no effect
 ```
+
+`--update` currently does nothing: the test block that simulates a new version
+(`999.999.999`) is commented out in `check_update_version()`
+(`shared/bifrost_backend/common/updates.py`). Uncomment it, and reinstall the
+shared package, to test the update screen. The username field of the login is
+always editable, so no option is needed to sign in as a different user.
 
 `bifrost-transfer` also supports web mode (Open OnDemand / Linux cluster):
 ```bash
 flet run --web                              # Web mode for local development
 BIFROST_CLUSTER=1 python src/main.py --web  # Simulate OOD production mode
+```
+
+With Flet 0.84, `flet run --web` fails with
+`ModuleNotFoundError: No module named 'flet_desktop'` if `flet run` (desktop)
+has never been run in that virtual environment; it also installs extra
+packages (`flet-web`, `fastapi`, …) in it. Alternative, from
+`bifrost-transfer/`, serving on port 8000 (open `http://localhost:8000` in the
+browser; change the port with `FLET_SERVER_PORT`):
+
+```bash
+FLET_FORCE_WEB_SERVER=true python src/main.py --web
 ```
 
 ---
@@ -257,6 +278,13 @@ This means:
 - If OOD imports `main.py` as an ASGI module → `__name__ != "__main__"` → `IS_WEB = True`
 - If launched manually with `flet run --web` → `"--web" in sys.argv` → `IS_WEB = True`
 - If `BIFROST_CLUSTER=1` is set in the environment → `IS_WEB = True`
+- In addition, `main(page)` sets `IS_WEB = IS_WEB or page.web`: if Flet serves
+  the page over the web, web mode is enabled even without `--web`
+
+`IS_WEB` is computed only in `bifrost-transfer/src/main.py` (it depends on
+`__name__`). The modules that were moved out of `main.py` and read it
+(`web_session.py`, `views/shares.py`, `views/copy.py`, `views/tag_manager.py`)
+receive its value through `_propagar_is_web()`.
 
 The ASGI server Flet uses for web mode is **Hypercorn**, which runs a single asyncio event loop for the entire application. Each browser tab opens an independent WebSocket with its own `page` instance.
 
@@ -278,7 +306,7 @@ BIFROST_CLUSTER=1 python src/main.py --web
 
 In desktop mode, when the user closes the window the process dies. In web mode the Hypercorn process stays alive — the user can close the tab, the WebSocket connection breaks and Flet destroys the `page` object, but the rclone process that was running **keeps running**.
 
-To handle this, `_WEB_SESSIONS` is a global in-memory dictionary indexed by `username`:
+To handle this, `_WEB_SESSIONS` (defined in `bifrost-transfer/src/web_session.py`) is a global in-memory dictionary indexed by `username`:
 
 ```python
 _WEB_SESSIONS: dict[str, dict] = {}
@@ -305,7 +333,7 @@ Each entry contains:
 
 - `_ws_save(usuario, state)` — saves/updates the session when navigating to the copy view
 - `_ws_load(usuario)` → `dict | None` — returns the session if complete enough to restore (has `perfil_rclone` and `endpoint`)
-- `_ws_clear(usuario)` — deletes the session on logout; also cancels any pending throttle timer and clears callbacks to avoid firing on dead pages
+- `_ws_clear(usuario)` — deletes the session; also cancels any pending throttle timer and clears callbacks to avoid firing on dead pages. There is no logout: it is used when a previous session is being restored and the user types a different username (the old session is discarded and the normal flow follows)
 
 ---
 

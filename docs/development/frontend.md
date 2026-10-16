@@ -1,27 +1,54 @@
-# Frontend — apps Flet (`bifrost-mount` / `bifrost-transfer`)
+# Frontend — apps Flet (`bifrost-mount` / `bifrost-transfer`) y `shared/bifrost_frontend`
 
 ## Estructura por app
 
-Ambas apps son idénticas en layout:
+Ambas apps comparten el layout base:
 
 ```text
 <app>/
   pyproject-template.toml  # Plantilla versionada; el pyproject.toml efectivo es local
   installer.iss            # Inno Setup (Windows)
   build-macos.sh
+  frameworks/              # fuse_t.framework (mount, macOS) — descargado (no versionado)
   src/
     main.py                # GUI Flet — punto de entrada
     config.py              # APP_INFO = {"flavour": ..., "name": ..., "description": ...}
     version.py             # __version__ — generado por CI/build local
     assets/
       bin/                 # rclone(.exe) — descargado con los downloaders (no versionado)
-    frameworks/            # fuse_t.framework (mount, macOS) — idem
+    views/                 # vistas propias de la app
     storage/               # (solo transfer) datos temporales
 ```
 
-Tamaños actuales: `bifrost-mount/src/main.py` ≈ 1414 líneas;
-`bifrost-transfer/src/main.py` ≈ 4577 líneas (modo web + Tag Manager);
-`bifrost-transfer/src/meta_fields.py` ≈ 645 líneas.
+Cada `main.py` se limita al arranque, la navegación entre vistas y la limpieza
+al salir; el resto vive en módulos propios:
+
+| App | Módulos de `src/` además de `main.py` |
+|---|---|
+| `bifrost-mount` | `session_log.py` (log de sesión: `_write_to_log_file`, `_log_event` → `~/bifrost-mount-logs/`), `views/mount.py` (`build_rclone_browser`, que aquí es una lista de buckets, y `_build_mount_bucket`, la vista de montaje). |
+| `bifrost-transfer` | `web_session.py` (sesiones del modo web), `meta_fields.py`, `views/shares.py` (`_build_shares_content`), `views/rclone_browser.py` (`build_rclone_browser`, navegador de carpetas del destino), `views/local_fs.py` (`build_local_fs_browser`, `show_local_fs_modal`), `views/copy.py` (`_build_copy_content`), `views/tag_manager.py` (`_build_tag_manager_content`). |
+
+`build_rclone_browser` se llama igual en las dos apps pero son funciones
+distintas.
+
+## `shared/bifrost_frontend`: tema, componentes y vistas comunes
+
+`frontend.py` es una fachada que reexporta `theme.py` (paleta `C_*`, fuentes,
+`apply_theme`), `components.py` (`btn_primary`, `btn_secondary`, `card`,
+`section_title`, `field_label`, `styled_field`, `status_badge`,
+`show_dialog`, `show_confirm`, `build_header`) y las vistas de `views/`. Las
+vistas comunes existen una sola vez y lo que cambia entre apps se pasa como
+parámetro:
+
+| Vista | Firma | Qué hace |
+|---|---|---|
+| `views/update.py` | `build_update_content(page, on_continue)` | Primera pantalla: comprueba releases en GitHub e instala la actualización. |
+| `views/login.py` | `build_login_content(page, on_success, prefill_user="", *, no_ldap, is_web=False, log_event=print)` | Login LDAP. Mientras valida bloquea el botón y los dos campos (`_set_busy`), así no se puede lanzar una segunda validación con clic + Enter. El mensaje de error depende del motivo de `validar_credenciales_ldap` (`_LDAP_ERROR_MESSAGES`); si falta un campo dice cuál ("Username is required." / "Password is required."). La contraseña no se recorta con `strip()`. `log_event` recibe `LOGIN attempt`, `LOGIN bypass LDAP`, `LOGIN success` y `LOGIN failed — reason: <motivo>` (mount pasa `_log_event`, que escribe en el fichero; transfer usa `print`). `prefill_user` (modo web) rellena el usuario y muestra el aviso "Resuming previous session". |
+| `views/minio.py` | `build_minio_content(page, on_continue, *, no_ldap, is_web=False)` | Selección de servidor MinIO. |
+| `views/credentials.py` | `build_credentials_content(page, perfil_rclone, endpoint, credenciales_ldap, on_continue, extra_config=None, duracion_dias=None, on_back=None, *, no_ldap, is_web=False, done_message, write_log=None)` | Renovación STS con log en pantalla. `write_log` escribe además cada línea en un fichero (mount pasa `_write_to_log_file`); `done_message` es la última línea ("Loading mount interface…" en mount, "Continuing to copy interface…" en transfer). |
+
+Un arreglo en estas vistas se hace aquí, una vez para las dos apps; no hay que
+volver a copiarlas en las apps.
 
 ## Cómo se inicializa la app
 
@@ -29,18 +56,22 @@ Cada `main.py` empieza con:
 
 ```python
 from bifrost_backend import backend
-from bifrost_frontend.frontend import *      # paleta + componentes
-from config import APP_INFO                  # {"flavour": "mount"|"transfer", ...}
+from bifrost_backend.common.constants import NO_LDAP, STS_RENEWAL_THRESHOLD_DAYS
+from bifrost_frontend.frontend import *      # tema + componentes + vistas comunes
 ```
 
 A continuación:
 
-1. Detecta el modo de ejecución (`IS_WEB`, …).
+1. (Transfer) calcula el modo de ejecución (`IS_WEB`) y llama a
+   `_propagar_is_web()` (ver «Modo web»).
 2. Reenvuelve `sys.stdout`/`sys.stderr` en UTF-8 (consola Windows). No tocar.
-3. Configura el log persistente: `~/bifrost-mount-logs/` en `bifrost-mount`
-   y `~/bifrost-logs/` en `bifrost-transfer`.
+3. Configura el log persistente: en `bifrost-mount`, `session_log.py` escribe
+   en `~/bifrost-mount-logs/`; en `bifrost-transfer`, toda la salida de consola
+   se duplica en `~/bifrost-logs/bifrost-console-*.log` (se conservan los 50
+   ficheros más recientes).
 4. Define `main(page: ft.Page)`, arma el flujo de vistas y lo arranca con
-   `ft.app(target=main, ...)`.
+   `ft.run(main)`. En modo clúster, transfer además crea la app ASGI con
+   `ft.app(main, export_asgi_app=True)`.
 
 ## Flujo de vistas
 
@@ -65,20 +96,30 @@ ocultos (`visible=False`) hasta que el usuario selecciona un bucket destino;
 el toggle está en `on_browser_select` (`path` no vacío → visible; raíz →
 oculto).
 
-## Credenciales STS — auto-renovación
+## Credenciales STS — renovación automática y manual
 
-Constantes en cada `main.py`:
+Constantes en `bifrost_backend.common.constants` (las dos apps las importan de
+ahí):
 
 ```python
 STS_RENEWAL_THRESHOLD_DAYS = 3
 STS_AUTO_RENEWAL_DAYS = 7
 ```
 
-- Si quedan **>3 días** de validez en las credenciales STS, se reutilizan y se
-  salta `view_credentials`.
-- Si quedan **<3 días** o no existen, se renuevan automáticamente por 7 días
-  mostrando progreso.
-- No hay botón manual de renovación en el flujo normal.
+Al elegir servidor, `main.py` consulta `backend.get_session_info(perfil)`:
+
+- Si quedan **más de 3 días** de validez y el token es del usuario que ha
+  iniciado sesión, se reutilizan las credenciales y se salta
+  `view_credentials`.
+- Si no hay token, no se puede leer, es de otro usuario o le quedan **3 días o
+  menos** (`needs_renewal(usuario, STS_RENEWAL_THRESHOLD_DAYS)`), se renuevan
+  automáticamente por 7 días mostrando progreso (`build_credentials_content`).
+
+Además, la vista de montaje y la de copia muestran un badge con el tiempo
+restante (`🔑 Credentials expire in 6d 23h`; rojo con menos de 1 día, ámbar
+hasta 3 días) y un botón **"🔑 Renew credentials"** que abre un diálogo para
+renovar a mano entre 1 y 30 días (7 por defecto). Al terminar se vuelve a la
+vista de origen.
 
 ## `meta_fields.py` (solo bifrost-transfer)
 
@@ -101,7 +142,7 @@ formulario de copia y el Tag Manager:
   dict de tags (lo usa el Tag Manager para pre-cargar el editor).
 
 Regla: cualquier cambio de campos, perfiles o labs se hace **solo** en
-`meta_fields.py`, nunca en `main.py`.
+`meta_fields.py`, nunca en las vistas ni en `main.py`.
 
 ## Modo web (`bifrost-transfer` — Open OnDemand)
 
@@ -112,9 +153,22 @@ IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or (os.environ.get("B
 ```
 
 - OOD importa `main.py` como módulo ASGI → `__name__ != "__main__"` → modo web.
-- `flet run --web` activa el modo web en desarrollo local.
+- `flet run --web` activa el modo web en desarrollo local (con Flet 0.84 puede
+  fallar; ver la alternativa con `FLET_FORCE_WEB_SERVER` en
+  [build-and-ci.md](build-and-ci.md)).
 - `BIFROST_CLUSTER=1` fuerza el modo web completo (flujo CIFS/shares del
   cluster Linux).
+- Además, `main(page)` hace `IS_WEB = IS_WEB or page.web`: si Flet sirve la
+  página por web, el modo web se activa aunque no se haya pasado `--web`.
+
+`IS_WEB` solo existe de verdad en `main.py`, porque depende de `__name__`. Los
+módulos que se sacaron de `main.py` y lo leen (`web_session`, `views.shares`,
+`views.copy`, `views.tag_manager`) declaran `IS_WEB = False`, y
+`_propagar_is_web()` les copia el valor real al importar y justo después de la
+línea de `main()` que lo actualiza. Las funciones leen la variable de su
+módulo al ejecutarse, por eso basta con actualizarla. Si un módulo nuevo lee
+`IS_WEB`, hay que añadirlo a la tupla de `_propagar_is_web()`; si no, se
+comportará siempre como escritorio sin dar ningún error.
 
 El servidor ASGI es **Hypercorn** con un único event loop asyncio para toda la
 aplicación. Cada pestaña del navegador abre su propio WebSocket con su propio
@@ -129,8 +183,11 @@ sigue corriendo**. Todo lo que sigue existe para gestionar esa supervivencia.
 
 ### Persistencia de sesión: `_WEB_SESSIONS`
 
-Diccionario global en memoria indexado por `username`; TTL = vida del proceso
-Hypercorn (= vida del job OOD). **La contraseña LDAP nunca se guarda aquí.**
+Diccionario global en memoria indexado por `username`, definido en
+`bifrost-transfer/src/web_session.py` junto con `_LAST_WEB_USER` y las
+funciones de gestión; `main.py` los importa (es el mismo objeto, nadie los
+reasigna). TTL = vida del proceso Hypercorn (= vida del job OOD). **La
+contraseña LDAP nunca se guarda aquí.**
 
 | Campo | Tipo | Descripción |
 |---|---|---|
@@ -146,8 +203,11 @@ Hypercorn (= vida del job OOD). **La contraseña LDAP nunca se guarda aquí.**
 
 Gestión: `_ws_save(usuario, state)` (guarda al navegar a la vista de copia),
 `_ws_load(usuario)` (devuelve la sesión si tiene al menos `perfil_rclone` y
-`endpoint`), `_ws_clear(usuario)` (logout; cancela el timer de throttle
-pendiente y vacía los callbacks para no dispararlos en páginas muertas).
+`endpoint`), `_ws_clear(usuario)` (borra la sesión; cancela el timer de
+throttle pendiente y vacía los callbacks para no dispararlos en páginas
+muertas). No hay logout: `_ws_clear` se usa cuando, al restaurar una sesión
+previa, el usuario escribe un username distinto; entonces se descarta la
+sesión antigua y se sigue el flujo normal.
 
 ### Flujo de reconexión (pestaña cerrada y reabierta)
 
@@ -266,13 +326,17 @@ tareas asyncio.
 | Variable | Aplica a | Efecto |
 |---|---|---|
 | `BIFROST_CLUSTER=1` | transfer | Fuerza `IS_WEB=True` (flujo CIFS/shares del cluster Linux) |
-| `FLET_ASSETS_DIR` | ambas | La setea Flet en runtime; el backend la usa para localizar `rclone` |
+| `BIFROST_NO_LDAP=1` | ambas | Salta la validación LDAP en el login (`NO_LDAP`, en `bifrost_backend.common.constants`); el badge muestra `DESKTOP (NO LDAP)` |
+| `FLET_ASSETS_DIR` | ambas | La setea Flet en runtime; el backend la usa para localizar `rclone` y, en mount/macOS en desarrollo, `fuse_t.framework` |
+| `FLET_FORCE_WEB_SERVER=true` | transfer (desarrollo) | Hace que `ft.run(main)` sirva la app por web (puerto 8000) en lugar de abrir una ventana; alternativa a `flet run --web` (ver [build-and-ci.md](build-and-ci.md)) |
 
 ## Convenciones de UI
 
-- **Todo en español** — labels, mensajes, comentarios, nombres de controles
-  (`btn_aceptar`, `lbl_estado`, …). Excepción: mensajes del flujo WinFsp en
-  `bifrost-mount`, en inglés.
+- **Idioma** — seguir el código de alrededor: los textos de la UI (botones,
+  etiquetas, mensajes) están en inglés ("Authenticate", "Continue →",
+  "▶  Copy data"…), y los nombres de funciones, comentarios y docstrings,
+  mayoritariamente en español. Los mensajes del flujo WinFsp en
+  `bifrost-mount` también están en inglés.
 - **Colores** — solo constantes de `bifrost_frontend.frontend`
   (`C_PRIMARY`, `C_ERROR`, …); no hardcodear hex.
 - **Botones** — preferir `btn_primary` / `btn_secondary` sobre `ft.Button`
@@ -281,6 +345,7 @@ tareas asyncio.
   `threading.Thread`; con `threading.Timer`, envolver el callback en
   `lambda: ui_call(page, fn)`.
 - **Diálogos de error** — `show_dialog(page, "Error", msg, color=C_ERROR)`.
+- **Confirmaciones** — `show_confirm(page, title, message, on_yes, on_no=None)`.
 - **Logs de copia** — siempre por `_dispatch_log` (transfer/web); nunca
   `log_list.controls.append(...)` directo desde un hilo.
 

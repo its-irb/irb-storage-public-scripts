@@ -23,19 +23,34 @@ releases de GitHub.
 - Lógica backend: `backend.check_update_version()`,
   `backend.should_check_for_updates()`, `backend.get_update_file_suffix()`,
   `backend.download_new_binary()`.
-- Vista: `view_update` es la primera vista del flujo; para forzar la
-  comprobación en desarrollo:
+- Vista: `view_update` (`build_update_content`, en
+  `shared/bifrost_frontend/views/update.py`) es la primera vista del flujo.
+- `--update` pretende forzar la comprobación en desarrollo:
 
   ```bash
   flet run --update
   ```
+
+  **Ahora mismo no hace nada**: la vista pasa `force_update` a
+  `check_update_version()`, pero el bloque de prueba que simula la versión
+  `999.999.999` está comentado. Para probar la pantalla de actualización hay
+  que descomentarlo en `shared/bifrost_backend/common/updates.py` y
+  reinstalar el paquete compartido.
 - Versionado: `1.0.<run_number>` (ver [build-and-ci.md](build-and-ci.md)).
 
 ## Logs
 
-- **Desktop**: cada `main.py` configura un log persistente:
-  `~/bifrost-mount-logs/` en `bifrost-mount` y `~/bifrost-logs/` en
-  `bifrost-transfer` (la nomenclatura no sigue el patrón `<flavour>`).
+- **Desktop**: cada app tiene un log persistente: `~/bifrost-mount-logs/` en
+  `bifrost-mount` y `~/bifrost-logs/` en `bifrost-transfer` (la nomenclatura
+  no sigue el patrón `<flavour>`).
+  - `bifrost-mount`: `session_log.py` crea un fichero por sesión
+    (`bifrost-mount-YYYY-MM-DD_HH-MM-SS.log`) con los eventos de usuario
+    (`LOGIN attempt`, `LOGIN success`, `LOGIN failed — reason: <motivo>`,
+    `MOUNT …`, `UNMOUNT …`) y las líneas de la renovación de credenciales.
+  - `bifrost-transfer`: `main.py` duplica toda la salida de consola en
+    `bifrost-console-YYYY-MM-DD_HH-MM-SS.log` y conserva los 50 ficheros más
+    recientes. Incluye las líneas de login (`LOGIN …`), que la vista de login
+    escribe con `print`.
 - **Modo web**: al terminar cada copy/check, `_autosave_log()` vuelca el
   buffer de la sesión a `~/bifrost-logs/bifrost-YYYY-MM-DD_HH-MM-SS.log` en el
   servidor OOD. El buffer en memoria está capeado a 5000 líneas y la

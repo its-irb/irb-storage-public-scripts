@@ -13,7 +13,7 @@ Start with `docs/agent/README.md` and load only the module you need:
 |---|---|
 | Anything | `docs/agent/architecture.md` |
 | Backend (`shared/bifrost_backend/`) | `docs/agent/backend.md` |
-| Apps / UI (`bifrost-*/src/`) | `docs/agent/frontend.md` |
+| Apps / UI (`bifrost-*/src/`, `shared/bifrost_frontend/`) | `docs/agent/frontend.md` |
 | Run, package, CI, environment variables | `docs/agent/operations.md` |
 | Before changing code | `docs/agent/conventions-gotchas.md` |
 
@@ -27,6 +27,8 @@ English). Documentation methodology: `docs/documentation-methodology.md`.
 - The macOS asset downloaders pick the rclone architecture from `uname -m`
   (`arm64` Apple Silicon / `amd64` Intel); override with the `RCLONE_ARCH` env var.
 - Profiles and lab acronyms are defined only in `bifrost-transfer/src/meta_fields.py`.
+- In `bifrost-transfer`, `IS_WEB` is computed only in `src/main.py`; a module that
+  reads it declares `IS_WEB = False` and must be added to `_propagar_is_web()`.
 - There is no automated test suite: validate by running the app (`flet run`).
 - Never commit `.venv/`, `dist/`, `build/`, generated `src/version.py` or local `pyproject.toml` files.
 

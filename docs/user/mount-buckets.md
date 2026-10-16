@@ -66,3 +66,4 @@ or all mounted drives at once.
 | Windows: it does not mount, or a driver error appears | Accept the automatic WinFsp installation offered by the app, or install it from `winfsp.dev`, then try again. |
 | It cannot connect | Check that the Nexica VPN is on. |
 | You do not see the folder | You probably do not have access. Ask your group's data manager. |
+| The label at the top is red or orange (**🔑 Credentials expire in …**) | Your MinIO access pass is about to run out. Click **🔑 Renew credentials** (see [getting-started.md](getting-started.md#renew-your-minio-access-pass-by-hand)). |
