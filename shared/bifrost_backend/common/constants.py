@@ -49,3 +49,9 @@ LDAP_SERVER_URL = "ldap://irbldap3.sc.irbbarcelona.org"
 
 
 LDAP_BASE_DN = "o=irbbarcelona"
+
+
+# Umbral (en días) por debajo del cual se renuevan las credenciales STS automáticamente
+STS_RENEWAL_THRESHOLD_DAYS = 3
+# Duración (en días) de las credenciales STS renovadas automáticamente
+STS_AUTO_RENEWAL_DAYS = 7

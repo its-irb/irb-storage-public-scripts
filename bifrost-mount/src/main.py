@@ -37,6 +37,7 @@ from datetime import datetime
 import flet as ft
 
 from bifrost_backend import backend
+from bifrost_backend.common.constants import STS_AUTO_RENEWAL_DAYS, STS_RENEWAL_THRESHOLD_DAYS
 from bifrost_frontend.frontend import *
 from version import __version__
 
@@ -47,11 +48,6 @@ from version import __version__
 # Máquinas sin acceso a LDAP pero con acceso a MinIO (ej. IVIS).
 # Setear BIFROST_NO_LDAP=1 como variable de sistema para saltarse la validación LDAP.
 NO_LDAP = os.environ.get("BIFROST_NO_LDAP") == "1"
-
-# Umbral (en días) por debajo del cual se renuevan las credenciales STS automáticamente
-STS_RENEWAL_THRESHOLD_DAYS = 3
-# Duración (en días) de las credenciales STS renovadas automáticamente
-STS_AUTO_RENEWAL_DAYS = 7
 
 
 # ============================================================================
@@ -87,420 +83,6 @@ def _log_event(msg: str) -> None:
     """Registra un evento de usuario en el log de sesión."""
     _write_to_log_file(msg)
 
-
-
-# ============================================================================
-# VISTA: LOGIN LDAP
-# ============================================================================
-
-_LDAP_ERROR_MESSAGES = {
-    "vpn":     "⚠️ Cannot reach the IRB network. Are you connected to the VPN?",
-    "network": "⚠️ Could not reach the LDAP server. Try again or contact ITS.",
-    "error":   "⚠️ Unexpected error validating credentials. Contact ITS.",
-}
-# user_not_found / invalid_password no están a propósito: usan el mensaje por defecto.
-
-
-def _build_login_content(
-    page: ft.Page,
-    on_success: Callable,
-) -> ft.Control:
-
-    try:
-        default_user = getpass.getuser()
-    except Exception:
-        default_user = ""
-
-    user_tf, user_col = styled_field(
-        "Username",
-        value=default_user,
-        hint="your.username",
-    )
-    pass_tf, pass_col = styled_field("Password", password=True)
-
-    error_text = ft.Text("", color=C_ERROR, size=12, visible=False)
-    loading    = ft.ProgressRing(width=18, height=18, stroke_width=2,
-                                  color=C_PRIMARY, visible=False)
-    login_btn  = btn_primary("Authenticate", width=280)
-
-    def _set_busy(busy: bool):
-        """Bloquea el formulario mientras se valida (evita doble envío y edición)."""
-        login_btn.disabled = user_tf.disabled = pass_tf.disabled = busy
-        loading.visible = busy
-
-    def _show_error(msg: str):
-        error_text.value   = msg
-        error_text.visible = True
-        _set_busy(False)
-        page.update()
-
-    def do_login(e=None):
-        user = (user_tf.value or "").strip()
-        pwd  = pass_tf.value or ""
-        if not user or not pwd:
-            error_text.value   = "Username is required." if not user else "Password is required."
-            error_text.visible = True
-            page.update()
-            return
-
-        _set_busy(True)
-        error_text.visible = False
-        page.update()
-
-        def _auth():
-            creds = {"usuario": user, "password": pwd}
-            _log_event(f"LOGIN attempt — user: {user}")
-            if NO_LDAP:
-                _log_event(f"LOGIN bypass LDAP — user: {user}")
-                backend.ui_call(page, lambda: on_success(creds))
-                return
-            ok, motivo = backend.validar_credenciales_ldap(creds)
-            if ok:
-                _log_event(f"LOGIN success — user: {user}")
-                backend.ui_call(page, lambda: on_success(creds))
-            else:
-                msg = _LDAP_ERROR_MESSAGES.get(motivo, "Invalid credentials. Please try again.")
-                _log_event(f"LOGIN failed — user: {user} — reason: {motivo}")
-                backend.ui_call(page, lambda: _show_error(msg))
-
-        backend.safe_thread(page, _auth).start()
-
-    login_btn.on_click = do_login
-    pass_tf.on_submit  = do_login
-    user_tf.on_submit  = lambda e: pass_tf.focus()
-
-    content = ft.Column(
-        [
-            build_header(no_ldap=NO_LDAP, subtitle="Authentication"),
-            ft.Container(expand=True),
-            ft.Row(
-                [
-                    ft.Container(
-                        content=ft.Column(
-                            [
-                                ft.Icon(ft.Icons.LOCK_OUTLINE, color=C_PRIMARY, size=32),
-                                ft.Container(height=8),
-                                ft.Text("LDAP Authentication", size=18,
-                                        weight=ft.FontWeight.W_600, color=C_TEXT),
-                                ft.Text("Use your IRB network credentials",
-                                        size=12, color=C_TEXT_DIM),
-                                ft.Container(height=24),
-                                user_col,
-                                ft.Container(height=12),
-                                pass_col,
-                                ft.Container(height=8),
-                                error_text,
-                                ft.Container(height=16),
-                                ft.Row(
-                                    [loading, login_btn],
-                                    alignment=ft.MainAxisAlignment.CENTER,
-                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                    spacing=12,
-                                ),
-                            ],
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                            spacing=0,
-                            width=360,
-                        ),
-                        bgcolor=C_SURFACE,
-                        border=ft.Border.all(1, C_BORDER),
-                        border_radius=12,
-                        padding=36,
-                    )
-                ],
-                alignment=ft.MainAxisAlignment.CENTER,
-            ),
-            ft.Container(expand=True),
-        ],
-        expand=True,
-        spacing=0,
-    )
-
-    return content
-
-
-# ============================================================================
-# VISTA: SELECCIÓN DE SERVIDOR MINIO
-# ============================================================================
-
-def _build_minio_content(page: ft.Page, on_continue: Callable) -> ft.Control:
-    servers  = list(backend.MINIO_SERVERS.keys())
-    selected = {"current": servers[0]}
-
-    server_cards: dict[str, ft.Container] = {}
-
-    def _update_card_styles():
-        for srv, card_c in server_cards.items():
-            is_sel = srv == selected["current"]
-            card_c.bgcolor = C_SURFACE2 if is_sel else C_SURFACE
-            card_c.border  = ft.Border.all(2 if is_sel else 1,
-                                            C_PRIMARY if is_sel else C_BORDER)
-            card_c.content.controls[2].color = C_PRIMARY if is_sel else C_BORDER
-        page.update()
-
-    def on_radio_change_and_select(srv_name: str):
-        rg.value = srv_name
-        selected["current"] = srv_name
-        _update_card_styles()
-
-    def do_continue_direct(srv_name: str):
-        on_continue({
-            "servidor": srv_name,
-            "perfil":   backend.MINIO_SERVERS[srv_name]["IRB"]["profile"],
-            "endpoint": backend.MINIO_SERVERS[srv_name]["IRB"]["endpoint"],
-        })
-
-    def make_server_card(srv_name: str) -> ft.GestureDetector:
-        info   = backend.MINIO_SERVERS[srv_name]["IRB"]
-        is_sel = srv_name == selected["current"]
-        c = ft.Container(
-            content=ft.Row(
-                [
-                    ft.Radio(value=srv_name, active_color=C_PRIMARY),
-                    ft.Column(
-                        [
-                            ft.Text(srv_name, size=14, weight=ft.FontWeight.W_600, color=C_TEXT),
-                            ft.Text(info["endpoint"], size=11, color=C_TEXT_DIM, font_family=FONT_MONO,
-                                    font_family_fallback=MONO_FALLBACK),
-                        ],
-                        spacing=2, tight=True, expand=True,
-                    ),
-                    ft.Icon(ft.Icons.STORAGE, color=C_PRIMARY if is_sel else C_BORDER, size=20),
-                ],
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=12,
-            ),
-            bgcolor=C_SURFACE2 if is_sel else C_SURFACE,
-            border=ft.Border.all(2 if is_sel else 1, C_PRIMARY if is_sel else C_BORDER),
-            border_radius=8,
-            padding=ft.Padding.symmetric(horizontal=16, vertical=12),
-        )
-        server_cards[srv_name] = c
-        return ft.GestureDetector(
-            content=c,
-            on_tap=lambda e, s=srv_name: on_radio_change_and_select(s),
-            on_double_tap=lambda e, s=srv_name: do_continue_direct(s),
-        )
-
-    rg = ft.RadioGroup(
-        content=ft.Column([make_server_card(s) for s in servers], spacing=8),
-        value=servers[0],
-    )
-
-    def on_radio_change(e):
-        selected["current"] = rg.value
-        _update_card_styles()
-
-    rg.on_change = on_radio_change
-
-    def do_continue(e):
-        srv = selected["current"]
-        on_continue({
-            "servidor": srv,
-            "perfil":   backend.MINIO_SERVERS[srv]["IRB"]["profile"],
-            "endpoint": backend.MINIO_SERVERS[srv]["IRB"]["endpoint"],
-        })
-
-    content = ft.Column(
-        [
-            build_header(no_ldap=NO_LDAP, subtitle="MinIO Server"),
-            ft.Container(
-                content=ft.Column(
-                    [
-                        section_title("SELECT DESTINATION SERVER"),
-                        ft.Container(height=12),
-                        card(rg, padding=16),
-                        ft.Container(height=24),
-                        ft.Row(
-                            [btn_primary("Continue →", on_click=do_continue, width=200)],
-                            alignment=ft.MainAxisAlignment.END,
-                        ),
-                    ],
-                    spacing=0,
-                ),
-                expand=True,
-                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
-            ),
-        ],
-        expand=True,
-        spacing=0,
-    )
-
-    return content
-
-
-# ============================================================================
-# VISTA: CREDENCIALES STS — RENOVACIÓN AUTOMÁTICA
-# ============================================================================
-
-def _build_credentials_content(
-    page: ft.Page,
-    perfil_rclone: str,
-    endpoint: str,
-    credenciales_ldap: dict,
-    on_continue: Callable,
-    extra_config: dict | None = None,
-    duracion_dias: int | None = None,
-    on_back: Callable | None = None,
-) -> ft.Control:
-    log_list = ft.ListView(
-        expand=True,
-        auto_scroll=True,
-        spacing=0,
-        padding=ft.Padding.all(12),
-    )
-    log_container = ft.Container(
-        content=log_list,
-        bgcolor=C_BG,
-        border=ft.Border.all(1, C_BORDER),
-        border_radius=6,
-        height=220,
-    )
-
-    progress    = ft.ProgressBar(color=C_PRIMARY, bgcolor=C_SURFACE2)
-    back_btn    = btn_secondary("← Back to login", width=200)
-    back_btn.visible   = False
-    back_btn.on_click  = lambda e: on_back() if on_back else None
-    status_text = ft.Text("Renewing credentials...", size=13, color=C_TEXT_DIM,
-                           font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK)
-
-    def log(msg: str, color: str = C_TEXT):
-        print(msg.rstrip())
-        _write_to_log_file(msg) 
-        def _add():
-            log_list.controls.append(
-                ft.Text(msg.rstrip("\n"), size=11, color=color,
-                        font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK, selectable=True)
-            )
-        backend.ui_call(page, _add)
-
-    def _do_renew():
-        duracion_segundos = (duracion_dias or STS_AUTO_RENEWAL_DAYS) * 86400
-
-        info = backend.get_session_info(perfil_rclone)
-        if info is None:
-            log("⚠️  No credentials found for this profile.", C_WARNING)
-        elif info.remaining is None:
-            log("⚠️  Could not read expiry from current token.", C_WARNING)
-        else:
-            log(f"⚠️  Current credentials expire in: {info.remaining_text()}", C_WARNING)
-
-        log(f"\n🔄 Requesting new STS credentials ({duracion_dias or STS_AUTO_RENEWAL_DAYS} days)...", C_PRIMARY)
-        log(f"   Profile  : {perfil_rclone}", C_TEXT_DIM)
-        log(f"   Endpoint : {endpoint}", C_TEXT_DIM)
-        log(f"   User     : {credenciales_ldap['usuario']}", C_TEXT_DIM)
-
-        try:
-            creds = backend.get_credentials(
-                endpoint,
-                credenciales_ldap["usuario"],
-                credenciales_ldap["password"],
-                duracion_segundos,
-            )
-        except Exception as exc:
-            log(f"\n❌ Cannot connect to MinIO: {exc}", C_ERROR)
-            def _show_net_err():
-                progress.visible  = False
-                status_text.value = "❌ Connection error."
-                status_text.color = C_ERROR
-                if on_back:
-                    back_btn.visible = True
-                page.update()
-            backend.ui_call(page, _show_net_err)
-            return
-
-        if creds is None:
-            if on_back:
-                log("\n❌ Wrong username or password. Please try again.", C_ERROR)
-            else:
-                log("\n❌ Failed to obtain credentials. Check your password or contact ITS.", C_ERROR)
-            def _show_err():
-                progress.visible  = False
-                status_text.value = "❌ Wrong username or password." if on_back else "❌ Renewal failed."
-                status_text.color = C_ERROR
-                if on_back:
-                    back_btn.visible = True
-                page.update()
-            backend.ui_call(page, _show_err)
-            return
-
-        log("\n✅ Credentials obtained successfully.", C_ACCENT)
-        log("   Writing to rclone config...", C_TEXT_DIM)
-
-        backend.configure_rclone(
-            creds["AccessKeyId"],
-            creds["SecretAccessKey"],
-            creds["SessionToken"],
-            endpoint,
-            perfil_rclone,
-            extra_config=extra_config,
-        )
-
-        new_info = backend.get_session_info(perfil_rclone)
-        if new_info and new_info.remaining is not None:
-            log(f"   New credentials expire in: {new_info.remaining_text()}", C_ACCENT)
-        else:
-            log("⚠️  Could not verify the new token in rclone config.", C_WARNING)
-
-        log("\n✅ Done. Loading mount interface...", C_ACCENT)
-
-        def _finish():
-            progress.visible  = False
-            status_text.value = "✓ Credentials renewed. Loading..."
-            status_text.color = C_ACCENT
-
-        backend.ui_call(page, _finish)
-        time.sleep(1.2)
-        backend.ui_call(page, on_continue)
-
-    content = ft.Column(
-        [
-            build_header(no_ldap=NO_LDAP, subtitle="S3 Credentials — Auto Renewal"),
-            ft.Container(
-                content=ft.Column(
-                    [
-                        section_title(f"STS AUTO-RENEWAL — {perfil_rclone.upper()}"),
-                        ft.Container(height=12),
-                        card(
-                            ft.Column(
-                                [
-                                    ft.Row(
-                                        [
-                                            ft.Icon(ft.Icons.AUTORENEW, color=C_PRIMARY, size=18),
-                                            ft.Text(
-                                                f"Automatically renewing for {STS_AUTO_RENEWAL_DAYS} days",
-                                                size=13, color=C_TEXT,
-                                            ),
-                                        ],
-                                        spacing=10,
-                                    ),
-                                    ft.Container(height=12),
-                                    progress,
-                                    ft.Container(height=8),
-                                    status_text,
-                                    ft.Container(height=8),
-                                    back_btn,
-                                ],
-                                spacing=0,
-                            ),
-                        ),
-                        ft.Container(height=16),
-                        section_title("RENEWAL LOG"),
-                        ft.Container(height=8),
-                        log_container,
-                    ],
-                    spacing=0,
-                ),
-                expand=True,
-                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
-            ),
-        ],
-        expand=True,
-        spacing=0,
-    )
-
-    backend.safe_thread(page, _do_renew).start()
-    return content
 
 
 # ============================================================================
@@ -795,7 +377,7 @@ def _build_mount_bucket(
                 page.update()
                 return
             page.pop_dialog()
-            show_screen(_build_credentials_content(
+            show_screen(build_credentials_content(
                 page,
                 perfil_rclone=perfil_rclone,
                 endpoint=endpoint,
@@ -803,6 +385,9 @@ def _build_mount_bucket(
                 on_continue=on_renew_complete,
                 extra_config=extra_config,
                 duracion_dias=dias_int,
+                no_ldap=NO_LDAP,
+                done_message="Loading mount interface...",
+                write_log=_write_to_log_file,
             ))
 
         def cancel(ev):
@@ -1168,14 +753,15 @@ def main(page: ft.Page):
         page.update()
 
     def go_login():
-        show_screen(_build_login_content(page, on_success=on_login_success))
+        show_screen(build_login_content(page, on_success=on_login_success,
+                                        no_ldap=NO_LDAP, log_event=_log_event))
 
     def on_login_success(creds: dict):
         state["credenciales_ldap"] = creds
         go_minio()
 
     def go_minio():
-        show_screen(_build_minio_content(page, on_continue=on_minio_selected))
+        show_screen(build_minio_content(page, on_continue=on_minio_selected, no_ldap=NO_LDAP))
 
     def on_minio_selected(eleccion: dict):
         state["servidor_minio"] = eleccion["servidor"]
@@ -1198,7 +784,7 @@ def main(page: ft.Page):
         if needs_renewal:
             servidor     = state["servidor_minio"]
             extra_config = backend.MINIO_SERVERS.get(servidor, {}).get("IRB", {}).get("extra_rclone_config")
-            show_screen(_build_credentials_content(
+            show_screen(build_credentials_content(
                 page,
                 perfil_rclone=perfil,
                 endpoint=state["endpoint"],
@@ -1206,6 +792,9 @@ def main(page: ft.Page):
                 on_continue=go_mount,
                 extra_config=extra_config,
                 on_back=go_login if NO_LDAP else None,
+                no_ldap=NO_LDAP,
+                done_message="Loading mount interface...",
+                write_log=_write_to_log_file,
             ))
         else:
             go_mount()

@@ -21,3 +21,6 @@ import tempfile
 from .theme import *
 from .components import *
 from .views.update import build_update_content
+from .views.login import build_login_content
+from .views.minio import build_minio_content
+from .views.credentials import build_credentials_content
