@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 
 
 MINIO_SERVERS = {
@@ -55,3 +56,8 @@ LDAP_BASE_DN = "o=irbbarcelona"
 STS_RENEWAL_THRESHOLD_DAYS = 3
 # Duración (en días) de las credenciales STS renovadas automáticamente
 STS_AUTO_RENEWAL_DAYS = 7
+
+
+# Máquinas sin acceso a LDAP pero con acceso a MinIO (ej. IVIS).
+# Setear BIFROST_NO_LDAP=1 como variable de sistema para saltarse la validación LDAP.
+NO_LDAP = os.environ.get("BIFROST_NO_LDAP") == "1"

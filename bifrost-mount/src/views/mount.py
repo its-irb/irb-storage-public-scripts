@@ -13,10 +13,9 @@ from typing import Callable
 import flet as ft
 
 from bifrost_backend import backend
-from bifrost_backend.common.constants import STS_AUTO_RENEWAL_DAYS, STS_RENEWAL_THRESHOLD_DAYS
+from bifrost_backend.common.constants import NO_LDAP, STS_AUTO_RENEWAL_DAYS, STS_RENEWAL_THRESHOLD_DAYS
 from bifrost_frontend.frontend import *
 
-from app_mode import NO_LDAP
 from session_log import _log_event, _write_to_log_file
 
 # ============================================================================

@@ -29,11 +29,10 @@ import signal
 import flet as ft
 
 from bifrost_backend import backend
-from bifrost_backend.common.constants import STS_RENEWAL_THRESHOLD_DAYS
+from bifrost_backend.common.constants import NO_LDAP, STS_RENEWAL_THRESHOLD_DAYS
 from bifrost_frontend.frontend import *
 from version import __version__
 
-from app_mode import NO_LDAP
 from session_log import _log_event, _write_to_log_file
 from views.mount import _build_mount_bucket
 
