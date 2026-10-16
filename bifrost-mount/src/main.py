@@ -1,8 +1,6 @@
-from __future__ import annotations
-
 """
-IRB MinIO Rclone Data Transfer Tool — FRONTEND (Flet)
-=====================================================
+BIFROST MOUNT — IRB MinIO Mount Tool — FRONTEND (Flet)
+======================================================
 
 Migración de tkinter a Flet.
 Soporta modo desktop (Mac, Windows, Linux).
@@ -20,27 +18,26 @@ Notas sobre credenciales STS:
 
 """
 
+from __future__ import annotations
+
 import os
 import sys
 import io
 import getpass
 import subprocess
 import threading
+import time
+import platform
+import atexit
+import signal
 from typing import Callable
 import pathlib
 from datetime import datetime
 
 import flet as ft
 
-# # Dev: añadir shared/ al path si no está ya en él
-# _shared = os.path.join(os.path.dirname(__file__), "..", "..", "shared")
-# if os.path.isdir(_shared):
-#     sys.path.insert(0, os.path.abspath(_shared))
-
-
 from bifrost_backend import backend
 from bifrost_frontend.frontend import *
-from config import APP_INFO
 from version import __version__
 
 # ============================================================================
@@ -378,8 +375,6 @@ def _build_credentials_content(
         backend.ui_call(page, _add)
 
     def _do_renew():
-        import time
-
         duracion_segundos = (duracion_dias or STS_AUTO_RENEWAL_DAYS) * 86400
 
         info = backend.get_session_info(perfil_rclone)
@@ -520,17 +515,17 @@ def build_rclone_browser(
     page: ft.Page,
     perfil_rclone: str,
     on_select: Callable[[str], None],
+    mounted_state: dict,
     on_double_tap_mount: Callable[[str], None] | None = None,
-    mounted_state: dict | None = None,
-) -> tuple[ft.Column, Callable]:
+) -> tuple[ft.Column, Callable, ft.OutlinedButton]:
     """
     Lista los buckets disponibles en el perfil rclone.
     Al seleccionar uno, llama on_select(bucket_name).
     Doble click monta directamente si on_double_tap_mount está definido.
     mounted_state: dict compartido {bucket_name: mount_point} para trackear mounts.
+    Devuelve (widget, refresh, unmount_all_btn): el widget con la lista de buckets,
+    una función que recarga la lista, y el botón "Unmount all" para colocarlo en el layout.
     """
-    if mounted_state is None:
-        mounted_state = {}
     selected_state = {"bucket": None}
 
     # Flag to detect mounts from previous sessions only on the initial load.
@@ -748,7 +743,7 @@ def _build_mount_bucket(
     extra_config: dict | None,
     on_renew_complete: Callable,
     show_screen: Callable,
-    mounted_state: dict | None = None,
+    mounted_state: dict,
     on_back: Callable | None = None,
 ) -> ft.Control:
     
@@ -858,9 +853,6 @@ def _build_mount_bucket(
 
     # ── Destino: selector de buckets ──────────────────────────────────────
     _dest_path = {"value": ""}
-    if mounted_state is None:
-        mounted_state = {}
-
 
     def on_browser_select(path: str):
         _dest_path["value"] = path
@@ -978,10 +970,8 @@ def _build_mount_bucket(
                 backend.mount_rclone_S3_prefix_to_folder(perfil_rclone, ruta)
                 mp = backend.resolver_mount_point_destino(perfil_rclone, ruta)
 
-                # Esperar a que el mount esté listo (máx 10s)
-                import time, platform as _platform
-                sistema = _platform.system()
-                # Esperar hasta 30s en lugar de 10s
+                # Esperar a que el mount esté listo (máx 30s: 150 × 0.2s)
+                sistema = platform.system()
                 for _ in range(150):
                     time.sleep(0.2)
                     try:
@@ -1009,7 +999,7 @@ def _build_mount_bucket(
                     mount_status.value   = "✅ Mounted!"
                     mount_status.color   = C_ACCENT
                     def _clear_status():
-                        import time; time.sleep(3)
+                        time.sleep(3)
                         def _hide():
                             mount_status.value   = ""
                             mount_status.visible = False
@@ -1129,9 +1119,6 @@ def main(page: ft.Page):
         "mounted_per_perfil": {},
     }
 
-    import atexit
-    import signal
-
     _cleanup_done = {"value": False}
 
     def _cleanup_on_exit():
@@ -1148,7 +1135,7 @@ def main(page: ft.Page):
         # DCV/Open OnDemand puede matar la sesión con SIGTERM/SIGINT al cerrarse
         # abruptamente. Sin este handler, atexit no llega a ejecutarse y el
         # mount FUSE queda colgado para la siguiente sesión.
-        nombre_senal = signal.Signals(signum).name if hasattr(signal, "Signals") else signum
+        nombre_senal = signal.Signals(signum).name
         print(f"[signal] Received {nombre_senal}, cleaning up before exit...")
         _cleanup_on_exit()
         sys.exit(0)
@@ -1229,18 +1216,17 @@ def main(page: ft.Page):
         extra_config = backend.MINIO_SERVERS.get(servidor, {}).get("IRB", {}).get("extra_rclone_config")
 
         # Recuperar o crear el mounted_state para este perfil
-        if perfil not in state["mounted_per_perfil"]:
-            state["mounted_per_perfil"][perfil] = {}
+        mounted_state = state["mounted_per_perfil"].setdefault(perfil, {})
 
         show_screen(_build_mount_bucket(
             page,
-            perfil_rclone=state["perfil_rclone"],
+            perfil_rclone=perfil,
             endpoint=state["endpoint"],
             credenciales_ldap=state["credenciales_ldap"],
             extra_config=extra_config,
             on_renew_complete=go_mount,
             show_screen=show_screen,
-            mounted_state=state["mounted_per_perfil"][perfil], 
+            mounted_state=mounted_state,
             on_back=go_minio,
         ))
 

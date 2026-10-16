@@ -46,13 +46,10 @@ Fixes aplicados respecto al piloto inicial:
 import os
 import sys
 import io
-import stat
 import getpass
-import tempfile
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import traceback
 import pathlib
 from datetime import datetime
 from typing import Callable
@@ -152,13 +149,6 @@ try:
             pass
 except Exception as _console_log_ex:
     print(f"[startup] Could not set up console log file: {_console_log_ex}")
-
-
-
-
-
-def divider() -> ft.Divider:
-    return ft.Divider(height=1, color=C_BORDER)
 
 
 # ============================================================================
@@ -2984,44 +2974,6 @@ def _build_copy_content(
         threading.Thread(target=_replay, daemon=True).start()
 
     return content
-
-
-# ============================================================================
-# UPDATER WINDOWS
-# ============================================================================
-
-def _escribir_y_lanzar_updater_windows(ruta_actual: str, nueva_ruta: str) -> None:
-    updater_code = f"""@echo off
-setlocal
-set "OLD_EXE={ruta_actual}"
-set "NEW_EXE={nueva_ruta}"
-echo Waiting for the application to close...
-set /a i=0
-:waitloop
-if %i% geq 30 goto timeout_err
-del /f "%OLD_EXE%" >nul 2>&1
-if not exist "%OLD_EXE%" goto do_move
-timeout /t 1 /nobreak >nul
-set /a i+=1
-goto waitloop
-:do_move
-move /y "%NEW_EXE%" "%OLD_EXE%"
-if errorlevel 1 (echo ERROR: Could not replace executable. & pause & exit /b 1)
-echo Update completed! Please reopen the application.
-pause
-exit /b 0
-:timeout_err
-echo ERROR: Timeout waiting for old executable.
-pause
-exit /b 1
-"""
-    with tempfile.NamedTemporaryFile(
-        delete=False, suffix=".bat", mode="w", encoding="utf-8"
-    ) as f:
-        f.write(updater_code)
-        updater_path = f.name
-    subprocess.Popen(["cmd.exe", "/c", "start", "", updater_path], shell=False)
-    os._exit(0)
 
 
 # ============================================================================
