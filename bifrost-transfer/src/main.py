@@ -458,7 +458,6 @@ def main(page: ft.Page):
                         usuario_actual=state["credenciales_smb"]["usuario"],
                         mounts_activos=state["mounts_activos"],
                         grupos_ldap=state["grupos_ldap"],
-                        credenciales_ldap=creds_ldap,
                         on_back=go_copy,
                         on_admin_activated=on_admin_activated,
                     ))
@@ -472,14 +471,12 @@ def main(page: ft.Page):
     def go_cifs() -> None:
         """Navega a la vista de CIFS shares. Carga lazy en el primer acceso."""
         if state["credenciales_smb"] is not None and not state.get("_cifs_loading"):
-            creds_ldap = state["credenciales_ldap"]
             show_screen(_build_shares_content(
                 page,
                 shares=state["shares_accesibles"],
                 usuario_actual=state["credenciales_smb"]["usuario"],
                 mounts_activos=state["mounts_activos"],
                 grupos_ldap=state["grupos_ldap"],
-                credenciales_ldap=creds_ldap,
                 on_back=go_copy,
                 on_admin_activated=on_admin_activated,
             ))
@@ -506,7 +503,6 @@ def main(page: ft.Page):
             page,
             perfil_rclone=state["perfil_rclone"],
             mounts_activos=state["mounts_activos"],
-            on_close=do_close,
             endpoint=state["endpoint"],
             credenciales_ldap=state["credenciales_ldap"],
             extra_config=extra_config,
@@ -518,39 +514,6 @@ def main(page: ft.Page):
             on_cifs=go_cifs,          # ← nuevo
             on_login=go_login,
         ))
-
-    def do_close():
-        if IS_WEB:
-            usuario = (state.get("credenciales_ldap") or {}).get("usuario")
-            if usuario:
-                _ws_clear(usuario)
-        if IS_WEB and state["mounts_activos"]:
-            usuario = (state["credenciales_smb"] or {}).get("usuario") or getpass.getuser()
-            backend.safe_thread(page, lambda: backend.desmontar_todos_los_shares(usuario)).start()
-        if IS_WEB:
-            show_screen(
-                ft.Column(
-                    [
-                        ft.Container(expand=True),
-                        ft.Column(
-                            [
-                                ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, color=C_ACCENT, size=56),
-                                ft.Text("Session closed", size=24, color=C_TEXT,
-                                        weight=ft.FontWeight.W_600),
-                                ft.Text("You can close this browser tab.",
-                                        size=14, color=C_TEXT_DIM),
-                            ],
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                            spacing=12,
-                        ),
-                        ft.Container(expand=True),
-                    ],
-                    expand=True,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                )
-            )
-        else:
-            page.window.close()
 
     if IS_WEB:
         go_login()

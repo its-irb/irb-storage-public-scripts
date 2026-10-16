@@ -29,7 +29,6 @@ def _build_copy_content(
     page: ft.Page,
     perfil_rclone: str,
     mounts_activos: list,
-    on_close: Callable,
     endpoint: str,
     credenciales_ldap: dict,
     extra_config: dict | None,
@@ -41,8 +40,6 @@ def _build_copy_content(
     on_cifs: Callable | None = None,
     on_login: Callable | None = None,
 ) -> ft.Control:
-    usuario_actual = credenciales_ldap["usuario"]
-
     num_cores = backend.obtener_num_cpus()
     rclone_config_path = str(backend.obtener_ruta_rclone_conf())
 
@@ -789,14 +786,13 @@ def _build_copy_content(
                 _autosave_log()
 
         def _run_copy():
-            proc = backend.ejecutar_rclone_copy(
+            backend.ejecutar_rclone_copy(
                 origen=origen,
                 destino_perfil=perfil_rclone,
                 destino_path=destino,
                 rclone_config_path=rclone_config_path,
                 metadatos_dict=metadatos,
                 flags_adicionales=flags,
-                num_cores=num_cores,
                 log_fn=_dispatch_log,
                 on_success=_on_copy_success,
                 on_finish=_on_copy_finish,

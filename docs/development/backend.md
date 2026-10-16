@@ -39,7 +39,7 @@ El módulo agrupa la lógica no-UI en bloques delimitados por `# ====`:
 |---|---|
 | **Rclone resolution** | `get_rclone_executable()` — resuelve el binario en (1) `FLET_ASSETS_DIR/bin/`, (2) `sys._MEIPASS`, (3) junto al ejecutable, (4) PATH. En dev usa `APP_INFO["flavour"]` para construir `bifrost-<flavour>/src/assets/bin/`. |
 | **Constantes/versión** | `_parse_version()`, `check_update_version()`, `should_check_for_updates()`, `get_update_file_suffix()`, `download_new_binary()` — autoupdate. |
-| **Sistema** | `obtener_num_cpus()`, `get_rclone_paths()`, `obtener_ruta_rclone_conf()`, `traducir_ruta_a_remote()`, `detect_rclone_installed()`, `open_file()`, `launch_rclonebrowser()`. |
+| **Sistema** | `obtener_num_cpus()`, `get_rclone_paths()`, `obtener_ruta_rclone_conf()`, `traducir_ruta_a_remote()`, `detect_rclone_installed()`, `launch_rclonebrowser()`. |
 | **Checks de FS userland** | `_check_winfsp_windows()`, `_check_fuse_macos()`, `_check_fuse_linux()`, `_macos_app_bundle_frameworks()`. |
 | **STS / MinIO** | `get_credentials(endpoint, username, password, durationseconds)` → dict de credenciales temporales; `get_usuario_from_session_token()`, `get_expiration_from_session_token()`. |
 | **Perfiles rclone** | `configure_rclone()`, `get_rclone_session_token()`, `obtener_perfiles_rclone_config()`, `crear_perfil_rclone_smb()`, `actualizar_password_perfiles_rclone()`, `limpiar_perfiles_rclone_con_prefijo()`. |

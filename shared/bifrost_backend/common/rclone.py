@@ -163,14 +163,3 @@ def rclone_lsd(perfil: str, path: str = "", timeout: int = 15) -> list[str]:
         if len(parts) == 5:
             folders.append(parts[4])
     return sorted(folders)
-
-
-def open_file(path: str) -> None:
-    """Abre un directorio en el explorador de archivos del SO."""
-    if sys_platform == "win32":
-        import winreg
-        FILEBROWSER_PATH = os.path.join(os.getenv('WINDIR'), 'explorer.exe')
-        path = os.path.normpath(path + "\\")
-        subprocess.run([FILEBROWSER_PATH, path])
-    elif sys_platform == "darwin":
-        subprocess.Popen(["open", path])

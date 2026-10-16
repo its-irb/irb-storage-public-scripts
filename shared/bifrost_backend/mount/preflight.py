@@ -95,11 +95,10 @@ def _download_winfsp_msi(url: str, tag: str) -> Path:
     return dest
 
 
-def install_winfsp_windows(page=None, on_progress=None) -> bool:
+def install_winfsp_windows(on_progress=None) -> bool:
     """Descarga e instala WinFsp en Windows.
 
     Args:
-        page: objeto Flet page (opcional, solo para tipado uniforme).
         on_progress: callable(str) opcional que recibe mensajes de estado en inglés
                      ("Checking...", "Downloading...", "Installing...") para mostrarlos en UI.
 

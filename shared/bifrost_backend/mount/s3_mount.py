@@ -215,9 +215,7 @@ def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
         if sistema == "Windows":
             # GenerateConsoleCtrlEvent es el método correcto para WinFSP
             # TerminateProcess (.terminate()) puede dejar la unidad en estado colgado
-            import ctypes
             try:
-                #ctypes.windll.kernel32.GenerateConsoleCtrlEvent(0, proceso_encontrado.pid)  # 0 = CTRL_C_EVENT
                 result = subprocess.run([f"taskkill", "/PID", str(proceso_encontrado.pid), "/F" , "/T"], check=True, capture_output=True,
                 text=True, **_subprocess_kwargs())
                 print(f"[taskkill] Output: {result.stdout}")

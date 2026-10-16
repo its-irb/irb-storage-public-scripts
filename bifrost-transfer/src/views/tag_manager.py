@@ -350,25 +350,6 @@ def _build_tag_manager_content(
             _render_browser_contents() 
         backend.ui_call(page, _upd)
 
-    def _select_prefix(prefix: str) -> None:
-        nav["show_files"] = False
-        right_panel["visible"] = True
-        right_editor.visible = True
-
-        def _show_panel():
-            right_editor.visible = True
-            if _file_editor_section is not None:
-                _file_editor_section.visible = False
-                _profile_editor_section.visible = True
-            page.update()
-
-        backend.ui_call(page, _show_panel)
-
-        old_prefix = nav["prefix"]
-        nav["prefix"] = prefix
-        _update_prefix_selection()
-        nav["prefix"] = old_prefix
-
     def _navigate(bucket: str | None, prefix: str) -> None:
         print(f"[tag-manager] navigate → bucket={bucket!r} prefix={prefix!r}")
         nav["bucket"]     = bucket
@@ -398,9 +379,6 @@ def _build_tag_manager_content(
 
         backend.ui_call(page, _reset_editor)
         backend.safe_thread(page, _load_browser).start()
-
-    def _navigate_to_prefix(bucket: str, prefix: str) -> None:
-        _navigate(bucket, prefix)
 
     def _load_browser() -> None:
         def _set_loading():
@@ -469,29 +447,6 @@ def _build_tag_manager_content(
                 page.update()
             backend.ui_call(page, _err)
 
-    def _update_prefix_selection() -> None:
-        bucket = nav["bucket"]
-        prefix = nav["prefix"]
-        if not bucket:
-            return
-        print(f"[tag-manager] select prefix → {bucket}/{prefix}")
-
-        label   = f"📁 {prefix or (bucket + '/')}"
-        note    = "(Tag scanning and counting disabled for speed)"
-        tags_cp = {}
-        cnt_cp  = 0
-
-        def _upd():
-            sel["type"]    = "prefix"
-            sel["key"]     = None
-            sel["count"]   = cnt_cp
-            sel["display"] = label
-            target_label.value    = label
-            obj_count_label.value = note
-            apply_btn.disabled    = False
-            _prefill_fields(tags_cp)
-        backend.ui_call(page, _upd)
-
     def _select_file(key: str) -> None:
         print(f"[tag-manager] select file → {nav['bucket']}/{key}")
         def _do():
@@ -524,7 +479,6 @@ def _build_tag_manager_content(
                 target_label.value    = display
                 obj_count_label.value = ""
                 apply_btn.disabled    = False
-                #_prefill_fields(tags_cp)
                 _file_name_label.value = key
                 _populate_file_editor(tags_cp)
                 if _file_editor_section is not None:
@@ -593,12 +547,6 @@ def _build_tag_manager_content(
                 _do_switch()
 
         backend.ui_call(page, _ask)
-    
-    def _prefill_fields(tags: dict[str, str]) -> None:
-        for key, tf in tag_fields.items():
-            if key in tags:
-                tf.value = tags[key]
-        page.update()
 
     profile_dd = ft.Dropdown(
         options=[ft.dropdown.Option(p) for p in profile_names],
@@ -729,7 +677,7 @@ def _build_tag_manager_content(
         val_err = ft.Text("", size=11, color=C_ERROR, visible=False, expand=2)
         row_dict: dict = {"key_tf": key_tf, "val_tf": None, "row": None, "val_container": val_container}
 
-        def update_value_field_type(current_key: str, current_val: str):
+        def update_value_field_type(current_val: str):
             field_tf = ft.TextField(
                 value=current_val, hint_text="Value",
                 bgcolor=C_SURFACE2, border_color=C_BORDER,
@@ -749,7 +697,7 @@ def _build_tag_manager_content(
             row_dict["val_tf"] = field_tf
             val_container.content = field_tf  # siempre simple, sin dropdown
 
-        update_value_field_type(key, value)
+        update_value_field_type(value)
 
         def on_key_change(e):
             err = check_tag_value(key_tf.value or "")
@@ -757,7 +705,7 @@ def _build_tag_manager_content(
             key_err.value = err or ""
             key_err.visible = bool(err)
             old_val = row_dict["val_tf"].value or ""
-            update_value_field_type(key_tf.value, old_val)
+            update_value_field_type(old_val)
             page.update()
 
         key_tf.on_change = on_key_change

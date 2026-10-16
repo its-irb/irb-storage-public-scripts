@@ -412,7 +412,7 @@ def _build_mount_bucket(
 
             def _worker():
                 try:
-                    ok = backend.install_winfsp_windows(page=page, on_progress=_on_progress)
+                    ok = backend.install_winfsp_windows(on_progress=_on_progress)
                 except Exception as ex:
                     err = str(ex)
                     _log_event(f"WINFSP install error — {err}")

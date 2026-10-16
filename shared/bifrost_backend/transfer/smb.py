@@ -113,7 +113,6 @@ def obtener_perfiles_rclone_config(config_path=None) -> list[str]:
 def crear_perfil_rclone_smb(
     nombre_perfil: str,
     host: str,
-    path: str,
     username: str,
     password: str,
 ) -> None:
@@ -296,7 +295,6 @@ def configurar_perfiles_smb_si_faltan(
             crear_perfil_rclone_smb(
                 nombre_perfil=nombre_perfil,
                 host=share["host"],
-                path=share["name"],
                 username=credenciales_smb["usuario"],
                 password=credenciales_smb["password"],
             )

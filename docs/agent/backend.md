@@ -9,7 +9,7 @@ delimited by `# ====`.
 |---|---|
 | **Rclone resolution** | `get_rclone_executable()` — looks for rclone in (1) `FLET_ASSETS_DIR/bin/`, (2) `sys._MEIPASS`, (3) next to the executable, (4) PATH. In dev it uses `APP_INFO["flavour"]` to build the path to `bifrost-<flavour>/src/assets/bin/`. |
 | **Version / autoupdate** | `_parse_version()`, `check_update_version()`, `should_check_for_updates()`, `get_update_file_suffix()`, `download_new_binary()`. |
-| **System** | `obtener_num_cpus()`, `get_rclone_paths()`, `obtener_ruta_rclone_conf()`, `traducir_ruta_a_remote()`, `detect_rclone_installed()`, `open_file()`, `launch_rclonebrowser()`. |
+| **System** | `obtener_num_cpus()`, `get_rclone_paths()`, `obtener_ruta_rclone_conf()`, `traducir_ruta_a_remote()`, `detect_rclone_installed()`, `launch_rclonebrowser()`. |
 | **Userland FS checks** | `_check_winfsp_windows()`, `_check_fuse_macos()`, `_check_fuse_linux()`, `_macos_app_bundle_frameworks()`. |
 | **STS / MinIO** | `get_credentials(endpoint, username, password, durationseconds)` → temporary credentials; `get_usuario_from_session_token()`, `get_expiration_from_session_token()`. |
 | **Rclone profiles** | `configure_rclone()`, `get_rclone_session_token()`, `obtener_perfiles_rclone_config()`, `crear_perfil_rclone_smb()`, `actualizar_password_perfiles_rclone()`; SFTP: `crear_perfil_rclone_sftp()`, `generar_nombre_perfil_sftp()`, `validar_conexion_sftp()`, `limpiar_perfiles_rclone_con_prefijo()`. |

@@ -20,7 +20,6 @@ def ejecutar_rclone_copy(
     rclone_config_path: str,
     metadatos_dict: dict,
     flags_adicionales: list[str],
-    num_cores: int,
     log_fn,
     on_success=None,
     on_finish=None,
@@ -223,7 +222,6 @@ def es_directorio_rclone(ruta_rclone: str, config_path: str) -> bool:
 def traducir_a_ruta_local_montada(
     origen: str,
     mounts_activos: list,
-    config_path: str,
 ) -> str:
     """Si 'origen' es un remote rclone con mount activo, devuelve la ruta local equivalente."""
     if ":" in origen and not origen.startswith("/"):
@@ -253,14 +251,14 @@ def preparar_origen_para_check(
         remote, ruta_local = origen.split(":", 1)
         ruta_local = ruta_local.lstrip("/")
         if es_directorio_rclone(origen, rclone_config_path):
-            carpeta = traducir_a_ruta_local_montada(origen, mounts_activos, rclone_config_path)
+            carpeta = traducir_a_ruta_local_montada(origen, mounts_activos)
             return carpeta, None
         else:
             ruta_local_path = Path(ruta_local)
             fichero = ruta_local_path.name
             carpeta_remota = f"{remote}:{str(ruta_local_path.parent)}"
             carpeta = traducir_a_ruta_local_montada(
-                carpeta_remota, mounts_activos, rclone_config_path
+                carpeta_remota, mounts_activos
             )
             return carpeta + f"/{fichero}", fichero
     else:

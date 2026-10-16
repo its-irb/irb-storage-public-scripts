@@ -24,7 +24,6 @@ def _build_shares_content(
     usuario_actual: str,
     mounts_activos: list,
     grupos_ldap: list,
-    credenciales_ldap: dict,
     on_back: Callable,
     on_admin_activated: Callable,
 ) -> ft.Control:

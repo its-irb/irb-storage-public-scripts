@@ -19,7 +19,6 @@ from .common.rclone import (
     get_rclone_executable,
     obtener_ruta_rclone_conf,
     rclone_lsd,
-    open_file,
 )
 from .common.auth import (
     get_credentials,
