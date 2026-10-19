@@ -85,7 +85,17 @@ Dónde va la información útil de rclone:
   error al leer; `-` (solo en el destino) no aparece. Con diferencias, rc 1.
 - `rclone mount` con un error termina enseguida (rc 1) y deja en `--log-file` una línea de texto
   `YYYY/MM/DD HH:MM:SS CRITICAL: …`. Se puede detectar con `poll()` + leer el final del log.
-- Hypercorn 0.18 con SIGTERM: cierre ordenado y `atexit` ejecutado. En web no hace falta manejador propio.
+- ~~Hypercorn 0.18 con SIGTERM: cierre ordenado y `atexit` ejecutado. En web no hace falta manejador propio.~~
+  **Corregido (2026-10-19):** solo es cierto si el SIGTERM llega al proceso padre. Hypercorn ejecuta la app
+  en un hijo (`spawn`) al que pasa un `shutdown_event` y **no** le instala manejador de señales
+  (`asyncio/run.py`, `if shutdown_trigger is None`). `scancel` (Delete en OOD) envía SIGTERM a todos los
+  procesos del job, así que el hijo muere en el acto: sin `atexit`, sin limpieza y sin `APP shutdown`
+  (comprobado en OOD). Hace falta un manejador de SIGTERM a nivel de módulo también en web.
+- **Registros anidados en Python 3.13.5** (el del cluster): `Logger.handle()` descarta los registros que se
+  crean mientras otro se procesa en el mismo hilo. Hypercorn escribe en `sys.stderr` desde su propio handler y
+  el redirector creaba un registro anidado, así que se perdía `Running on`. En 3.13.15 y 3.14 no pasa
+  (comprobado con una reproducción mínima en las dos versiones). Arreglado: `_StreamToLogger` entrega el
+  registro directamente a los handlers de `bifrost`, sin pasar por `Logger.handle()`.
 - **Pendiente (punto 4)**: errores reales de MinIO (sin permiso, token caducado, WORM) para afinar los
   patrones del catálogo. Necesita credenciales de prueba (bucket `test-policies`).
 
@@ -160,6 +170,13 @@ Dónde va la información útil de rclone:
   buckets: …" en pantalla y `BUCKET list failed` en el log.
 - Cerrar con la X o con Ctrl+C: `APP shutdown` una sola vez.
 - OOD: `output.log` con líneas formateadas, `mode=web`, `log_file=stdout` y `session_dir=<carpeta de la sesión>`.
+
+### Pendiente dentro de la fase 1
+
+- **Cierre en web**: registrar el `atexit` de limpieza una sola vez a nivel de módulo (hoy se registra en
+  `main()`, una vez por cada conexión del navegador, y se acumula con cada reconexión) y un manejador de
+  SIGTERM también en web, para el proceso hijo de Hypercorn. Prueba: Delete en OOD → `APP shutdown` en
+  `output.log`.
 
 ### Observado durante las pruebas (para PR 3 y PR 5)
 

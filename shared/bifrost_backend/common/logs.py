@@ -65,8 +65,9 @@ class _RedactFilter(logging.Filter):
 class _StreamToLogger:
     """Sustituye a sys.stdout/sys.stderr: cada línea impresa pasa a ser un registro del logger."""
 
-    def __init__(self, logger: logging.Logger, level: int, original) -> None:
+    def __init__(self, logger: logging.Logger, level: int, original, handlers: list[logging.Handler]) -> None:
         self._logger, self._level, self._original = logger, level, original
+        self._handlers = handlers        # los del logger "bifrost" (misma lista, no una copia)
         self._buf, self._lock = "", threading.Lock()
         self._busy = threading.local()   # evita bucles si un handler falla y escribe en stderr
 
@@ -98,9 +99,18 @@ class _StreamToLogger:
                     self._original.write(line + "\n")
                     self._original.flush()
                 elif line.strip():
-                    self._logger.log(self._level, line.rstrip())
+                    self._dispatch(line.rstrip())
         finally:
             self._busy.on = False
+
+    def _dispatch(self, msg: str) -> None:
+        # Se entrega el registro a los handlers sin pasar por Logger.handle(): algunas versiones de Python
+        # (p. ej. 3.13.5, la del cluster) descartan los registros creados mientras otro registro se procesa
+        # en el mismo hilo, y así se perdía lo que Hypercorn escribe en stderr desde su propio handler.
+        record = self._logger.makeRecord(self._logger.name, self._level, "(stream)", 0, msg, None, None)
+        for handler in self._handlers:
+            if record.levelno >= handler.level:
+                handler.handle(record)
 
     def isatty(self) -> bool:
         return False                      # sin colores ANSI en el log
@@ -153,9 +163,9 @@ def setup_logging(app: str, *, is_web: bool, version: str) -> Path | None:
     py_warnings.propagate = False
 
     if console is not None:
-        sys.stdout = _StreamToLogger(logging.getLogger("bifrost.print"), logging.INFO, console)
+        sys.stdout = _StreamToLogger(logging.getLogger("bifrost.print"), logging.INFO, console, root.handlers)
     if sys.stderr is not None:
-        sys.stderr = _StreamToLogger(logging.getLogger("bifrost.stderr"), logging.WARNING, sys.stderr)
+        sys.stderr = _StreamToLogger(logging.getLogger("bifrost.stderr"), logging.WARNING, sys.stderr, root.handlers)
 
     def _excepthook(exc_type, exc, tb):
         root.critical("Unhandled exception", exc_info=(exc_type, exc, tb))
