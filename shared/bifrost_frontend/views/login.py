@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import getpass
+import logging
 from typing import Callable
 
 import flet as ft
@@ -11,6 +12,7 @@ from bifrost_backend import backend
 from ..components import btn_primary, build_header, styled_field
 from ..theme import C_BORDER, C_ERROR, C_PRIMARY, C_SURFACE, C_TEXT, C_TEXT_DIM, C_WARNING
 
+log = logging.getLogger("bifrost.login")
 
 _LDAP_ERROR_MESSAGES = {
     "vpn":     "⚠️ Cannot reach the IRB network. Are you connected to the VPN?",
@@ -27,7 +29,6 @@ def build_login_content(
     *,
     no_ldap: bool,
     is_web: bool = False,
-    log_event: Callable[[str], None] = print,
 ) -> ft.Control:
 
     try:
@@ -74,18 +75,18 @@ def build_login_content(
 
         def _auth():
             creds = {"usuario": user, "password": pwd}
-            log_event(f"LOGIN attempt — user: {user}")
+            log.info(f"LOGIN attempt — user: {user}")
             if no_ldap:
-                log_event(f"LOGIN bypass LDAP — user: {user}")
+                log.info(f"LOGIN bypass LDAP — user: {user}")
                 backend.ui_call(page, lambda: on_success(creds))
                 return
             ok, motivo = backend.validar_credenciales_ldap(creds)
             if ok:
-                log_event(f"LOGIN success — user: {user}")
+                log.info(f"LOGIN success — user: {user}")
                 backend.ui_call(page, lambda: on_success(creds))
             else:
                 msg = _LDAP_ERROR_MESSAGES.get(motivo, "Invalid credentials. Please try again.")
-                log_event(f"LOGIN failed — user: {user} — reason: {motivo}")
+                log.info(f"LOGIN failed — user: {user} — reason: {motivo}")
                 backend.ui_call(page, lambda: _show_error(msg))
 
         backend.safe_thread(page, _auth).start()

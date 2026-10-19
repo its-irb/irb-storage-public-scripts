@@ -24,6 +24,7 @@ import os
 import sys
 import io
 import atexit
+import logging
 import signal
 
 import flet as ft
@@ -33,7 +34,6 @@ from bifrost_backend.common.constants import NO_LDAP, STS_RENEWAL_THRESHOLD_DAYS
 from bifrost_frontend.frontend import *
 from version import __version__
 
-from session_log import _log_event, _write_to_log_file
 from views.mount import _build_mount_bucket
 
 # ============================================================================
@@ -47,6 +47,9 @@ try:
 except Exception:
     pass
 
+# Log técnico: consola + fichero por sesión en la carpeta estándar del SO (common/logs.py)
+backend.setup_logging("mount", is_web=False, version=__version__)
+log = logging.getLogger("bifrost.mount")
 
 
 # ============================================================================
@@ -54,7 +57,6 @@ except Exception:
 # ============================================================================
 
 def main(page: ft.Page):
-    _log_event(f"APP start — bifrost-mount v{__version__}")
     apply_theme(page)
 
     state = {
@@ -72,7 +74,7 @@ def main(page: ft.Page):
         if _cleanup_done["value"]:
             return
         _cleanup_done["value"] = True
-        print("[atexit] Cleaning up...")
+        log.info("APP shutdown — cleaning up")
         backend.desmontar_todos_los_mounts_s3()
 
     atexit.register(_cleanup_on_exit)
@@ -82,7 +84,7 @@ def main(page: ft.Page):
         # abruptamente. Sin este handler, atexit no llega a ejecutarse y el
         # mount FUSE queda colgado para la siguiente sesión.
         nombre_senal = signal.Signals(signum).name
-        print(f"[signal] Received {nombre_senal}, cleaning up before exit...")
+        log.info("APP shutdown requested (reason=%s)", nombre_senal)
         _cleanup_on_exit()
         sys.exit(0)
 
@@ -115,7 +117,7 @@ def main(page: ft.Page):
 
     def go_login():
         show_screen(build_login_content(page, on_success=on_login_success,
-                                        no_ldap=NO_LDAP, log_event=_log_event))
+                                        no_ldap=NO_LDAP))
 
     def on_login_success(creds: dict):
         state["credenciales_ldap"] = creds
@@ -128,7 +130,7 @@ def main(page: ft.Page):
         state["servidor_minio"] = eleccion["servidor"]
         state["perfil_rclone"]  = eleccion["perfil"]
         state["endpoint"]       = eleccion["endpoint"]
-        _log_event(f"PROFILE selected — {eleccion['perfil']} ({eleccion['endpoint']})")
+        log.info(f"PROFILE selected — {eleccion['perfil']} ({eleccion['endpoint']})")
         _go_credentials_or_mount()
 
     def _go_credentials_or_mount():
@@ -155,7 +157,6 @@ def main(page: ft.Page):
                 on_back=go_login if NO_LDAP else None,
                 no_ldap=NO_LDAP,
                 done_message="Loading mount interface...",
-                write_log=_write_to_log_file,
             ))
         else:
             go_mount()

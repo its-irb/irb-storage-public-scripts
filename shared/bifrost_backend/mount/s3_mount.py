@@ -165,12 +165,7 @@ def mount_rclone_S3_prefix_to_folder(rclone_profile: str, s3_prefix: str) -> Non
     _s3_mount_processes.append(proceso)
 
 
-def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
-    def _log(msg):
-        print(msg)
-        if log_fn:
-            log_fn(msg)
-
+def desmontar_punto_montaje(mount_point: str) -> None:
     global _s3_mount_processes
     #mount_point_abs = str(Path(mount_point).resolve())
     try:
@@ -207,10 +202,10 @@ def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
                 _s3_mount_processes.remove(proceso)
                 break
         except Exception as ex:
-            _log(f"[unmount] Warning checking process: {ex}")
+            print(f"[unmount] Warning checking process: {ex}")
 
     if proceso_encontrado is not None:
-        _log(f"[unmount] Sending Ctrl-C to PID {proceso_encontrado.pid} for {mount_point}")
+        print(f"[unmount] Sending Ctrl-C to PID {proceso_encontrado.pid} for {mount_point}")
         sistema = platform.system()
         if sistema == "Windows":
             # GenerateConsoleCtrlEvent es el método correcto para WinFSP
@@ -222,10 +217,10 @@ def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
                 try:
                     proceso_encontrado.wait(timeout=5)
                 except Exception:
-                    _log(f"[unmount] Ctrl-C timeout, forcing kill on PID {proceso_encontrado.pid}")
+                    print(f"[unmount] Ctrl-C timeout, forcing kill on PID {proceso_encontrado.pid}")
                     proceso_encontrado.kill()
             except Exception as e:
-                _log(f"[unmount] GenerateConsoleCtrlEvent failed: {e}, falling back to kill")
+                print(f"[unmount] GenerateConsoleCtrlEvent failed: {e}, falling back to kill")
                 proceso_encontrado.kill()
         else:
             proceso_encontrado.terminate()
@@ -234,7 +229,7 @@ def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
             except Exception:
                 proceso_encontrado.kill()
     else:
-        _log(f"[unmount] No active process found for {mount_point}, trying filesystem unmount")
+        print(f"[unmount] No active process found for {mount_point}, trying filesystem unmount")
 
     # Fallback: unmount a nivel de filesystem para mounts de sesiones anteriores
     sistema = platform.system()
@@ -250,7 +245,7 @@ def desmontar_punto_montaje(mount_point: str, log_fn=None) -> None:
         elif sistema == "Darwin":
             subprocess.run(["umount", mount_point], check=True)
     except Exception as e:
-        _log(f"\n⚠️ Could not unmount {mount_point}: {str(e)}\n")
+        print(f"\n⚠️ Could not unmount {mount_point}: {str(e)}\n")
 
 
 def resolver_mount_point_destino(perfil_rclone: str, ruta_destino: str) -> str:

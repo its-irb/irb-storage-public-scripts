@@ -37,6 +37,9 @@ from .common.ui_helpers import (
     ui_call,
     safe_thread,
 )
+from .common.logs import (
+    setup_logging,
+)
 from .mount.s3_mount import (
     mount_rclone_S3_prefix_to_folder,
     desmontar_punto_montaje,

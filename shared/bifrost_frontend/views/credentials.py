@@ -28,7 +28,6 @@ def build_credentials_content(
     no_ldap: bool,
     is_web: bool = False,
     done_message: str,
-    write_log: Callable[[str], None] | None = None,
 ) -> ft.Control:
     log_list = ft.ListView(
         expand=True,
@@ -52,9 +51,7 @@ def build_credentials_content(
                            font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK)
 
     def log(msg: str, color: str = C_TEXT):
-        print(msg.rstrip())
-        if write_log:
-            write_log(msg)
+        print(msg.rstrip())   # el print llega al log técnico (common/logs.py)
         def _add():
             log_list.controls.append(
                 ft.Text(msg.rstrip("\n"), size=11, color=color,

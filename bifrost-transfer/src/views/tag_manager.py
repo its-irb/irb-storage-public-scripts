@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import pathlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -13,6 +14,8 @@ from bifrost_backend.common.constants import NO_LDAP
 from bifrost_frontend.frontend import *
 
 from meta_fields import TAG_PROFILES, build_lab_filter_widget, build_meta_fields, check_tag_value, detect_profile, validate_tagset
+
+log = logging.getLogger("bifrost.tags")
 
 # main.py fija el valor real al arrancar: IS_WEB solo puede calcularse en main.py
 # (depende de __name__), y las funciones de este módulo lo leen al ejecutarse.
@@ -821,6 +824,7 @@ def _build_tag_manager_content(
                 backend.ui_call(page, _ok)
             except Exception as ex:
                 err_str = str(ex)
+                log.error("TAGS save failed — %s/%s — %s", nav["bucket"], sel["key"], err_str)
                 def _err():
                     if _save_btn_ref["btn"] is not None:
                         _save_btn_ref["btn"].disabled = False

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import subprocess
@@ -16,7 +17,8 @@ from bifrost_backend import backend
 from bifrost_backend.common.constants import NO_LDAP, STS_AUTO_RENEWAL_DAYS, STS_RENEWAL_THRESHOLD_DAYS
 from bifrost_frontend.frontend import *
 
-from session_log import _log_event, _write_to_log_file
+log = logging.getLogger("bifrost.mount")
+
 
 # ============================================================================
 # COMPONENTE: SELECTOR DE BUCKETS RCLONE
@@ -61,7 +63,7 @@ def build_rclone_browser(
 
     def _select_bucket(bucket_name: str):
         selected_state["bucket"] = bucket_name
-        _log_event(f"BUCKET selected — {bucket_name}")
+        log.info(f"BUCKET selected — {bucket_name}")
         on_select(bucket_name)
         _render_buckets(selected_state.get("_all_buckets", []))
 
@@ -76,12 +78,12 @@ def build_rclone_browser(
 
     def _unmount_all():
         def _do():
-            _log_event(f"UNMOUNT ALL — {len(mounted_state)} mounts")
+            log.info(f"UNMOUNT ALL — {len(mounted_state)} mounts")
             for bname, mp in list(mounted_state.items()):
                 try:
                     backend.desmontar_punto_montaje(mp)
                 except OSError as ex:
-                    _log_event(f"UNMOUNT error — bucket: {bname} — {ex}")
+                    log.info(f"UNMOUNT error — bucket: {bname} — {ex}")
                     # WinError 1005: WinFSP volume already in inconsistent state
                     # El proceso rclone probablemente ya no existe (perdido tras rebuild)
                     # Forzar taskkill por nombre como fallback
@@ -95,7 +97,7 @@ def build_rclone_browser(
                         except Exception:
                             pass
                 except Exception as ex:
-                    _log_event(f"UNMOUNT error — bucket: {bname} — {ex}")
+                    log.info(f"UNMOUNT error — bucket: {bname} — {ex}")
                     print(f"[unmount_all] Error {bname}: {ex}")
                 finally:
                     mounted_state.pop(bname, None)
@@ -215,9 +217,10 @@ def build_rclone_browser(
             backend.ui_call(page, _show)
 
         except Exception as ex:
-            def _err():
+            log.error("BUCKET list failed — profile: %s — %s", perfil_rclone, ex)
+            def _err(ex_val=ex):
                 loading_row.visible = False
-                error_text.value    = f"Error loading buckets: {ex}"
+                error_text.value    = f"Error loading buckets: {ex_val}"
                 error_text.visible  = True
                 page.update()
             backend.ui_call(page, _err)
@@ -320,7 +323,6 @@ def _build_mount_bucket(
                 duracion_dias=dias_int,
                 no_ldap=NO_LDAP,
                 done_message="Loading mount interface...",
-                write_log=_write_to_log_file,
             ))
 
         def cancel(ev):
@@ -415,7 +417,7 @@ def _build_mount_bucket(
                     ok = backend.install_winfsp_windows(on_progress=_on_progress)
                 except Exception as ex:
                     err = str(ex)
-                    _log_event(f"WINFSP install error — {err}")
+                    log.info(f"WINFSP install error — {err}")
                     def _err():
                         _close(progress_dlg)
                         show_dialog(
@@ -430,10 +432,10 @@ def _build_mount_bucket(
                 def _done():
                     _close(progress_dlg)
                     if ok:
-                        _log_event("WINFSP install success")
+                        log.info("WINFSP install success")
                         on_success()
                     else:
-                        _log_event("WINFSP install cancelled")
+                        log.info("WINFSP install cancelled")
                         show_dialog(
                             page,
                             "Installation cancelled",
@@ -483,7 +485,7 @@ def _build_mount_bucket(
         page.update()
 
         def _do():
-            _log_event(f"MOUNT start — bucket: {ruta}, profile: {perfil_rclone}")
+            log.info(f"MOUNT start — bucket: {ruta}, profile: {perfil_rclone}")
             try:
                 backend.mount_rclone_S3_prefix_to_folder(perfil_rclone, ruta)
                 mp = backend.resolver_mount_point_destino(perfil_rclone, ruta)
@@ -501,7 +503,7 @@ def _build_mount_bucket(
                 time.sleep(2)  # espera extra antes de abrir el explorador
 
                 mounted_state[ruta] = mp
-                _log_event(f"MOUNT success — bucket: {ruta}, path: {mp}")
+                log.info(f"MOUNT success — bucket: {ruta}, path: {mp}")
 
                 # Abrir explorador
                 try:
@@ -528,7 +530,7 @@ def _build_mount_bucket(
                     page.update()
                 backend.ui_call(page, _ok)
             except backend.WinFspMissingError:
-                _log_event(f"MOUNT error (WinFsp missing) — bucket: {ruta}")
+                log.info(f"MOUNT error (WinFsp missing) — bucket: {ruta}")
                 def _ask():
                     mount_btn.disabled   = False
                     mount_status.value   = ""
@@ -538,7 +540,7 @@ def _build_mount_bucket(
                 backend.ui_call(page, _ask)
             except EnvironmentError as ex:
                 err_str = str(ex)
-                _log_event(f"MOUNT error (FUSE/WinFSP) — bucket: {ruta} — {err_str}")
+                log.info(f"MOUNT error (FUSE/WinFSP) — bucket: {ruta} — {err_str}")
                 def _err():
                     mount_btn.disabled   = False
                     mount_status.value   = ""
@@ -548,7 +550,7 @@ def _build_mount_bucket(
                 backend.ui_call(page, _err)
             except Exception as ex:
                 err_str = str(ex)
-                _log_event(f"MOUNT error — bucket: {ruta} — {err_str}")
+                log.info(f"MOUNT error — bucket: {ruta} — {err_str}")
                 def _err():
                     mount_btn.disabled   = False
                     mount_status.value   = ""

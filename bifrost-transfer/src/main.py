@@ -46,9 +46,10 @@ Fixes aplicados respecto al piloto inicial:
 import os
 import sys
 import io
+import atexit
 import getpass
-import pathlib
-from datetime import datetime
+import logging
+import signal
 
 import flet as ft
 
@@ -104,53 +105,12 @@ except Exception:
     pass
 
 # ============================================================================
-# TEE DE CONSOLA A FICHERO — persiste todo lo que se hace print() (navegación,
-# filtros, copy, tags, selección de cluster, etc.) en ~/bifrost-logs/, igual
-# que ya se hace con los logs de copy/tags. Así el histórico de debug no
-# depende de que haya una consola visible (apps empaquetadas con flet build
-# no muestran una).
+# LOG TÉCNICO (common/logs.py) — los print() pasan por el logger. Escritorio:
+# fichero por sesión en la carpeta estándar del SO (las apps empaquetadas no
+# tienen consola). Web/OOD: solo stdout, que acaba en output.log de la sesión.
 # ============================================================================
-class _TeeStream:
-    def __init__(self, *streams):
-        self._streams = streams
-
-    def write(self, data):
-        for s in self._streams:
-            try:
-                s.write(data)
-            except Exception:
-                pass
-
-    def flush(self):
-        for s in self._streams:
-            try:
-                s.flush()
-            except Exception:
-                pass
-
-
-try:
-    _console_log_dir = pathlib.Path.home() / "bifrost-logs"
-    _console_log_dir.mkdir(parents=True, exist_ok=True)
-    _console_log_path = _console_log_dir / f"bifrost-console-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
-    _console_log_file = open(_console_log_path, "a", encoding="utf-8", errors="replace", buffering=1)
-    sys.stdout = _TeeStream(sys.stdout, _console_log_file)
-    sys.stderr = _TeeStream(sys.stderr, _console_log_file)
-    print(f"[startup] console log → {_console_log_path}")
-
-    # Rotación: conservar solo los 50 ficheros de consola más recientes.
-    _console_logs = sorted(
-        _console_log_dir.glob("bifrost-console-*.log"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    for _old_console_log in _console_logs[50:]:
-        try:
-            _old_console_log.unlink()
-        except Exception:
-            pass
-except Exception as _console_log_ex:
-    print(f"[startup] Could not set up console log file: {_console_log_ex}")
+backend.setup_logging("transfer", is_web=IS_WEB, version=backend.__version__)
+log = logging.getLogger("bifrost.transfer")
 
 
 # ============================================================================
@@ -178,10 +138,14 @@ def main(page: ft.Page):
         "_cifs_loading":         False,
     }
 
-    import atexit
-    
+    _cleanup_done = {"value": False}
+
     def _cleanup_on_exit():
-        print("[atexit] Cleaning up...")
+        # Puede llegar por atexit, por señal y por cierre de ventana — ejecutar una sola vez.
+        if _cleanup_done["value"]:
+            return
+        _cleanup_done["value"] = True
+        log.info("APP shutdown — cleaning up")
         mounts = state.get("mounts_activos", [])
         if mounts and IS_WEB:
             usuario = (state.get("credenciales_smb") or {}).get("usuario") or getpass.getuser()
@@ -192,6 +156,19 @@ def main(page: ft.Page):
 
     atexit.register(_cleanup_on_exit)
 
+    if not IS_WEB:
+        # En web no: Hypercorn gestiona SIGTERM/SIGINT y su cierre ordenado ejecuta atexit.
+        def _handle_termination_signal(signum, frame):
+            nombre_senal = signal.Signals(signum).name
+            log.info("APP shutdown requested (reason=%s)", nombre_senal)
+            _cleanup_on_exit()
+            sys.exit(0)
+
+        for _sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                signal.signal(_sig, _handle_termination_signal)
+            except (ValueError, OSError):
+                pass  # solo se puede registrar en el hilo principal; en otros contextos se ignora
 
     # def on_window_close(e):
     #     print(f"[debug] on_window_close called, e={e}, e.data={e.data if hasattr(e, 'data') else 'no data'}")
@@ -413,7 +390,7 @@ def main(page: ft.Page):
                         state["credenciales_admin"],
                     )
                 except ValueError as ex:
-                    backend.ui_call(page, lambda: show_dialog(page, "Error", str(ex), C_ERROR))
+                    backend.ui_call(page, lambda ex_val=ex: show_dialog(page, "Error", str(ex_val), C_ERROR))
                     return
 
                 shares = backend.obtener_shares_accesibles(

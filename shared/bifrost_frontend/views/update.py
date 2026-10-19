@@ -1,5 +1,6 @@
 """Vista de comprobación e instalación de actualizaciones (compartida por mount y transfer)."""
 
+import logging
 import os
 import shutil
 import stat
@@ -18,6 +19,8 @@ from ..theme import (
     C_ACCENT, C_ERROR, C_PRIMARY, C_SURFACE2, C_TEXT, C_TEXT_DIM, C_WARNING,
     FONT_MONO, MONO_FALLBACK,
 )
+
+log = logging.getLogger("bifrost.update")
 
 # ============================================================================
 # SELF-UPDATE
@@ -55,8 +58,9 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                 import time; time.sleep(1)
                 backend.ui_call(page, on_continue)
         except Exception as e:
-            def _show_err():
-                status_text.value = f"Could not check updates: {e}"
+            log.warning("UPDATE check failed — %s", e)
+            def _show_err(ex_val=e):
+                status_text.value = f"Could not check updates: {ex_val}"
                 status_text.color = C_TEXT_DIM
                 progress.visible  = False
                 page.update()
