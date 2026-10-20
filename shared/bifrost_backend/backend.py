@@ -40,6 +40,10 @@ from .common.ui_helpers import (
 from .common.logs import (
     setup_logging,
 )
+from .common.shutdown import (
+    register_shutdown,
+    install_signal_handlers,
+)
 from .mount.s3_mount import (
     mount_rclone_S3_prefix_to_folder,
     desmontar_punto_montaje,

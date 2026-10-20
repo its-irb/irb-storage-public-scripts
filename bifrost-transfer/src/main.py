@@ -33,7 +33,7 @@ Fixes aplicados respecto al piloto inicial:
   - Log usa ft.ListView con auto_scroll=True en lugar de TextField
   - ft.Ref[str] reemplazado por dict simple
   - Vista de shares vacíos muestra mensaje explicativo
-  - atexit eliminado; el cierre limpio se gestiona via on_window_event y do_close()
+  - Cierre limpio en common/shutdown.py (atexit + señales) y en on_window_event
   - Sin hint de asteriscos en campos password
   - Espaciado (margin bottom) entre header y contenido de cada vista
   - backend.safe_thread: todos los hilos capturan excepciones y las muestran en diálogo
@@ -46,10 +46,7 @@ Fixes aplicados respecto al piloto inicial:
 import os
 import sys
 import io
-import atexit
-import getpass
 import logging
-import signal
 
 import flet as ft
 
@@ -77,8 +74,10 @@ from views.tag_manager import _build_tag_manager_content
 
 
 
-# Modo web: producción (BIFROST_CLUSTER=1), Flet web runtime, o dev local (--web)
-IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or (os.environ.get("BIFROST_CLUSTER") == "1")
+# Producción en Open OnDemand: la app la sirve Hypercorn (ver el bloque del final del fichero)
+IS_CLUSTER = os.environ.get("BIFROST_CLUSTER") == "1"
+# Modo web: producción (IS_CLUSTER), Flet web runtime, o dev local (--web)
+IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or IS_CLUSTER
 
 
 def _propagar_is_web() -> None:
@@ -112,6 +111,26 @@ except Exception:
 backend.setup_logging("transfer", is_web=IS_WEB, version=backend.__version__)
 log = logging.getLogger("bifrost.transfer")
 
+# ============================================================================
+# CIERRE — una sola limpieza por proceso (common/shutdown.py). En web hay una
+# sesión de Flet por conexión del navegador, así que no puede vivir en main().
+# ============================================================================
+# Usuarios SMB con los que alguna sesión ha preparado shares de NetApp (solo en
+# web). Se guarda el nombre y no el state de la sesión, que lleva la contraseña.
+_SMB_USERS: set[str] = set()
+
+
+def _desmontar_shares() -> None:
+    """Desmonta los shares de NetApp de todos los usuarios SMB usados en este proceso."""
+    for usuario in _SMB_USERS:
+        try:
+            backend.desmontar_todos_los_shares(usuario)
+        except Exception as e:
+            log.error("Error unmounting NetApp shares — user: %s — %s", usuario, e)
+
+
+_cleanup_on_exit = backend.register_shutdown(_desmontar_shares, server_managed=IS_CLUSTER)
+
 
 # ============================================================================
 # FUNCIÓN PRINCIPAL
@@ -121,6 +140,8 @@ def main(page: ft.Page):
     global IS_WEB
     IS_WEB = IS_WEB or page.web
     _propagar_is_web()
+    if not IS_WEB:
+        backend.install_signal_handlers()   # ft.run() ha puesto los suyos al arrancar (ver common/shutdown.py)
     apply_theme(page)
 
     state = {
@@ -137,38 +158,6 @@ def main(page: ft.Page):
         "endpoint":              None,
         "_cifs_loading":         False,
     }
-
-    _cleanup_done = {"value": False}
-
-    def _cleanup_on_exit():
-        # Puede llegar por atexit, por señal y por cierre de ventana — ejecutar una sola vez.
-        if _cleanup_done["value"]:
-            return
-        _cleanup_done["value"] = True
-        log.info("APP shutdown — cleaning up")
-        mounts = state.get("mounts_activos", [])
-        if mounts and IS_WEB:
-            usuario = (state.get("credenciales_smb") or {}).get("usuario") or getpass.getuser()
-            try:
-                backend.desmontar_todos_los_shares(usuario)
-            except Exception as e:
-                print(f"[atexit] Error unmounting shares: {e}")
-
-    atexit.register(_cleanup_on_exit)
-
-    if not IS_WEB:
-        # En web no: Hypercorn gestiona SIGTERM/SIGINT y su cierre ordenado ejecuta atexit.
-        def _handle_termination_signal(signum, frame):
-            nombre_senal = signal.Signals(signum).name
-            log.info("APP shutdown requested (reason=%s)", nombre_senal)
-            _cleanup_on_exit()
-            sys.exit(0)
-
-        for _sig in (signal.SIGTERM, signal.SIGINT):
-            try:
-                signal.signal(_sig, _handle_termination_signal)
-            except (ValueError, OSError):
-                pass  # solo se puede registrar en el hilo principal; en otros contextos se ignora
 
     # def on_window_close(e):
     #     print(f"[debug] on_window_close called, e={e}, e.data={e.data if hasattr(e, 'data') else 'no data'}")
@@ -427,6 +416,7 @@ def main(page: ft.Page):
                 )
                 state["shares_accesibles"]     = shares
                 state["perfiles_configurados"] = perfiles
+                _SMB_USERS.add(state["credenciales_smb"]["usuario"])   # para desmontar al cerrar
 
                 def _show():
                     show_screen(_build_shares_content(
@@ -500,7 +490,7 @@ def main(page: ft.Page):
 # ============================================================================
 # WEB VERSION IN OOD
 # ============================================================================
-if os.environ.get("BIFROST_CLUSTER") == "1":
+if IS_CLUSTER:
     from flet.fastapi import FletApp, app_manager
     from fastapi import FastAPI, WebSocket
     import asyncio

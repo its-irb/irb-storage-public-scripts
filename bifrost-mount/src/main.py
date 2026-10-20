@@ -23,9 +23,7 @@ from __future__ import annotations
 import os
 import sys
 import io
-import atexit
 import logging
-import signal
 
 import flet as ft
 
@@ -51,12 +49,17 @@ except Exception:
 backend.setup_logging("mount", is_web=False, version=__version__)
 log = logging.getLogger("bifrost.mount")
 
+# Cierre: desmontar los buckets al salir, también si DCV/Open OnDemand mata la sesión con una señal
+# (si no, el montaje FUSE queda colgado para la siguiente sesión). Una sola vez por proceso.
+_cleanup_on_exit = backend.register_shutdown(backend.desmontar_todos_los_mounts_s3)
+
 
 # ============================================================================
 # FUNCIÓN PRINCIPAL
 # ============================================================================
 
 def main(page: ft.Page):
+    backend.install_signal_handlers()   # ft.run() ha puesto los suyos al arrancar (ver common/shutdown.py)
     apply_theme(page)
 
     state = {
@@ -66,33 +69,6 @@ def main(page: ft.Page):
         "endpoint":          None,
         "mounted_per_perfil": {},
     }
-
-    _cleanup_done = {"value": False}
-
-    def _cleanup_on_exit():
-        # Puede llegar por atexit normal Y por señal — evitar doble desmontaje.
-        if _cleanup_done["value"]:
-            return
-        _cleanup_done["value"] = True
-        log.info("APP shutdown — cleaning up")
-        backend.desmontar_todos_los_mounts_s3()
-
-    atexit.register(_cleanup_on_exit)
-
-    def _handle_termination_signal(signum, frame):
-        # DCV/Open OnDemand puede matar la sesión con SIGTERM/SIGINT al cerrarse
-        # abruptamente. Sin este handler, atexit no llega a ejecutarse y el
-        # mount FUSE queda colgado para la siguiente sesión.
-        nombre_senal = signal.Signals(signum).name
-        log.info("APP shutdown requested (reason=%s)", nombre_senal)
-        _cleanup_on_exit()
-        sys.exit(0)
-
-    for _sig in (signal.SIGTERM, signal.SIGINT):
-        try:
-            signal.signal(_sig, _handle_termination_signal)
-        except (ValueError, OSError):
-            pass  # solo se puede registrar en el hilo principal; en otros contextos se ignora
 
     async def on_window_event(e: ft.WindowEvent):
         if e.type == ft.WindowEventType.CLOSE:

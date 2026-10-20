@@ -22,6 +22,9 @@ _DATEFMT = "%Y-%m-%d %H:%M:%S"
 KEEP_SESSIONS = 30
 # `flet run` pasa este prefijo a la app y espera una línea "PAGE_URL_…" sin modificar en stdout.
 _PASSTHROUGH_PREFIX = os.environ.get("FLET_DISPLAY_URL_PREFIX")
+# App empaquetada con `flet build`: su arranque (serious_python) define esta variable y manda stdout/stderr a
+# un console.log propio, que se vacía en cada arranque y que su sys.exit cierra.
+_PACKAGED = "FLET_PYTHON_CALLBACK_SOCKET_ADDR" in os.environ
 
 
 def log_dir(app: str) -> Path:
@@ -68,7 +71,9 @@ class _StreamToLogger:
     def __init__(self, logger: logging.Logger, level: int, original, handlers: list[logging.Handler]) -> None:
         self._logger, self._level, self._original = logger, level, original
         self._handlers = handlers        # los del logger "bifrost" (misma lista, no una copia)
-        self._buf, self._lock = "", threading.Lock()
+        # Reentrante: un manejador de señal (common/shutdown.py) puede escribir mientras el hilo principal
+        # está dentro de write(); con un Lock normal se bloquearía a sí mismo.
+        self._buf, self._lock = "", threading.RLock()
         self._busy = threading.local()   # evita bucles si un handler falla y escribe en stderr
 
     def write(self, data: str) -> int:
@@ -140,11 +145,7 @@ def setup_logging(app: str, *, is_web: bool, version: str) -> Path | None:
         handler.addFilter(redact)
         root.addHandler(handler)
 
-    console = sys.stdout                     # main.py ya lo ha reenvuelto en UTF-8
-    if console is not None:
-        _add_handler(logging.StreamHandler(console), getattr(logging, level_name, logging.INFO))
-
-    log_file = None
+    log_file, file_error = None, None
     if not is_web:
         d = log_dir(app)
         try:
@@ -153,8 +154,15 @@ def setup_logging(app: str, *, is_web: bool, version: str) -> Path | None:
             log_file = d / f"bifrost-{app}-{datetime.now():%Y-%m-%d_%H-%M-%S}.log"
             _add_handler(logging.FileHandler(log_file, encoding="utf-8"), logging.DEBUG)
         except OSError as ex:
-            log_file = None
-            root.warning("Cannot create log file in %s: %s", d, ex)
+            log_file, file_error = None, f"Cannot create log file in {d}: {ex}"
+
+    # En la app empaquetada la consola solo duplicaría el fichero de sesión (ver _PACKAGED); se mantiene
+    # si el fichero no se ha podido crear, para no quedarse sin log.
+    console = sys.stdout                     # main.py ya lo ha reenvuelto en UTF-8
+    if console is not None and not (_PACKAGED and log_file):
+        _add_handler(logging.StreamHandler(console), getattr(logging, level_name, logging.INFO))
+    if file_error:
+        root.warning(file_error)
 
     # warnings.warn (DeprecationWarning…) → un único registro con su línea de código, no dos líneas sueltas
     logging.captureWarnings(True)
