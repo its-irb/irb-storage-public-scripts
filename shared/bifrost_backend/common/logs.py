@@ -1,8 +1,8 @@
 """Logging técnico común a bifrost-mount y bifrost-transfer.
 
-Un solo punto de configuración: consola (stdout) siempre y, en escritorio, un fichero por sesión en la
-carpeta estándar del sistema operativo. Los print() existentes se redirigen al logger para que nada se pierda
-mientras se migra el código.
+Un solo punto de configuración: consola (stdout) y, en escritorio, un fichero por sesión en la carpeta
+estándar del sistema operativo (en la app empaquetada la consola solo recibe avisos y errores, ver _PACKAGED).
+Los print() existentes se redirigen al logger para que nada se pierda mientras se migra el código.
 """
 
 from __future__ import annotations
@@ -23,7 +23,8 @@ KEEP_SESSIONS = 30
 # `flet run` pasa este prefijo a la app y espera una línea "PAGE_URL_…" sin modificar en stdout.
 _PASSTHROUGH_PREFIX = os.environ.get("FLET_DISPLAY_URL_PREFIX")
 # App empaquetada con `flet build`: su arranque (serious_python) define esta variable y manda stdout/stderr a
-# un console.log propio, que se vacía en cada arranque y que su sys.exit cierra.
+# un console.log propio, que se vacía en cada arranque y que su sys.exit cierra. Flet solo lo usa para mostrar
+# la pantalla "Error running app" si la app falla al arrancar, así que ahí solo hacen falta avisos y errores.
 _PACKAGED = "FLET_PYTHON_CALLBACK_SOCKET_ADDR" in os.environ
 
 
@@ -63,6 +64,15 @@ class _RedactFilter(logging.Filter):
             msg = rx.sub(repl, msg)
         record.msg, record.args = msg, None
         return True
+
+
+class _ConsoleHandler(logging.StreamHandler):
+    """StreamHandler que no escribe si la consola ya está cerrada (en la app empaquetada, el sys.exit de Flet
+    cierra su console.log al terminar y cualquier registro posterior acabaría en '--- Logging error ---')."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if not getattr(self.stream, "closed", False):
+            super().emit(record)
 
 
 class _StreamToLogger:
@@ -156,11 +166,12 @@ def setup_logging(app: str, *, is_web: bool, version: str) -> Path | None:
         except OSError as ex:
             log_file, file_error = None, f"Cannot create log file in {d}: {ex}"
 
-    # En la app empaquetada la consola solo duplicaría el fichero de sesión (ver _PACKAGED); se mantiene
-    # si el fichero no se ha podido crear, para no quedarse sin log.
     console = sys.stdout                     # main.py ya lo ha reenvuelto en UTF-8
-    if console is not None and not (_PACKAGED and log_file):
-        _add_handler(logging.StreamHandler(console), getattr(logging, level_name, logging.INFO))
+    if console is not None:
+        console_level = getattr(logging, level_name, logging.INFO)
+        if _PACKAGED and log_file:           # el resto ya está en el fichero de sesión (ver _PACKAGED)
+            console_level = max(console_level, logging.WARNING)
+        _add_handler(_ConsoleHandler(console), console_level)
     if file_error:
         root.warning(file_error)
 

@@ -90,7 +90,8 @@ Dónde va la información útil de rclone:
   en un hijo (`spawn`) al que pasa un `shutdown_event` y **no** le instala manejador de señales
   (`asyncio/run.py`, `if shutdown_trigger is None`). `scancel` (Delete en OOD) envía SIGTERM a todos los
   procesos del job, así que el hijo muere en el acto: sin `atexit`, sin limpieza y sin `APP shutdown`
-  (comprobado en OOD). Hace falta un manejador de SIGTERM a nivel de módulo también en web.
+  (comprobado en OOD). Hace falta un manejador de SIGTERM a nivel de módulo también en web (añadido en
+  `common/shutdown.py`; en OOD real aún no se ejecuta, ver "Añadido después del cierre de la fase 1").
 - **Registros anidados en Python 3.13.5** (el del cluster): `Logger.handle()` descarta los registros que se
   crean mientras otro se procesa en el mismo hilo. Hypercorn escribe en `sys.stderr` desde su propio handler y
   el redirector creaba un registro anidado, así que se perdía `Running on`. En 3.13.15 y 3.14 no pasa
@@ -171,12 +172,17 @@ Dónde va la información útil de rclone:
 - Cerrar con la X o con Ctrl+C: `APP shutdown` una sola vez.
 - OOD: `output.log` con líneas formateadas, `mode=web`, `log_file=stdout` y `session_dir=<carpeta de la sesión>`.
 
-### Pendiente dentro de la fase 1
+### Añadido después del cierre de la fase 1
 
-- **Cierre en web**: registrar el `atexit` de limpieza una sola vez a nivel de módulo (hoy se registra en
-  `main()`, una vez por cada conexión del navegador, y se acumula con cada reconexión) y un manejador de
-  SIGTERM también en web, para el proceso hijo de Hypercorn. Prueba: Delete en OOD → `APP shutdown` en
-  `output.log`.
+- **App empaquetada** (`flet build`): el arranque de Flet manda stdout/stderr a su propio `console.log`, que
+  solo usa para la pantalla "Error running app". Ahí la consola recibe solo avisos y errores (`_PACKAGED`):
+  el log normal no se duplica y la pantalla sigue mostrando el traceback si la app falla al arrancar.
+  `_ConsoleHandler` no escribe si ese fichero ya está cerrado (el `sys.exit` de Flet lo cierra al terminar).
+- **Cierre de las apps** (`common/shutdown.py`, commit `feat(shutdown)`): una sola limpieza por proceso para
+  `atexit`, señales y cierre de ventana, registrada al importar. En OOD el cierre al cancelar la sesión
+  **sigue sin ejecutarse** (el worker de Hypercorn no parece recibir el SIGTERM de Slurm); como no es de
+  logs, se sigue fuera de esta rama, en `Bifrost/PENDIENTES.md` (fuera del repo), junto con dos
+  correcciones de la revisión de `shutdown.py`.
 
 ### Observado durante las pruebas (para PR 3 y PR 5)
 
