@@ -39,6 +39,12 @@ from .common.ui_helpers import (
 )
 from .common.logs import (
     setup_logging,
+    report_path,
+)
+from .common.rclone_output import (
+    MAX_CURRENT,
+    short_name,
+    human_size,
 )
 from .common.shutdown import (
     register_shutdown,
@@ -97,6 +103,7 @@ from .transfer.sftp import (
 from .transfer.copy_check import (
     ejecutar_rclone_copy,
     ejecutar_rclone_check,
+    flags_no_permitidos,
     es_directorio_rclone,
     traducir_a_ruta_local_montada,
     preparar_origen_para_check,

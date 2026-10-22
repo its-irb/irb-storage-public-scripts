@@ -26,6 +26,7 @@ _PASSTHROUGH_PREFIX = os.environ.get("FLET_DISPLAY_URL_PREFIX")
 # un console.log propio, que se vacía en cada arranque y que su sys.exit cierra. Flet solo lo usa para mostrar
 # la pantalla "Error running app" si la app falla al arrancar, así que ahí solo hacen falta avisos y errores.
 _PACKAGED = "FLET_PYTHON_CALLBACK_SOCKET_ADDR" in os.environ
+_state: dict = {"app": None, "is_web": False}   # lo rellena setup_logging
 
 
 def log_dir(app: str) -> Path:
@@ -41,12 +42,34 @@ def log_dir(app: str) -> Path:
 
 
 def _prune(folder: Path, pattern: str, keep: int) -> None:
-    files = sorted(folder.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
-    for old in files[keep:]:
+    def mtime(p: Path) -> float:
+        try:
+            return p.stat().st_mtime
+        except OSError:                      # borrado entre el glob y el stat
+            return 0.0
+    for old in sorted(folder.glob(pattern), key=mtime, reverse=True)[keep:]:
         try:
             old.unlink()
         except OSError:
             pass
+
+
+def report_path(kind: str, ext: str = "log") -> Path:
+    """Ruta nueva para el informe de una operación ('copy', 'check', 'tags'…). Conserva 30 por tipo.
+
+    En Open OnDemand va a la carpeta de la sesión ($BIFROST_SESSION_DIR/reports/, junto a output.log); en
+    escritorio, o en web sin esa variable, a <carpeta de logs de la app>/reports/. Puede lanzar OSError.
+    """
+    session_dir = os.environ.get("BIFROST_SESSION_DIR")
+    base = Path(session_dir) if (_state["is_web"] and session_dir) else log_dir(_state["app"] or "bifrost")
+    folder = base / "reports"
+    folder.mkdir(parents=True, exist_ok=True)
+    _prune(folder, f"{kind}-*.{ext}", KEEP_SESSIONS - 1)
+    stem = f"{kind}-{datetime.now():%Y-%m-%d_%H-%M-%S}"
+    path, n = folder / f"{stem}.{ext}", 2
+    while path.exists():                     # dos informes del mismo tipo en el mismo segundo
+        path, n = folder / f"{stem}-{n}.{ext}", n + 1
+    return path
 
 
 class _RedactFilter(logging.Filter):
@@ -144,6 +167,7 @@ def setup_logging(app: str, *, is_web: bool, version: str) -> Path | None:
     root = logging.getLogger("bifrost")
     if root.handlers:
         return None
+    _state.update(app=app, is_web=is_web)
     root.setLevel(logging.DEBUG)
     root.propagate = False
     formatter, redact = logging.Formatter(_FORMAT, _DATEFMT), _RedactFilter()

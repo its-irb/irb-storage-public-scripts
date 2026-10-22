@@ -333,7 +333,7 @@ def _build_mount_bucket(
             title=ft.Row(
                 [
                     ft.Icon(ft.Icons.AUTORENEW, color=C_PRIMARY, size=20),
-                    ft.Text("Renew S3 Credentials", color=C_TEXT, size=15,
+                    ft.Text("Renew MinIO credentials", color=C_TEXT, size=15,
                             weight=ft.FontWeight.W_600),
                 ],
                 spacing=8,

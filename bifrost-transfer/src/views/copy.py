@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import pathlib
+import logging
 import threading
+import time
 from datetime import datetime
 from typing import Callable
 
@@ -19,6 +20,27 @@ from views.rclone_browser import build_rclone_browser
 # main.py fija el valor real al arrancar: IS_WEB solo puede calcularse en main.py
 # (depende de __name__), y las funciones de este módulo lo leen al ejecutarse.
 IS_WEB = False
+
+logger = logging.getLogger("bifrost.copy")
+
+# Estado de la última operación (_active_proceso["status"]): "running" o el `outcome` del RunSummary.
+_STATUS_LABEL = {
+    "running": "RUNNING", "ok": "FINISHED", "nothing_new": "FINISHED",
+    "empty": "FINISHED", "dry_run": "TEST RUN", "partial": "FINISHED WITH PROBLEMS",
+    "differences": "FINISHED WITH DIFFERENCES", "unverified": "FINISHED (NOT FULLY COMPARED)",
+    "failed": "COULD NOT FINISH", "cancelled": "CANCELLED", "idle": "IDLE",
+}
+_STATUS_AWAY = {
+    "ok":          "✅  Finished while you were away — see the summary above",
+    "nothing_new": "✅  Finished while you were away — see the summary above",
+    "empty":       "✅  Finished while you were away — see the summary above",
+    "dry_run":     "🧪  Test run finished while you were away — nothing was copied",
+    "partial":     "⚠️  Finished with problems while you were away — see the summary above",
+    "differences": "⚠️  Finished with differences while you were away — see the summary above",
+    "unverified":  "⚠️  Finished while you were away, but not everything could be compared — see the summary above",
+    "failed":      "❌  Could not finish — see the summary above",
+    "cancelled":   "⏹  Cancelled",
+}
 
 
 # ============================================================================
@@ -115,7 +137,7 @@ def _build_copy_content(
             title=ft.Row(
                 [
                     ft.Icon(ft.Icons.AUTORENEW, color=C_PRIMARY, size=20),
-                    ft.Text("Renew S3 Credentials", color=C_TEXT, size=15,
+                    ft.Text("Renew MinIO credentials", color=C_TEXT, size=15,
                             weight=ft.FontWeight.W_600),
                 ],
                 spacing=8,
@@ -269,16 +291,123 @@ def _build_copy_content(
         height=280,
     )
 
+    # ── Progreso de la operación en curso ─────────────────────────────────
+    # Bloque encima del log que se reescribe una vez por segundo (no añade líneas al log). No cambia de tamaño
+    # al actualizarse: cada texto ocupa una sola línea y se corta con "…", siempre hay MAX_CURRENT filas de
+    # ficheros (vacías si sobran) y los números van en fuente de ancho fijo alineados a la derecha.
+    def _line(size: int = 11, color: str = C_TEXT_DIM, **kw) -> ft.Text:
+        return ft.Text("", size=size, color=color, font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK,
+                       style=ft.TextStyle(height=1.3), max_lines=1, no_wrap=True,
+                       overflow=ft.TextOverflow.ELLIPSIS, **kw)
+
+    progress_text = _line(12, C_TEXT)
+    progress_pct  = _line(width=56, text_align=ft.TextAlign.RIGHT)
+    progress_bar  = ft.ProgressBar(value=None, color=C_PRIMARY, bgcolor=C_SURFACE2, expand=True)
+    progress_rows = [(_line(expand=True), _line(width=56, text_align=ft.TextAlign.RIGHT),
+                      _line(width=160, text_align=ft.TextAlign.RIGHT)) for _ in range(backend.MAX_CURRENT)]
+    progress_more = _line()
+    progress_block = ft.Container(
+        content=ft.Column(
+            [
+                progress_text,
+                ft.Row([progress_bar, progress_pct], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                *[ft.Row([ft.Container(width=12), name, pct, size], spacing=8) for name, pct, size in progress_rows],
+                progress_more,
+            ],
+            spacing=2,
+        ),
+        padding=ft.Padding.only(bottom=12),
+        visible=False,
+    )
+
+    def _render_progress(snap: dict) -> None:
+        """Copia en los controles el estado de summary.progress_snapshot(). Solo desde el hilo de la UI."""
+        fraction = snap["fraction"]
+        progress_text.value = f"⏳ {snap['text']}"
+        progress_bar.value  = fraction                       # None → barra "en marcha", sin porcentaje
+        progress_pct.value  = f"{fraction * 100:.0f} %" if fraction is not None else ""
+        for i, (name, pct, size) in enumerate(progress_rows):
+            item = snap["current"][i] if i < len(snap["current"]) else None
+            name.value = backend.short_name(item["name"]) if item else ""
+            pct.value  = f"{item['percentage']} %" if item and item["percentage"] is not None else ""
+            size.value = (f"{backend.human_size(item['bytes'])} of {backend.human_size(item['size'])}"
+                          if item and item["size"] else "")
+        progress_more.value = f"+ {snap['more']} more" if snap["more"] else ""
+
+    # Solo la última vista de copia construida en esta página muestra el progreso: al volver de otra pantalla
+    # se construye una vista nueva y el ticker de la anterior se para (su sitio en la sesión de Flet cambia).
+    _progress_ticker = {"running": False}
+    _progress_lock = threading.Lock()
+    page.session.store.set("copy_progress_ticker", _progress_ticker)
+
+    def _owns_page() -> bool:
+        try:
+            return page.session.store.get("copy_progress_ticker") is _progress_ticker
+        except RuntimeError:   # Flet ya destruyó la sesión: esta página no volverá
+            return False
+
+    def _start_progress_ticker() -> None:
+        """Actualiza el bloque de progreso y los botones una vez por segundo mientras la operación esté en marcha.
+
+        Lee el estado que guarda el hilo de rclone (progress_snapshot); nunca al revés, para que la interfaz
+        no pueda frenar la copia. Llamar después de poner _active_proceso["status"] = "running".
+        """
+        with _progress_lock:
+            if _progress_ticker["running"] or not _owns_page():
+                return
+            _progress_ticker["running"] = True
+
+        def _loop() -> None:
+            ended = False    # la operación terminó (no la página ni esta vista)
+            warned = False
+            try:
+                while _owns_page():
+                    if _active_proceso.get("status") != "running":
+                        ended = True
+                        break
+                    try:
+                        summary = _active_proceso.get("summary")
+                        snap = summary.progress_snapshot() if summary else {
+                            "text": "Preparing…", "fraction": None, "current": [], "more": 0}
+
+                        def _apply(snap=snap) -> None:
+                            _render_progress(snap)
+                            _show_running(True)
+                            progress_block.visible = True
+                            page.update()
+                        backend.ui_call(page, _apply)
+                    except Exception:
+                        if not warned:
+                            logger.exception("Could not update the progress display")
+                            warned = True
+                    time.sleep(1)
+            finally:
+                with _progress_lock:
+                    _progress_ticker["running"] = False
+                    # Si otra operación empezó justo mientras este bucle salía, se sigue con ella.
+                    restart = ended and _active_proceso.get("status") == "running"
+                if restart:
+                    _start_progress_ticker()
+                elif ended and not _set_running(False):
+                    # Página desconectada: nada la compara mientras tanto y, si Flet reconecta la misma sesión,
+                    # envía la página entera. Así no queda a la vista el progreso de una operación terminada.
+                    _show_running(False)
+
+        threading.Thread(target=_loop, daemon=True).start()
+
     def log(msg: str):
         """Append *msg* to the visible log list in this UI page."""
+        if _active_proceso.get("status") == "running":
+            _start_progress_ticker()   # p. ej. la operación se empezó en otra pestaña
         lines_to_add = []
         for line in msg.splitlines(keepends=True):
             if line.strip():
                 color = (
-                    C_ACCENT  if line.startswith("✅") else
-                    C_ERROR   if line.startswith("❌") else
-                    C_WARNING if line.startswith("⚠️") else
-                    C_PRIMARY if line.startswith("🔍") or line.startswith("🧾") else
+                    C_ACCENT   if line.startswith("✅") else
+                    C_ERROR    if line.startswith("❌") else
+                    C_WARNING  if line.startswith(("⚠️", "⏹")) else
+                    C_PRIMARY  if line.startswith(("🔍", "🧪")) else
+                    C_TEXT_DIM if line.startswith(("⏳", "🔁", "📄")) else
                     C_TEXT
                 )
                 lines_to_add.append(
@@ -402,18 +531,25 @@ def _build_copy_content(
 
     _cancelling: list = [False]   # mutable flag; reset each time a new operation starts
 
-    _cancelling: list = [False]   # mutable flag; reset each time a new operation starts
+    def _show_running(running: bool) -> None:
+        """Botones (y bloque de progreso al terminar) según haya una operación en marcha.
 
-    def _set_running(running: bool):
-        """Show/hide cancel button and toggle copy/check buttons."""
+        Solo desde el hilo de la UI, o con la página desconectada.
+        """
+        cancel_btn.visible  = running and not _active_proceso.get("cancelled")
+        copy_btn.disabled   = running
+        check_btn.disabled  = running
+        if not running:
+            progress_block.visible = False
+
+    def _set_running(running: bool) -> bool:
+        """Show/hide cancel button and toggle copy/check buttons. False if the page is disconnected."""
         if running:
             _cancelling[0] = False   # new operation — reset cancel guard
         def _do():
-            cancel_btn.visible  = running
-            copy_btn.disabled   = running
-            check_btn.disabled  = running
+            _show_running(running)
             page.update()
-        backend.ui_call(page, _do)
+        return backend.ui_call(page, _do)
 
     def do_cancel(e):
         if _cancelling[0]:
@@ -421,18 +557,19 @@ def _build_copy_content(
         proc = _active_proceso["proc"]
         if proc and proc.poll() is None:
             _cancelling[0] = True
+            # El resumen lo lee para decir "cancelled": el código de salida de rclone no sirve (−15, 143 o 1
+            # según la copia y el sistema). El mensaje lo escribe el resumen al terminar.
+            _active_proceso["cancelled"] = True
             proc.terminate()
-            _dispatch_log("\n⚠️  Transfer cancelled by user.\n")
-            if IS_WEB and web_session is not None:
-                web_session["copy_status"] = "error"
-            # Update buttons directly here — we are already in the Flet event
+            # Update the button directly here — we are already in the Flet event
             # handler context so page.update() is safe to call without
             # spawning a new thread (which could race with the log-dispatch
             # timer thread and cause concurrent page.update() calls inside
-            # Flet's control-tree walker).
+            # Flet's control-tree walker). Copy/Check stay disabled until the
+            # operation has really finished (on_finish → _set_running(False)):
+            # starting another one while rclone is still stopping would mix
+            # the state of both.
             cancel_btn.visible = False
-            copy_btn.disabled  = False
-            check_btn.disabled = False
             page.update()
         else:
             _dispatch_log("\n⚠️  No active process to cancel.\n")
@@ -740,6 +877,51 @@ def _build_copy_content(
         tight=True,
     )
 
+    # ── Informe de cada operación ──────────────────────────────────────────
+    # Cada copia o check guarda sus propias líneas para el informe. No se usan el buffer web (mezcla las
+    # operaciones de la sesión y pierde las primeras líneas al pasar de 5000) ni los controles del panel (en
+    # escritorio, las últimas líneas aún no han llegado a la UI cuando se escribe el informe).
+    def _new_operation(kind: str, header: list[str]) -> tuple[dict, Callable[[str], None]]:
+        op = {"kind": kind, "header": header, "lines": [], "start": datetime.now()}
+
+        def op_log(msg: str) -> None:
+            op["lines"].append(msg)
+            _dispatch_log(msg)
+        return op, op_log
+
+    def _write_report(op: dict, summary) -> None:
+        try:
+            path = backend.report_path(op["kind"])
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(f"BIFROST {op['kind']} report\n")
+                fh.write(f"Started:  {op['start']:%Y-%m-%d %H:%M:%S}\n")
+                fh.write(f"Finished: {datetime.now():%Y-%m-%d %H:%M:%S}\n")
+                fh.writelines(line + "\n" for line in op["header"])
+                fh.write("\n--- What the app showed ---\n")
+                fh.write("".join(op["lines"]))
+                fh.write("\n--- Details ---\n")
+                fh.writelines(line + "\n" for line in summary.report_lines())
+            logger.info("%s report saved: %s", op["kind"], path)
+            _dispatch_log(f"\n📄 Report saved: {path}\n")
+        except Exception as ex:   # el informe nunca debe romper el final de la operación
+            logger.exception("%s report could not be saved", op["kind"])
+            _dispatch_log(f"\n⚠️ Could not save the report: {ex}\n")
+
+    def _flags_or_warn(flags: list[str]) -> bool:
+        """False (y aviso) si el campo de opciones avanzadas tiene opciones que no se pueden usar."""
+        bad = backend.flags_no_permitidos(flags)
+        if bad:
+            show_dialog(page, "Option not allowed",
+                        "These options can't be used here: " + " ".join(bad) +
+                        "\nRemove them from “Additional rclone flags (advanced)” and try again.", C_ERROR)
+        return not bad
+
+    def _on_operation_finish(op: dict, summary) -> None:
+        _active_proceso["status"] = summary.outcome
+        _active_proceso["summary"] = None          # el progreso ya no se lee; no retener la lista de ficheros
+        _set_running(False)
+        _write_report(op, summary)
+
     # ── Copiar ─────────────────────────────────────────────────────────────
     def do_copy(e):
         origen  = (origen_tf.value or "").strip()
@@ -750,6 +932,8 @@ def _build_copy_content(
 
         metadatos = {k: (tf.value or "").strip() for k, tf in meta_fields.items()}
         flags     = (flags_tf.value or "").strip().split()
+        if not _flags_or_warn(flags):
+            return
 
         tag_errors = validate_tagset(metadatos)
         if tag_errors:
@@ -757,33 +941,28 @@ def _build_copy_content(
                         "\n".join(tag_errors), C_ERROR)
             return
 
+        _active_proceso["cancelled"] = False
+        _active_proceso["summary"] = None          # que no se vea el progreso de la operación anterior
+        _active_proceso["status"] = "running"
         _set_running(True)
+        _start_progress_ticker()
 
+        op, op_log = _new_operation("copy", [
+            f"Source:      {origen}",
+            f"Destination: {perfil_rclone}:/{destino}",
+            "Tags:", *[f"  {k}: {v}" for k, v in metadatos.items()],
+        ])
         ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        _dispatch_log(f"### Copy started at {ahora} ###\n")
-        _dispatch_log("### Metadata ###\n")
+        op_log(f"### Copy started at {ahora} ###\n")
+        op_log("### Metadata ###\n")
         for k, v in metadatos.items():
-            _dispatch_log(f"  {k}: {v}\n")
-        _dispatch_log("\n")
+            op_log(f"  {k}: {v}\n")
+        op_log("\n")
 
         # Persist copy state so reconnecting sessions can see it
         if IS_WEB and web_session is not None:
-            web_session["copy_status"]  = "running"
             web_session["copy_origen"]  = origen
             web_session["copy_destino"] = destino
-
-        def _on_copy_success():
-            if IS_WEB and web_session is not None:
-                web_session["copy_status"] = "done"
-
-        def _on_copy_finish():
-            _active_proceso["proc"] = None
-            _set_running(False)
-            if IS_WEB and web_session is not None:
-                if web_session["copy_status"] == "running":
-                    web_session["copy_status"] = "error"
-            if IS_WEB:
-                _autosave_log()
 
         def _run_copy():
             backend.ejecutar_rclone_copy(
@@ -793,10 +972,10 @@ def _build_copy_content(
                 rclone_config_path=rclone_config_path,
                 metadatos_dict=metadatos,
                 flags_adicionales=flags,
-                log_fn=_dispatch_log,
-                on_success=_on_copy_success,
-                on_finish=_on_copy_finish,
+                log_fn=op_log,
+                on_finish=lambda summary: _on_operation_finish(op, summary),
                 expose_proceso=_active_proceso,
+                is_web=IS_WEB,
             )
 
         backend.safe_thread(page, _run_copy).start()
@@ -810,23 +989,25 @@ def _build_copy_content(
             return
 
         flags = (flags_tf.value or "").strip().split()
+        if not _flags_or_warn(flags):
+            return
+
+        _active_proceso["cancelled"] = False
+        _active_proceso["summary"] = None          # que no se vea el progreso de la operación anterior
+        _active_proceso["status"] = "running"
         _set_running(True)
-        _dispatch_log(f"\n🔍 Verifying: rclone check {origen} → {perfil_rclone}:/{destino}\n\n")
+        _start_progress_ticker()
+
+        op, op_log = _new_operation("check", [
+            f"Source:      {origen}",
+            f"Destination: {perfil_rclone}:/{destino}",
+        ])
+        op_log(f"\n🔍 Checking {origen} against MinIO {perfil_rclone}:/{destino}\n\n")
 
         # Persist state so a reconnecting session can restore form + cancel btn
         if IS_WEB and web_session is not None:
-            web_session["copy_status"]  = "running"
             web_session["copy_origen"]  = origen
             web_session["copy_destino"] = destino
-
-        def _on_check_finish():
-            _active_proceso["proc"] = None
-            _set_running(False)
-            if IS_WEB and web_session is not None:
-                if web_session.get("copy_status") == "running":
-                    web_session["copy_status"] = "done"
-            if IS_WEB:
-                _autosave_log()
 
         def _run_check():
             backend.ejecutar_rclone_check(
@@ -836,82 +1017,38 @@ def _build_copy_content(
                 rclone_config_path=rclone_config_path,
                 flags_adicionales=flags,
                 mounts_activos=mounts_activos,
-                log_fn=_dispatch_log,
-                on_finish=_on_check_finish,
+                log_fn=op_log,
+                on_finish=lambda summary: _on_operation_finish(op, summary),
                 expose_proceso=_active_proceso,
+                is_web=IS_WEB,
             )
 
         backend.safe_thread(page, _run_check).start()
 
     # ── Guardar log ────────────────────────────────────────────────────────
-    def _log_content_from_buffer() -> str:
-        """Return log text from the session buffer (web) or the visible list (desktop)."""
-        if IS_WEB and web_session is not None:
-            return "".join(web_session.get("copy_log_buffer", []))
-        return "\n".join(
-            c.value for c in log_list.controls
-            if isinstance(c, ft.Text) and c.value
-        )
-
-    def _autosave_log() -> str | None:
-        """
-        Automatically save the log to ~/bifrost-logs/ at end of copy/check.
-        Returns the saved path, or None on failure.
-        Only runs in web (OOD) mode.
-        """
-        if not IS_WEB:
-            return None
-        contenido = _log_content_from_buffer()
-        if not contenido.strip():
-            return None
-        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        log_dir = pathlib.Path.home() / "bifrost-logs"
-        try:
-            log_dir.mkdir(parents=True, exist_ok=True)
-            fpath = log_dir / f"bifrost-{ts}.log"
-            fpath.write_text(contenido, encoding="utf-8")
-            _dispatch_log(f"\n📄 Log auto-saved to: {fpath}\n")
-
-            # Log rotation: keep only the most recent 50 files
-            try:
-                log_files = sorted(
-                    [f for f in log_dir.glob("bifrost-*.log")],
-                    key=lambda p: p.stat().st_mtime,
-                    reverse=True
-                )
-                MAX_LOG_FILES = 50
-                if len(log_files) > MAX_LOG_FILES:
-                    deleted_count = 0
-                    for old_log in log_files[MAX_LOG_FILES:]:
-                        old_log.unlink()
-                        deleted_count += 1
-                    if deleted_count > 0:
-                        _dispatch_log(f"    (cleaned up {deleted_count} old log file(s))\n")
-            except Exception as cleanup_ex:
-                print(f"[log-rotation] Cleanup warning: {cleanup_ex}", flush=True)
-
-            return str(fpath)
-        except Exception as ex:
-            _dispatch_log(f"\n⚠️  Could not auto-save log: {ex}\n")
-            return None
-
+    # El informe de cada operación se guarda solo al terminar (_write_report). "Save log" guarda además lo
+    # que se ve en el panel: en web, en la carpeta de informes; en escritorio, donde elija el usuario.
     def do_save_log(e):
-        contenido = _log_content_from_buffer()
+        if IS_WEB and web_session is not None:
+            contenido = "".join(web_session.get("copy_log_buffer", []))
+        else:
+            contenido = "\n".join(
+                c.value for c in log_list.controls
+                if isinstance(c, ft.Text) and c.value
+            )
         if not contenido.strip():
             show_dialog(page, "Save log", "No log content to save.", C_WARNING)
             return
-        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         if IS_WEB:
-            log_dir = pathlib.Path.home() / "bifrost-logs"
             try:
-                log_dir.mkdir(parents=True, exist_ok=True)
-                fpath = log_dir / f"bifrost-{ts}.log"
+                fpath = backend.report_path("log")
                 fpath.write_text(contenido, encoding="utf-8")
                 show_dialog(page, "Log saved", f"Saved to:\n{fpath}", C_ACCENT)
             except Exception as ex:
                 err_str = str(ex)
                 show_dialog(page, "Error", err_str, C_ERROR)
         else:
+            ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             page.run_task(_save_log_picker, f"bifrost-{ts}.log")
 
  
@@ -935,6 +1072,8 @@ def _build_copy_content(
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 wrap=True,
             ),
+            ft.Container(height=12),
+            progress_block,
             ft.Container(height=12),
             section_title("LOG OUTPUT"),
             ft.Container(height=8),
@@ -1007,29 +1146,21 @@ def _build_copy_content(
         # it doesn't — but we snapshot here as an extra safety net.
         _snap_origen  = web_session.get("copy_origen", "")
         _snap_destino = web_session.get("copy_destino", "")
-        _snap_status  = web_session.get("copy_status", "idle")
 
         def _replay():
             import time
             time.sleep(0.2)   # wait for page tree to settle
-            # Re-read status after sleep in case the process finished during reconnect.
-            status = web_session.get("copy_status", _snap_status)
-            # Check whether rclone is actually alive, regardless of copy_status.
-            # copy_status can be "error" after the user clicked Cancel while the
-            # process is still winding down (SIGTERM sent, proc not yet exited).
-            # It can also be "running" while proc was already None (race between
-            # the backend finally block and the copy_status update).
-            _proc = web_session.get("copy_proceso", {}).get("proc")
-            proc_alive = _proc is not None and _proc.poll() is None
-            if proc_alive:
-                status = "running"   # override — process is actually alive
-            elif status == "running":
-                status = "done"      # proc cleared before copy_status was updated
+            # _active_proceso is the session's copy_proceso dict, shared by
+            # reference with the page that started the operation, so its
+            # "status" is always current: "running" from the click until
+            # on_finish (also while rclone is not started yet or is stopping),
+            # then the RunSummary outcome.
+            status = _active_proceso.get("status") or "idle"
             if buffer:
                 banner = (
                     f"\n{'─'*60}\n"
                     f"↩  Reconnected to existing session\n"
-                    f"   Status: {status.upper()}\n"
+                    f"   Status: {_STATUS_LABEL.get(status, status)}\n"
                     f"   Origin:  {_snap_origen}\n"
                     f"   Dest:    {_snap_destino}\n"
                     f"{'─'*60}\n\n"
@@ -1038,34 +1169,24 @@ def _build_copy_content(
                 # Batch all buffered lines into ONE log() call to avoid
                 # flooding the event loop with thousands of page.update()
                 # calls on reconnect (which caused the "checking for updates"
-                # hang). Display only the last 200 lines; anything older is
-                # already saved in ~/bifrost-logs/.
+                # hang). Display only the last 200 lines; the full log of each
+                # operation is in its report (📄 line at the end of the operation).
                 MAX_REPLAY = 200
                 if len(buffer) > MAX_REPLAY:
-                    log(f"[… {len(buffer) - MAX_REPLAY} earlier lines omitted — see ~/bifrost-logs/ for the full log …]\n")
+                    log(f"[… {len(buffer) - MAX_REPLAY} earlier lines omitted — the full log is in the "
+                        "report saved at the end of each operation …]\n")
                 log("".join(buffer[-MAX_REPLAY:]))
                 if status == "running":
-                    log("\n⚠️  Process is still running — new output will appear below\n")
-                elif status == "done":
-                    log("\n✅  Process finished while you were away\n")
-                elif status == "error":
-                    log("\n❌  Process ended with errors while you were away\n")
+                    log("\n⚠️  Still running — new output will appear below\n")
+                elif status in _STATUS_AWAY:
+                    log(f"\n{_STATUS_AWAY[status]}\n")
 
-            # Always restore cancel button and form fields regardless of log
+            # Always restore cancel button and form fields regardless of log.
+            # The ticker of THIS page sets the buttons and, when the operation
+            # ends, re-enables them (the finish callback belongs to the page
+            # that started it).
             if status == "running":
-                _set_running(True)
-                # The finish callback (_on_copy/check_finish) was created on
-                # the PREVIOUS page and calls the OLD _set_running, so it
-                # won't hide the cancel button on THIS (new) page. Poll until
-                # the process ends and update the new page's buttons then.
-                def _watch_proc_end():
-                    import time as _t
-                    while True:
-                        _t.sleep(0.5)
-                        if _active_proceso.get("proc") is None:
-                            _set_running(False)
-                            return
-                threading.Thread(target=_watch_proc_end, daemon=True).start()
+                _start_progress_ticker()
 
             def _prefill():
                 if _snap_origen:

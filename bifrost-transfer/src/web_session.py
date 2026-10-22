@@ -20,8 +20,9 @@ IS_WEB = False
 # restored without the user's password:
 #   - servidor_minio, perfil_rclone, endpoint, extra_config
 #   - copy_log_buffer  — accumulated log lines from a running/finished copy
-#   - copy_status      — "idle" | "running" | "done" | "error"
-#   - copy_proceso     — the live subprocess.Popen object (or None)
+#   - copy_proceso     — dict shared by reference with the copy view: "proc" (the
+#                        live subprocess.Popen or None), "cancelled" and "status"
+#                        ("running" or the RunSummary outcome of the last copy/check)
 #   - copy_origen, copy_destino  — last copy paths
 #   - copy_log_callbacks         — callables registered by the current UI page;
 #                                  multiple sessions may subscribe simultaneously
@@ -51,7 +52,6 @@ def _ws_save(usuario: str, state: dict) -> None:
         ),
         # copy state — always inherited so a running copy survives reconnection
         "copy_log_buffer":    existing.get("copy_log_buffer", []),
-        "copy_status":        existing.get("copy_status", "idle"),
         "copy_origen":        existing.get("copy_origen", ""),
         "copy_destino":       existing.get("copy_destino", ""),
         "copy_log_callbacks": existing.get("copy_log_callbacks", []),
