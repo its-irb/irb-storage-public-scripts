@@ -184,10 +184,10 @@ def build_rclone_browser(
                 else:
                     if show_files:
                         entries = backend.rclone_lsjson(perfil_rclone, path, timeout=nav_state["timeout"])
-                        print(f"[browser] rclone lsjson path={path!r} → {len(entries)} entries: {entries}")
+                        print(f"[browser] rclone lsjson path={path!r} → {len(entries)} entries")
                     else:
                         folders = backend.rclone_lsd(perfil_rclone, path, timeout=nav_state["timeout"])
-                        print(f"[browser] rclone lsd path={path!r} → {len(folders)} folders: {folders}")
+                        print(f"[browser] rclone lsd path={path!r} → {len(folders)} folders")
                         entries = [{"name": f, "is_dir": True} for f in folders]
                     if not path:
                         bucket_cache["list"] = list(entries)
@@ -233,7 +233,7 @@ def build_rclone_browser(
                         n_tagged = sum(1 for v in tag_map.values() if v)
                         print(f"[browser] lab filter: tag scan done → {n_tagged}/{total} buckets have an 'acronym' tag (cached for this session)")
                     entries = [e for e in entries if bucket_cache["tags"].get(e["name"]) == active]
-                    print(f"[browser] lab filter {active!r} → {len(entries)}/{total} buckets match: {[e['name'] for e in entries]}")
+                    print(f"[browser] lab filter {active!r} → {len(entries)}/{total} buckets match")
 
                 def _show():
                     loading_row.visible = False

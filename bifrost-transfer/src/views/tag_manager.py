@@ -422,7 +422,7 @@ def _build_tag_manager_content(
                         n_tagged = sum(1 for v in tm_tag_map.values() if v)
                         print(f"[tag-manager] lab filter: tag scan done → {n_tagged}/{total} buckets have an 'acronym' tag (cached for this session)")
                     buckets = [b for b in buckets if tm_bucket_cache["tags"].get(b) == active]
-                    print(f"[tag-manager] lab filter {active!r} → {len(buckets)}/{total} buckets match: {buckets}")
+                    print(f"[tag-manager] lab filter {active!r} → {len(buckets)}/{total} buckets match")
                 _current_items["folders"] = buckets
                 _current_items["files"]   = []
             else:
@@ -587,8 +587,8 @@ def _build_tag_manager_content(
             client = _get_client()
             bucket = nav["bucket"]
             target = sel["key"] if sel["type"] == "file" else f"{sel['key'] or ''} (prefix, recursive)"
-            non_empty_tags = {k: v for k, v in tagset.items() if v}
-            print(f"[tag-manager] applying tags to {bucket}/{target} → {non_empty_tags}")
+            # Solo los nombres de los campos: los valores son metadatos personales y no van al log técnico.
+            print(f"[tag-manager] applying tags to {bucket}/{target} → fields: {[k for k, v in tagset.items() if v]}")
             ts     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             _log(f"### Tags applied — {ts} ###\n")
             _log(f"Profile: {active_profile['name']}\n", C_TEXT_DIM)

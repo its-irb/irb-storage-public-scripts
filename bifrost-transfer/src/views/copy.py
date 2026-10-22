@@ -406,7 +406,7 @@ def _build_copy_content(
                     C_ACCENT   if line.startswith("✅") else
                     C_ERROR    if line.startswith("❌") else
                     C_WARNING  if line.startswith(("⚠️", "⏹")) else
-                    C_PRIMARY  if line.startswith(("🔍", "🧪")) else
+                    C_PRIMARY  if line.startswith(("🔍", "📤", "🧪")) else
                     C_TEXT_DIM if line.startswith(("⏳", "🔁", "📄")) else
                     C_TEXT
                 )
@@ -881,8 +881,9 @@ def _build_copy_content(
     # Cada copia o check guarda sus propias líneas para el informe. No se usan el buffer web (mezcla las
     # operaciones de la sesión y pierde las primeras líneas al pasar de 5000) ni los controles del panel (en
     # escritorio, las últimas líneas aún no han llegado a la UI cuando se escribe el informe).
-    def _new_operation(kind: str, header: list[str]) -> tuple[dict, Callable[[str], None]]:
-        op = {"kind": kind, "header": header, "lines": [], "start": datetime.now()}
+    def _new_operation(kind: str) -> tuple[dict, Callable[[str], None]]:
+        """Operación nueva: op_log escribe en el panel y guarda la línea para el informe de esta operación."""
+        op = {"kind": kind, "lines": []}
 
         def op_log(msg: str) -> None:
             op["lines"].append(msg)
@@ -890,17 +891,15 @@ def _build_copy_content(
         return op, op_log
 
     def _write_report(op: dict, summary) -> None:
+        """Guarda lo que mostró el panel en esta operación y, debajo, los ficheros con problemas (el panel solo
+        da recuentos)."""
         try:
             path = backend.report_path(op["kind"])
             with open(path, "w", encoding="utf-8") as fh:
-                fh.write(f"BIFROST {op['kind']} report\n")
-                fh.write(f"Started:  {op['start']:%Y-%m-%d %H:%M:%S}\n")
-                fh.write(f"Finished: {datetime.now():%Y-%m-%d %H:%M:%S}\n")
-                fh.writelines(line + "\n" for line in op["header"])
-                fh.write("\n--- What the app showed ---\n")
-                fh.write("".join(op["lines"]))
-                fh.write("\n--- Details ---\n")
-                fh.writelines(line + "\n" for line in summary.report_lines())
+                fh.write("".join(op["lines"]).lstrip("\n"))
+                if problems := summary.problem_lines():
+                    fh.write("\n--- Files with problems ---\n")
+                    fh.writelines(line + "\n" for line in problems)
             logger.info("%s report saved: %s", op["kind"], path)
             _dispatch_log(f"\n📄 Report saved: {path}\n")
         except Exception as ex:   # el informe nunca debe romper el final de la operación
@@ -947,17 +946,12 @@ def _build_copy_content(
         _set_running(True)
         _start_progress_ticker()
 
-        op, op_log = _new_operation("copy", [
-            f"Source:      {origen}",
-            f"Destination: {perfil_rclone}:/{destino}",
-            "Tags:", *[f"  {k}: {v}" for k, v in metadatos.items()],
-        ])
-        ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        op_log(f"### Copy started at {ahora} ###\n")
-        op_log("### Metadata ###\n")
-        for k, v in metadatos.items():
-            op_log(f"  {k}: {v}\n")
-        op_log("\n")
+        op, op_log = _new_operation("copy")
+        # Solo los ficheros que se suban reciben estas etiquetas; el resumen final dice cuántos no se copiaron.
+        tags = "; ".join(f"{k} = {v}" for k, v in metadatos.items() if v) or "none"
+        op_log(f"\n### Copy started at {datetime.now():%Y-%m-%d %H:%M:%S} ###\n")
+        op_log(f"📤 Copying {origen} to MinIO {perfil_rclone}:/{destino}\n")
+        op_log(f"Tags for the files copied in this run: {tags}\n\n")
 
         # Persist copy state so reconnecting sessions can see it
         if IS_WEB and web_session is not None:
@@ -998,11 +992,9 @@ def _build_copy_content(
         _set_running(True)
         _start_progress_ticker()
 
-        op, op_log = _new_operation("check", [
-            f"Source:      {origen}",
-            f"Destination: {perfil_rclone}:/{destino}",
-        ])
-        op_log(f"\n🔍 Checking {origen} against MinIO {perfil_rclone}:/{destino}\n\n")
+        op, op_log = _new_operation("check")
+        op_log(f"\n### Check started at {datetime.now():%Y-%m-%d %H:%M:%S} ###\n")
+        op_log(f"🔍 Checking {origen} against MinIO {perfil_rclone}:/{destino}\n\n")
 
         # Persist state so a reconnecting session can restore form + cancel btn
         if IS_WEB and web_session is not None:

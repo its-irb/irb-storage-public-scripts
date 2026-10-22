@@ -94,6 +94,54 @@ def _ejecutar(operacion: str, comando: list[str], summary: RunSummary, log_fn, e
             expose_proceso["proc"] = None
 
 
+_TEMP_PREFIXES = ("bifrost-copy-", "bifrost-check-")
+_TEMP_MAX_AGE = 7 * 86400    # s
+# rclone aborta la operación entera si no puede crear una lista (comprobado con el disco lleno). Las listas
+# ocupan ~60 MB por millón de ficheros; con menos de esto libre se trabaja sin ellas.
+_TEMP_MIN_FREE = 100 * 1024 * 1024
+
+
+def _borrar_temporales_antiguos() -> None:
+    """Borra carpetas temporales de operaciones que se cortaron de golpe (la app murió antes de borrarlas).
+
+    Solo las del usuario y sin cambios en 7 días: en un nodo compartido el mismo usuario puede tener otra
+    sesión con una operación en marcha, y su lista se sigue escribiendo.
+    """
+    limite = time.time() - _TEMP_MAX_AGE
+    for carpeta in Path(tempfile.gettempdir()).glob("bifrost-*"):
+        try:
+            if not (carpeta.name.startswith(_TEMP_PREFIXES) and carpeta.is_dir()):
+                continue
+            st = carpeta.stat()
+            if hasattr(os, "getuid") and st.st_uid != os.getuid():
+                continue
+            if max([st.st_mtime] + [f.stat().st_mtime for f in carpeta.iterdir()]) < limite:
+                shutil.rmtree(carpeta, ignore_errors=True)
+                log.info("removed leftover temporary folder %s", carpeta.name)
+        except OSError:
+            continue
+
+
+def _ficheros_de_informe(operacion: str, nombres: tuple[str, ...]) -> tuple[Path | None, dict[str, Path] | None]:
+    """Carpeta temporal para las listas por fichero que escribe rclone (se borra al terminar).
+
+    rclone anota ahí la decisión que ya toma con cada fichero: no añade lecturas ni peticiones a MinIO. Sin
+    listas, copy no dice cuántos ficheros ya estaban y check usa los totales de rclone.
+    """
+    _borrar_temporales_antiguos()
+    try:
+        libre = shutil.disk_usage(tempfile.gettempdir()).free
+        if libre < _TEMP_MIN_FREE:
+            log.warning("%s: only %d MB free in the temporary folder; running without per-file lists",
+                        operacion, libre // 2**20)
+            return None, None
+        tmp_dir = Path(tempfile.mkdtemp(prefix=f"bifrost-{operacion}-"))
+    except OSError as e:
+        log.warning("%s: cannot create the per-file lists (%s); running without them", operacion, e)
+        return None, None
+    return tmp_dir, {k: tmp_dir / f"{k}.txt" for k in nombres}
+
+
 def ejecutar_rclone_copy(
     origen: str,
     destino_perfil: str,
@@ -110,10 +158,15 @@ def ejecutar_rclone_copy(
 
     Si *expose_proceso* es un dict, guarda el Popen en expose_proceso['proc']; la vista pone
     expose_proceso['cancelled'] = True antes de terminarlo al pulsar Cancel.
+
+    Los ficheros que ya estaban idénticos en MinIO (y que por tanto no reciben las etiquetas) salen del informe
+    --match de rclone.
     """
     summary = RunSummary("copy", is_web=is_web, dry_run=_es_prueba(flags_adicionales))
     rc = None
+    tmp_dir, reports = None, None
     try:
+        tmp_dir, reports = _ficheros_de_informe("copy", ("match",))
         tag_string = construir_tag_string(metadatos_dict)
         comando = [
             get_rclone_executable(), "copy",
@@ -127,6 +180,7 @@ def ejecutar_rclone_copy(
             *_OUTPUT_FLAGS,
             "--header-upload", f"x-amz-tagging:{tag_string}",
             "--user-agent", _get_user_agent(),
+            *(["--match", str(reports["match"])] if reports else []),
             *flags_adicionales,
         ]
         log.info("copy command: %s", _comando_para_log(comando, [k for k, v in metadatos_dict.items() if v]))
@@ -135,7 +189,7 @@ def ejecutar_rclone_copy(
         log.exception("copy could not run")
         summary.add_internal_error(str(e))
     finally:
-        _terminar("copy", summary, rc, log_fn, on_finish, expose_proceso)
+        _terminar("copy", summary, rc, log_fn, on_finish, expose_proceso, reports, tmp_dir)
 
 
 def ejecutar_rclone_check(
@@ -153,21 +207,14 @@ def ejecutar_rclone_check(
     """Lanza rclone check y llama a `on_finish(summary)` al terminar, siempre.
 
     Las listas de ficheros con problemas salen de los informes de rclone --missing-on-dst, --differ y
-    --error (solo rutas con problemas; los idénticos no se guardan), en una carpeta temporal que se borra
-    después de on_finish.
+    --error (solo rutas con problemas; los idénticos no se guardan).
     """
     summary = RunSummary("check", is_web=is_web)
     rc = None
-    reports: dict[str, Path] | None = None
-    tmp_dir = None
+    tmp_dir, reports = None, None
     try:
         origen_ajustado, fichero = preparar_origen_para_check(origen, mounts_activos, rclone_config_path)
-        try:
-            tmp_dir = Path(tempfile.mkdtemp(prefix="bifrost-check-"))
-            reports = {k: tmp_dir / f"{k}.txt" for k in ("missing", "differ", "error")}
-        except OSError as e:
-            log.warning("check: cannot create report files (%s); lists will come from the messages", e)
-            reports = None
+        tmp_dir, reports = _ficheros_de_informe("check", ("missing", "differ", "error"))
         comando = [
             get_rclone_executable(), "check",
             origen_ajustado,
@@ -188,29 +235,29 @@ def ejecutar_rclone_check(
         log.exception("check could not run")
         summary.add_internal_error(str(e))
     finally:
-        try:
-            _terminar("check", summary, rc, log_fn, on_finish, expose_proceso, reports)
-        finally:
-            if tmp_dir is not None:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
+        _terminar("check", summary, rc, log_fn, on_finish, expose_proceso, reports, tmp_dir)
 
 
-def _terminar(operacion, summary: RunSummary, rc, log_fn, on_finish, expose_proceso, reports=None) -> None:
-    """Fija el resultado, escribe el resumen en el panel y llama a on_finish(summary)."""
+def _terminar(operacion, summary: RunSummary, rc, log_fn, on_finish, expose_proceso, reports, tmp_dir) -> None:
+    """Fija el resultado, escribe el resumen en el panel, llama a on_finish(summary) y borra *tmp_dir*."""
     cancelled = bool(expose_proceso and expose_proceso.get("cancelled"))
     try:
         summary.finish(rc, cancelled, reports)
         for line in summary.final_lines():
             log_fn(line)
-        log.info("%s finished: outcome=%s rc=%s", operacion, summary.outcome, rc)
+        log.info("%s finished: %s", operacion, summary.log_line())
     except Exception:
         log.exception("%s: could not build the summary", operacion)
         summary.outcome = "failed"
         log_fn(f"\n❌ The {operacion} ended, but BIFROST could not read its result. Do not delete the "
                "original. If it keeps happening, contact ITS and send them the report saved at the end of this log.\n")
     finally:
-        if on_finish:
-            on_finish(summary)
+        try:
+            if on_finish:
+                on_finish(summary)
+        finally:
+            if tmp_dir is not None:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def es_directorio_rclone(ruta_rclone: str, config_path: str) -> bool:
