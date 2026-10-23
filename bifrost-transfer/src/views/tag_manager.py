@@ -582,7 +582,7 @@ def _build_tag_manager_content(
             if keys is not None:
                 op_log(f"   Only the {len(keys)} file(s) whose tags could not be set before.")
             op_log(f"Profile: {profile}")
-            _log_tags(op_log, "Tags", tagset)
+            _log_tags(op_log, "New tags", tagset)
             # Al log técnico, solo los nombres de los campos: los valores son metadatos personales.
             log.info("applying tags: %s/%s files=%s fields=%s", bucket, prefix,
                      "all" if keys is None else len(keys), [k for k, v in tagset.items() if v])
@@ -595,7 +595,7 @@ def _build_tag_manager_content(
                     run = backend.apply_tags_to_keys(client, bucket, keys, tagset,
                                                      stop=stop, on_progress=_show_progress)
             except Exception as ex:                  # no se pudo ni empezar (p. ej. sin acceso a MinIO)
-                log.exception("tags could not be applied")
+                log.exception("tags could not be set")
                 run = backend.TagRun(stopped=backend.issue_for_exception(ex))
             log.info("tags finished: %s", run.log_line())
             for line in run.final_lines(IS_WEB):
@@ -645,7 +645,7 @@ def _build_tag_manager_content(
         # (los que ya tienen las etiquetas nuevas quedan igual).
         retry_keys = list(run.failed) if run.outcome == "partial" and run.can_retry_failed_only else None
         if run.outcome == "stopped":
-            title = "Tags could not be applied"
+            title = "Tags could not be set"
             context = f"{run.ok} file(s) have the new tags; the rest of the folder was not changed."
         else:
             title = "Tags were not set on some files"
@@ -834,7 +834,7 @@ def _build_tag_manager_content(
         page.update()
 
         def _do():
-            lines, op_log = _new_operation("Tags saved")
+            lines, op_log = _new_operation("Tags applied")
             op_log(f"📄 File: {bucket}/{key}")
             _log_tags(op_log, "Tags before", before)
             _log_tags(op_log, "New tags", tagset)
@@ -844,10 +844,10 @@ def _build_tag_manager_content(
             except Exception as ex:
                 issue = backend.issue_for_exception(ex)
                 log.warning("saving the tags of %s/%s failed: %s", bucket, key, issue.code)
-                op_log(f"❌ Tags not saved — {issue.title}.")
+                op_log(f"❌ Tags not set — {issue.title}.")
             else:
                 log.info("tags saved: %s/%s fields=%s", bucket, key, list(tagset))
-                op_log("✅ Tags saved.")
+                op_log("✅ Tags set on 1 file.")
             report = _save_report(lines)
             backend.ui_call(page, lambda: _after_file_save(key, tagset, issue, report))
 
@@ -858,13 +858,13 @@ def _build_tag_manager_content(
         if issue is None:
             if sel["key"] == key:
                 _current_file_tags["tags"] = dict(tagset)
-            _file_save_status.value, _file_save_status.color = "✅ Tags saved", C_ACCENT
+            _file_save_status.value, _file_save_status.color = "✅ Tags set", C_ACCENT
             page.update()
             return
-        _file_save_status.value, _file_save_status.color = "❌ Tags not saved", C_ERROR
+        _file_save_status.value, _file_save_status.color = "❌ Tags not set", C_ERROR
         page.update()
         report_line = f"\nReport: {report}" if report else ""
-        show_issue(page, issue, is_web=IS_WEB, title="Tags were not saved", context=f"{key}{report_line}",
+        show_issue(page, issue, is_web=IS_WEB, title="Tags could not be set", context=f"{key}{report_line}",
                    screen="tags", buttons=[("Close", None)])
 
     def _on_show_raw(e) -> None:
