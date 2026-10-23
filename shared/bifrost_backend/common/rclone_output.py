@@ -21,6 +21,7 @@ import logging
 import re
 import shutil
 from collections import Counter, deque
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -38,12 +39,17 @@ class UserIssue:
     message: str                 # qué ha pasado, en lenguaje sencillo
     hint: str = ""               # qué puede hacer el usuario ("" si no puede hacer nada)
     web_hint: str | None = None  # pista en Open OnDemand, si es distinta
+    tags_hint: str | None = None  # pista en el Tag Manager, si es distinta (allí no hay botón de renovar)
 
-    def hint_for(self, is_web: bool) -> str:
+    def hint_for(self, is_web: bool, screen: str = "copy") -> str:
+        """Pista según el modo (escritorio u Open OnDemand) y la pantalla ("copy" o "tags")."""
+        if screen == "tags" and self.tags_hint is not None:
+            return self.tags_hint
         return self.web_hint if (is_web and self.web_hint is not None) else self.hint
 
 
 _CONTACT_ITS = "If it keeps happening, contact ITS and send them the report saved at the end of this log."
+_RENEW_FROM_TAGS = "Go ← Back, click “🔑 Renew credentials” and open Tag Manager again."
 
 # Orden = prioridad. CREDENTIALS_EXPIRED va antes que MINIO_PERMISSION: MinIO responde a una clave no válida
 # con "StatusCode: 403 … InvalidAccessKeyId" (comprobado, fase 0).
@@ -51,12 +57,14 @@ _CATALOG: list[tuple[re.Pattern, UserIssue]] = [
     (re.compile(r"\b(ExpiredToken|InvalidAccessKeyId|InvalidTokenId|InvalidToken|SignatureDoesNotMatch)\b"),
      UserIssue("CREDENTIALS_EXPIRED", "MinIO access expired",
                "Your temporary MinIO access pass is no longer valid.",
-               "Click “🔑 Renew credentials” and try again.")),
+               "Click “🔑 Renew credentials” and try again.",
+               tags_hint=_RENEW_FROM_TAGS)),
     # Sensible a mayúsculas a propósito: una carpeta "worm_project" no es un error de WORM.
     (re.compile(r"didn't find section in config file"),
      UserIssue("PROFILE_MISSING", "MinIO access not set up",
                "BIFROST cannot find your MinIO access settings on this computer.",
-               "Click “🔑 Renew credentials” and try again.")),
+               "Click “🔑 Renew credentials” and try again.",
+               tags_hint=_RENEW_FROM_TAGS)),
     (re.compile(r"\bObjectLocked\b|\bWORM\b"),
      UserIssue("WORM_PROTECTED", "File already in MinIO",
                "A file with the same name is already in this MinIO folder and it cannot be replaced.",
@@ -70,6 +78,15 @@ _CATALOG: list[tuple[re.Pattern, UserIssue]] = [
      UserIssue("BUCKET_NOT_FOUND", "MinIO folder not found",
                "The MinIO folder does not exist or you cannot see it.",
                "Choose the folder again from the list.")),
+    (re.compile(r"\bNoSuchKey\b"),
+     UserIssue("OBJECT_GONE", "File no longer in MinIO",
+               "This file is no longer in MinIO. It may have been deleted or moved.",
+               "Open the folder again to see what it contains now.")),
+    (re.compile(r"\bInvalidTag\b"),
+     UserIssue("INVALID_TAG", "Tag not accepted",
+               "MinIO did not accept one of the tags (a value may be too long or contain characters it does not "
+               "allow).",
+               "Shorten the value or remove unusual characters, and try again.")),
     (re.compile(r"no such host|dial tcp|connection refused|connection reset|i/o timeout|timed out|"
                 r"TLS handshake timeout|network is unreachable|Could not connect to the endpoint|"
                 r"Connect timeout|Read timeout|context deadline exceeded", re.I),
@@ -157,6 +174,31 @@ def classify(text: str) -> UserIssue | None:
         if rx.search(text or ""):
             return issue
     return None
+
+
+# Clases de botocore (y de Python) que indican que no se pudo hablar con MinIO. Se comparan por nombre para no
+# importar botocore aquí (la app de montaje no lo necesita).
+_CONNECTION_ERRORS = {"EndpointConnectionError", "ConnectTimeoutError", "ReadTimeoutError",
+                      "ConnectionClosedError", "SSLError", "ConnectionError"}
+_NETWORK = next(issue for _, issue in _CATALOG if issue.code == "NETWORK")
+
+
+def issue_for_exception(ex: BaseException) -> UserIssue:
+    """Traduce una excepción de boto3 (Tag Manager) al catálogo. Nunca lanza."""
+    try:
+        if {c.__name__ for c in type(ex).__mro__} & _CONNECTION_ERRORS:
+            return _NETWORK
+        response = getattr(ex, "response", None)
+        code = response.get("Error", {}).get("Code", "") if isinstance(response, dict) else ""
+        return classify(code) or classify(error_text(str(ex))) or UNEXPECTED
+    except Exception:
+        return UNEXPECTED
+
+
+def by_cause(issues: Iterable[UserIssue]) -> str:
+    """'3 × No permission in MinIO, 1 × Connection problem': recuento por causa, sin nombres."""
+    causes = Counter(issue.title for issue in issues)
+    return ", ".join(f"{n} × {title}" for title, n in causes.most_common())
 
 
 # ============================================================================
@@ -525,7 +567,7 @@ class RunSummary:
             if s.get("speed"):
                 text += f" · {human_size(s['speed'])}/s"
             if s.get("eta"):
-                text += f" · about {_duration(s['eta'])} left"
+                text += f" · about {duration_text(s['eta'])} left"
             if total_b:
                 fraction = min(done_b / total_b, 1.0)
         current = _current_items(s)
@@ -561,12 +603,6 @@ class RunSummary:
             out += [f"   Details: {ln.removeprefix('Error: ')}" for ln in self.plain_lines if ln.startswith("Error:")]
         return out
 
-    @staticmethod
-    def _by_cause(problems: list[Problem]) -> str:
-        """'3 × Cannot open a file or folder, 1 × A file is open in another program': recuento por causa."""
-        causes = Counter(p.issue.title for p in problems)
-        return ", ".join(f"{n} × {title}" for title, n in causes.most_common())
-
     def _hints(self, problems: list[Problem]) -> list[str]:
         hints = list(dict.fromkeys(p.issue.hint_for(self.is_web) for p in problems if p.issue.hint))
         return [f"   What you can do: {h}" for h in hints[:3]]
@@ -574,7 +610,7 @@ class RunSummary:
     def _took(self, with_speed: bool = False) -> str:
         """' in 1 h 12 min (8.3 MB/s on average)': duración según las estadísticas finales de rclone."""
         elapsed = self.stats.get("elapsedTime") or 0
-        text = f" in {_duration(elapsed)}"
+        text = f" in {duration_text(elapsed)}"
         if with_speed and elapsed >= 1 and self.copied_bytes:
             text += f" ({human_size(self.copied_bytes / elapsed)}/s on average)"
         return text
@@ -626,9 +662,9 @@ class RunSummary:
             lines.append("⚠️ Copy finished with problems: " + ", ".join(parts) + ".")
             if folders:
                 lines.append(f"⚠️ Folders that could not be read (their files were NOT copied): "
-                             f"{self._by_cause(folders)}.")
+                             f"{by_cause(p.issue for p in folders)}.")
             if failed:
-                lines.append(f"❌ Files not copied: {self._by_cause(failed)}.")
+                lines.append(f"❌ Files not copied: {by_cause(p.issue for p in failed)}.")
             lines += self._hints(folders + failed)
             lines.append("   The list of these files is in the report. Files already copied stay in MinIO. After "
                          "fixing the problem, copy again: files already copied are skipped.")
@@ -678,7 +714,7 @@ class RunSummary:
         if self.unreadable_count:
             known = list(self.unreadable.values()) + list(self.folders.values())
             unknown = [Problem(UNEXPECTED, "")] * max(self.unreadable_count - len(known), 0)
-            lines.append(f"❌ Could not be read: {self._by_cause(known + unknown)}.")
+            lines.append(f"❌ Could not be read: {by_cause(p.issue for p in known + unknown)}.")
             lines += self._hints(known)
         if uncompared or self.no_common_hash:
             lines.append(f"⚠️ The content of {uncompared or 'some'} file(s) could not be compared "
@@ -766,7 +802,8 @@ def _size(ev: dict) -> int:
     return size if isinstance(size, int) and size > 0 else 0
 
 
-def _duration(seconds: float) -> str:
+def duration_text(seconds: float) -> str:
+    """'less than 1 s', '45 s', '12 min', '2 h 5 min'."""
     if seconds < 1:
         return "less than 1 s"
     seconds = int(seconds)

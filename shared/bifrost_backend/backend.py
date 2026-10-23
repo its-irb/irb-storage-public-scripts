@@ -40,11 +40,13 @@ from .common.ui_helpers import (
 from .common.logs import (
     setup_logging,
     report_path,
+    write_report,
 )
 from .common.rclone_output import (
     MAX_CURRENT,
     short_name,
     human_size,
+    issue_for_exception,
 )
 from .common.shutdown import (
     register_shutdown,
@@ -63,7 +65,7 @@ from .mount.preflight import (
 from .transfer.rclone_ops import (
     rclone_lsjson,
     rclone_list_files_only,
-    list_prefix_contents,
+    list_prefix_folders,
     obtener_num_cpus,
     traducir_ruta_a_remote,
 )
@@ -72,8 +74,10 @@ from .transfer.ldap_groups import (
 )
 from .transfer.s3_tags import (
     get_s3_client_from_profile,
-    get_object_tags,
+    read_object_tags,
     apply_tags_to_prefix,
+    apply_tags_to_keys,
+    TagRun,
     apply_tags_to_object,
     get_bucket_tags,
     construir_tag_string,

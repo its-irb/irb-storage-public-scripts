@@ -72,6 +72,18 @@ def report_path(kind: str, ext: str = "log") -> Path:
     return path
 
 
+def write_report(kind: str, lines: list[str], problems: list[str] | None = None) -> Path:
+    """Escribe el informe de una operación: lo que mostró el panel (`lines`, con sus saltos de línea) y, si los
+    hay, los ficheros con problemas. Devuelve la ruta. Puede lanzar OSError."""
+    path = report_path(kind)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("".join(lines).lstrip("\n"))
+        if problems:
+            fh.write("\n--- Files with problems ---\n")
+            fh.writelines(line + "\n" for line in problems)
+    return path
+
+
 class _RedactFilter(logging.Filter):
     """Enmascara secretos aunque alguien los registre por error."""
 

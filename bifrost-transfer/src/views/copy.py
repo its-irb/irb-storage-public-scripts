@@ -399,22 +399,7 @@ def _build_copy_content(
         """Append *msg* to the visible log list in this UI page."""
         if _active_proceso.get("status") == "running":
             _start_progress_ticker()   # p. ej. la operación se empezó en otra pestaña
-        lines_to_add = []
-        for line in msg.splitlines(keepends=True):
-            if line.strip():
-                color = (
-                    C_ACCENT   if line.startswith("✅") else
-                    C_ERROR    if line.startswith("❌") else
-                    C_WARNING  if line.startswith(("⚠️", "⏹")) else
-                    C_PRIMARY  if line.startswith(("🔍", "📤", "🧪")) else
-                    C_TEXT_DIM if line.startswith(("⏳", "🔁", "📄")) else
-                    C_TEXT
-                )
-                lines_to_add.append(
-                    ft.Text(line.rstrip("\n"),
-                            size=11, color=color,
-                            font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK, selectable=True)
-                )
+        lines_to_add = [log_text(line) for line in msg.splitlines(keepends=True) if line.strip()]
 
         def _add():
             with _log_lock:
@@ -894,12 +879,7 @@ def _build_copy_content(
         """Guarda lo que mostró el panel en esta operación y, debajo, los ficheros con problemas (el panel solo
         da recuentos)."""
         try:
-            path = backend.report_path(op["kind"])
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write("".join(op["lines"]).lstrip("\n"))
-                if problems := summary.problem_lines():
-                    fh.write("\n--- Files with problems ---\n")
-                    fh.writelines(line + "\n" for line in problems)
+            path = backend.write_report(op["kind"], op["lines"], summary.problem_lines())
             logger.info("%s report saved: %s", op["kind"], path)
             _dispatch_log(f"\n📄 Report saved: {path}\n")
         except Exception as ex:   # el informe nunca debe romper el final de la operación
@@ -947,11 +927,12 @@ def _build_copy_content(
         _start_progress_ticker()
 
         op, op_log = _new_operation("copy")
-        # Solo los ficheros que se suban reciben estas etiquetas; el resumen final dice cuántos no se copiaron.
-        tags = "; ".join(f"{k} = {v}" for k, v in metadatos.items() if v) or "none"
         op_log(f"\n### Copy started at {datetime.now():%Y-%m-%d %H:%M:%S} ###\n")
         op_log(f"📤 Copying {origen} to MinIO {perfil_rclone}:/{destino}\n")
-        op_log(f"Tags for the files copied in this run: {tags}\n\n")
+        # Todas las etiquetas del perfil, también las vacías: se escriben todas en cada fichero copiado. Solo
+        # las reciben los ficheros que se suban; el resumen final dice cuántos no se copiaron.
+        op_log("Tags for the files copied in this run:\n")
+        op_log("".join(f"  {k}: {v}\n" for k, v in metadatos.items()) + "\n")
 
         # Persist copy state so reconnecting sessions can see it
         if IS_WEB and web_session is not None:

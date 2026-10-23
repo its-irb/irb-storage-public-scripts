@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
-import pathlib
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from pathlib import Path
 from typing import Callable
 
 import flet as ft
@@ -21,6 +22,15 @@ log = logging.getLogger("bifrost.tags")
 # (depende de __name__), y las funciones de este módulo lo leen al ejecutarse.
 IS_WEB = False
 
+# Texto corto junto al botón Apply al terminar, según TagRun.outcome.
+_APPLY_STATUS = {
+    "ok":        ("✅ Tags set", C_ACCENT),
+    "partial":   ("⚠️ Some files could not be changed", C_WARNING),
+    "stopped":   ("❌ Stopped (see LOGS)", C_ERROR),
+    "cancelled": ("⏹ Stopped", C_WARNING),
+    "empty":     ("No files found in this folder", C_TEXT_DIM),
+}
+
 
 # ============================================================================
 # VIEW: TAG MANAGER
@@ -35,18 +45,19 @@ def _build_tag_manager_content(
     # ── State ────────────────────────────────────────────────────────────
     s3  = {"client": None}
     nav = {"bucket": None, "prefix": "", "show_files": False}
-    sel = {"type": "none", "key": None, "count": 0, "display": ""}
+    # tags_loaded: las etiquetas del fichero seleccionado se leyeron bien. Sin eso no se puede guardar: se
+    # sustituirían las que tiene sin saber cuáles son.
+    sel = {"type": "none", "key": None, "tags_loaded": False}
+    apply_op = {"stop": None}                # threading.Event de la aplicación a carpeta en curso (Cancel)
     active_profile  = {"name": list(TAG_PROFILES.keys())[0]}
     tag_fields: dict[str, ft.TextField] = {}
-    _log_buffer: list[str] = []
     _current_items = {"folders": [], "files": []}
     _file_tag_rows: list[dict] = []          # freeform editor rows
     _current_file_tags: dict = {"tags": {}}
-    _file_editor_section  = None             # assigned after building widgets
-    _profile_editor_section = None           # assigned after building widgets
-    right_panel = {"visible": False}
 
     # ── Log ───────────────────────────────────────────────────────────────
+    # Cada operación (guardar un fichero, aplicar a una carpeta) escribe aquí y en su informe, que se guarda
+    # al terminar en reports/tags-<fecha>.log. Como en copy: recuentos, nunca listas de ficheros.
     # NOTA: en Flet, adjuntar on_scroll a un ListView rompe su auto_scroll
     # interno por completo (deja de autoseguir incluso sin tocar el scroll).
     # Además, en Flet 0.84.0 auto_scroll no hace nada si no se define
@@ -68,31 +79,43 @@ def _build_tag_manager_content(
             ),
         ], spacing=0),
         padding=ft.Padding.symmetric(horizontal=24, vertical=8),
-        visible=False,
     )
 
-    def _log(msg: str, color: str = C_TEXT) -> None:
-        _log_buffer.append(msg)
+    def _log(msg: str) -> None:
+        texts = [log_text(line) for line in msg.splitlines() if line.strip()]
         def _add():
-            log_list.controls.append(
-                ft.Text(msg.rstrip("\n"), size=11, color=color,
-                        font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK, selectable=True)
-            )
+            log_list.controls.extend(texts)
+            page.update()
         backend.ui_call(page, _add)
 
-    def _autosave_tag_log() -> None:
-        content = "".join(_log_buffer)
-        if not content.strip():
-            return
-        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        log_dir = pathlib.Path.home() / "bifrost-logs"
+    def _new_operation(title: str) -> tuple[list[str], Callable[[str], None]]:
+        """Operación nueva: op_log escribe en LOGS y guarda la línea para el informe de esta operación."""
+        lines: list[str] = []
+
+        def op_log(msg: str) -> None:
+            lines.append(msg + "\n")
+            _log(msg)
+
+        op_log(f"\n### {title} at {datetime.now():%Y-%m-%d %H:%M:%S} ###")
+        return lines, op_log
+
+    def _log_tags(op_log: Callable[[str], None], title: str, tags: dict[str, str]) -> None:
+        """Todas las etiquetas, también las vacías (también se escriben en MinIO)."""
+        op_log(f"{title}:" if tags else f"{title}: (none)")
+        for k, v in tags.items():
+            op_log(f"  {k}: {v}")
+
+    def _save_report(lines: list[str], problems: list[str] | None = None) -> Path | None:
+        """Escribe el informe de la operación y deja su ruta en LOGS. Nunca rompe el final de la operación."""
         try:
-            log_dir.mkdir(parents=True, exist_ok=True)
-            fpath = log_dir / f"bifrost-tags-{ts}.log"
-            fpath.write_text(content, encoding="utf-8")
-            _log(f"\n📄 Log saved to: {fpath}", C_TEXT_DIM)
+            path = backend.write_report("tags", lines, problems)
         except Exception as ex:
-            _log(f"\n⚠️  Could not save log file: {ex}", C_WARNING)
+            log.exception("tags report could not be saved")
+            _log(f"⚠️ Could not save the report: {ex}")
+            return None
+        log.info("tags report saved: %s", path)
+        _log(f"📄 Report saved: {path}")
+        return path
 
     def _get_client():
         if s3["client"] is None:
@@ -115,20 +138,25 @@ def _build_tag_manager_content(
     tm_bucket_cache: dict = {"list": None, "tags": None}
 
     def _on_tm_lab_select(acronym: str | None) -> None:
-        previous = tm_filter_state["acronym"]
-        if acronym is None:
-            print(f"[tag-manager] lab filter cleared (was {previous!r}) → showing all buckets")
-        else:
-            print(f"[tag-manager] lab filter → {acronym!r} (was {previous!r})")
+        log.info("lab filter: %s (was %s)", acronym or "cleared", tm_filter_state["acronym"])
         tm_filter_state["acronym"] = acronym
         _navigate(None, "")
 
-    tm_filter_widget, _tm_filter_clear_fn = build_lab_filter_widget(page, _on_tm_lab_select)
+    tm_filter_widget, _ = build_lab_filter_widget(page, _on_tm_lab_select)
     tm_filter_row = ft.Container(
         content=tm_filter_widget,
         visible=True,
         padding=ft.Padding.only(bottom=4),
     )
+
+    def _show_browser_error(issue) -> None:
+        """Error al listar, traducido. Solo desde el hilo de la UI."""
+        browser_loading.visible = False
+        _render_browser_contents()
+        hint = issue.hint_for(IS_WEB, screen="tags")
+        browser_error.value   = f"⚠️ {issue.title}. {hint}" if hint else f"⚠️ {issue.title}."
+        browser_error.visible = True
+        page.update()
 
     def _rebuild_breadcrumb() -> None:
         breadcrumb_row.controls.clear()
@@ -165,10 +193,7 @@ def _build_tag_manager_content(
         page.update()
 
     def _render_browser_contents() -> None:
-        if hasattr(browser_col.controls, "clear"):
-            browser_col.controls.clear()
-        else:
-            browser_col.controls = []
+        browser_col.controls.clear()
 
         if nav["bucket"] is None:
             for bname in _current_items["folders"]:
@@ -230,7 +255,7 @@ def _build_tag_manager_content(
                     bgcolor=f"{C_ACCENT}18" if is_sel else C_SURFACE,
                     border=ft.Border.all(
                         2 if is_sel else 1,
-                        C_ACCENT if is_sel else C_BORDER,                     
+                        C_ACCENT if is_sel else C_BORDER,
                     ),
                     border_radius=6,
                     padding=ft.Padding.symmetric(horizontal=12, vertical=8),
@@ -244,8 +269,6 @@ def _build_tag_manager_content(
                     )
                 )
 
-            files = _current_items["files"]
-
             if not nav["show_files"]:
                 view_files_btn = ft.TextButton(
                     "View files in this folder",
@@ -254,25 +277,9 @@ def _build_tag_manager_content(
                 )
 
                 def _on_view_files(e):
-                    bucket_snap, prefix_snap = nav["bucket"], nav["prefix"]
-                    print(f"[tag-manager] view files → {bucket_snap}/{prefix_snap}")
                     view_files_btn.disabled = True
                     view_files_btn.text = "Loading files..."
-                    browser_loading.visible = True
-                    page.update()
-
-                    def _async_load():
-                        real_files = backend.rclone_list_files_only(
-                            perfil_rclone, nav["bucket"], nav["prefix"]
-                        )
-                        print(f"[tag-manager] view files → {bucket_snap}/{prefix_snap} → {len(real_files)} files")
-                        _current_items["files"] = real_files
-                        nav["show_files"] = True
-                        browser_loading.visible = False
-                        backend.ui_call(page, _render_browser_contents)
-
-                    import threading
-                    threading.Thread(target=_async_load, daemon=True).start()
+                    _load_files()
 
                 view_files_btn.on_click = _on_view_files
                 browser_col.controls.append(
@@ -281,9 +288,8 @@ def _build_tag_manager_content(
                         padding=ft.Padding.symmetric(horizontal=4, vertical=2),
                     )
                 )
-
-            elif nav["show_files"]:
-                for key in files:
+            else:
+                for key in _current_items["files"]:
                     name = key.split("/")[-1]
                     is_sel = sel["type"] == "file" and sel["key"] == key
 
@@ -319,83 +325,54 @@ def _build_tag_manager_content(
             )
 
         page.update()
-        
+
+    def _reset_selection() -> None:
+        """Nada seleccionado: el panel derecho se oculta. Solo desde el hilo de la UI (no llama a update)."""
+        sel.update(type="none", key=None, tags_loaded=False)
+        right_editor.visible  = False
+        apply_btn.disabled    = True
+        target_label.value    = "Select a folder or a file"
+        obj_count_label.value = ""
+        apply_status.visible  = False
+        _file_save_status.visible       = False
+        _file_editor_section.visible    = False
+        _profile_editor_section.visible = True
+
     def _select_prefix_and_open(prefix: str) -> None:
-        # nav["show_files"] = False
-        right_panel["visible"] = True
-        right_editor.visible = True
-
-        def _show_panel():
-            right_editor.visible = True
-            if _file_editor_section is not None:
-                _file_editor_section.visible = False
-                _profile_editor_section.visible = True
-            page.update()
-
-        backend.ui_call(page, _show_panel)
-
-        bucket = nav["bucket"]
-        if not bucket:
+        if not nav["bucket"]:
             return
-        
-        label   = f"📁 {prefix or (bucket + '/')}"
-        note    = "(Will be recursively applied to all objects within this folder)"
-
-        def _upd():
-            sel["type"]    = "prefix"
-            sel["key"]     = prefix
-            sel["count"]   = 0
-            sel["display"] = label
-            target_label.value    = label
-            obj_count_label.value = note
-            apply_btn.disabled    = False
-            _rebuild_tag_fields(profile_dd.value)
-            _render_browser_contents() 
-        backend.ui_call(page, _upd)
+        label = f"📁 {prefix or (nav['bucket'] + '/')}"
+        sel.update(type="prefix", key=prefix, tags_loaded=False)
+        right_editor.visible = True
+        _file_editor_section.visible    = False
+        _profile_editor_section.visible = True
+        target_label.value    = label
+        obj_count_label.value = "(Will be recursively applied to all objects within this folder)"
+        apply_btn.disabled    = apply_op["stop"] is not None
+        _rebuild_tag_fields(profile_dd.value)
+        _render_browser_contents()
 
     def _navigate(bucket: str | None, prefix: str) -> None:
-        print(f"[tag-manager] navigate → bucket={bucket!r} prefix={prefix!r}")
+        log.info("navigate: bucket=%s prefix=%s", bucket, prefix)
         nav["bucket"]     = bucket
         nav["prefix"]     = prefix
         nav["show_files"] = False
-        right_editor.visible = False
-        right_panel["visible"] = False
-        sel["type"]   = "none"
-        sel["key"]    = None
-        sel["count"]  = 0
-        sel["display"] = ""
         _current_items["folders"] = []
         _current_items["files"]   = []
-
-        def _reset_editor():
-            apply_btn.disabled = True
-            target_label.value = "Select a folder or a file"
-            obj_count_label.value = ""
-            apply_status.value = ""
-            apply_status.visible = False
-            if _file_editor_section is not None:
-                _file_editor_section.visible  = False
-                _profile_editor_section.visible = True
-                _file_save_status.visible = False
-            _rebuild_breadcrumb()
-            tm_filter_row.visible = (bucket is None)
-
-        backend.ui_call(page, _reset_editor)
+        _reset_selection()
+        tm_filter_row.visible = bucket is None
+        _rebuild_breadcrumb()
         backend.safe_thread(page, _load_browser).start()
 
     def _load_browser() -> None:
         def _set_loading():
             browser_loading.visible = True
             browser_error.visible   = False
-            if hasattr(browser_col.controls, "clear"):
-                browser_col.controls.clear()
-            else:
-                browser_col.controls = []
+            browser_col.controls.clear()
             page.update()
         backend.ui_call(page, _set_loading)
 
         try:
-            client = _get_client()
             if nav["bucket"] is None:
                 if tm_bucket_cache["list"] is not None:
                     buckets = list(tm_bucket_cache["list"])
@@ -403,38 +380,16 @@ def _build_tag_manager_content(
                     buckets = backend.rclone_lsd(perfil=perfil_rclone, path="")
                     tm_bucket_cache["list"] = list(buckets)
                     tm_bucket_cache["tags"] = None
-                    print(f"[tag-manager] bucket list fetched: {len(buckets)} buckets")
+                    log.info("bucket list: %d buckets", len(buckets))
                 if tm_filter_state["acronym"]:
-                    active = tm_filter_state["acronym"]
-                    total = len(tm_bucket_cache["list"])
-                    if tm_bucket_cache["tags"] is None:
-                        print(f"[tag-manager] lab filter {active!r}: scanning S3 'acronym' tag for {total} buckets (one-time per session)...")
-                        with ThreadPoolExecutor(max_workers=8) as pool:
-                            futs = {pool.submit(backend.get_bucket_tags, client, b): b for b in tm_bucket_cache["list"]}
-                            tm_tag_map: dict[str, str] = {}
-                            for fut in as_completed(futs):
-                                b = futs[fut]
-                                try:
-                                    tm_tag_map[b] = fut.result().get("acronym", "")
-                                except Exception:
-                                    tm_tag_map[b] = ""
-                        tm_bucket_cache["tags"] = tm_tag_map
-                        n_tagged = sum(1 for v in tm_tag_map.values() if v)
-                        print(f"[tag-manager] lab filter: tag scan done → {n_tagged}/{total} buckets have an 'acronym' tag (cached for this session)")
-                    buckets = [b for b in buckets if tm_bucket_cache["tags"].get(b) == active]
-                    print(f"[tag-manager] lab filter {active!r} → {len(buckets)}/{total} buckets match")
+                    buckets = _filter_buckets_by_lab(buckets, tm_filter_state["acronym"])
                 _current_items["folders"] = buckets
                 _current_items["files"]   = []
             else:
-                folders, files = backend.list_prefix_contents(
-                    perfil_rclone, nav["bucket"], nav["prefix"]
-                )
-                print(
-                    f"[tag-manager] listed bucket={nav['bucket']!r} prefix={nav['prefix']!r} "
-                    f"→ {len(folders)} subfolders"
-                )
+                folders = backend.list_prefix_folders(perfil_rclone, nav["bucket"], nav["prefix"])
+                log.info("listed %s/%s: %d subfolders", nav["bucket"], nav["prefix"], len(folders))
                 _current_items["folders"] = folders
-                _current_items["files"]   = files
+                _current_items["files"]   = []
 
             def _show():
                 browser_loading.visible = False
@@ -442,70 +397,106 @@ def _build_tag_manager_content(
             backend.ui_call(page, _show)
 
         except Exception as ex:
-            print(f"[tag-manager] ERROR bucket={nav['bucket']!r} prefix={nav['prefix']!r}: {ex}")
-            def _err(ex_val=ex):
-                browser_loading.visible = False
-                browser_error.value     = f"Error: {ex_val}"
-                browser_error.visible   = True
-                page.update()
-            backend.ui_call(page, _err)
+            log.warning("listing %s/%s failed: %s", nav["bucket"], nav["prefix"], ex)
+            issue = backend.issue_for_exception(ex)
+            backend.ui_call(page, lambda: _show_browser_error(issue))
 
-    def _select_file(key: str) -> None:
-        print(f"[tag-manager] select file → {nav['bucket']}/{key}")
-        def _do():
+    def _filter_buckets_by_lab(buckets: list[str], acronym: str) -> list[str]:
+        """Buckets cuya etiqueta 'acronym' coincide. Las etiquetas se leen una vez por sesión."""
+        total = len(tm_bucket_cache["list"])
+        if tm_bucket_cache["tags"] is None:
+            log.info("lab filter %s: reading the 'acronym' tag of %d buckets (once per session)", acronym, total)
             client = _get_client()
-            right_panel["visible"] = True
-            right_editor.visible = True
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                futs = {pool.submit(backend.get_bucket_tags, client, b): b for b in tm_bucket_cache["list"]}
+                tm_tag_map: dict[str, str] = {}
+                for fut in as_completed(futs):
+                    b = futs[fut]
+                    try:
+                        tm_tag_map[b] = fut.result().get("acronym", "")
+                    except Exception:
+                        tm_tag_map[b] = ""
+            tm_bucket_cache["tags"] = tm_tag_map
+            log.info("lab filter: %d/%d buckets have an 'acronym' tag",
+                     sum(1 for v in tm_tag_map.values() if v), total)
+        matching = [b for b in buckets if tm_bucket_cache["tags"].get(b) == acronym]
+        log.info("lab filter %s: %d/%d buckets match", acronym, len(matching), total)
+        return matching
+
+    def _load_files() -> None:
+        """Lista, bajo demanda, los ficheros de la carpeta abierta (sin subcarpetas)."""
+        bucket, prefix = nav["bucket"], nav["prefix"]
+        browser_loading.visible = True
+        browser_error.visible   = False
+        page.update()
+
+        def _do():
             try:
-                tags = backend.get_object_tags(client, nav["bucket"], key)
+                files = backend.rclone_list_files_only(perfil_rclone, bucket, prefix)
             except Exception as ex:
-                tags = {}
-                resp = getattr(ex, "response", None)
-                error_code = (resp or {}).get("Error", {}).get("Code", "") if isinstance(resp, dict) else ""
-                if error_code != "NoSuchKey":
-                    ex_str = str(ex)
-                    print(f"[tag-manager] ERROR reading tags for {nav['bucket']}/{key}: {ex_str}")
-                    def _err():
-                        browser_error.value   = f"Error reading tags: {ex_str}"
-                        browser_error.visible = True
-                        page.update()
-                    backend.ui_call(page, _err)
+                log.warning("listing the files of %s/%s failed: %s", bucket, prefix, ex)
+                issue = backend.issue_for_exception(ex)
+                backend.ui_call(page, lambda: _show_browser_error(issue))
+                return
+            log.info("view files: %s/%s → %d files", bucket, prefix, len(files))
 
-            display = f"📄 {key}"
-            tags_cp = dict(tags)
-
-            def _upd():
-                sel["type"]    = "file"
-                sel["key"]     = key
-                sel["count"]   = 1
-                sel["display"] = display
-                target_label.value    = display
-                obj_count_label.value = ""
-                apply_btn.disabled    = False
-                _file_name_label.value = key
-                _populate_file_editor(tags_cp)
-                if _file_editor_section is not None:
-                    _file_editor_section.visible  = True
-                _profile_editor_section.visible = False
+            def _show():
+                if (nav["bucket"], nav["prefix"]) != (bucket, prefix):
+                    return                                  # el usuario ya está en otra carpeta
+                _current_items["files"] = files
+                nav["show_files"] = True
+                browser_loading.visible = False
                 _render_browser_contents()
-            backend.ui_call(page, _upd)
+            backend.ui_call(page, _show)
+
         backend.safe_thread(page, _do).start()
+
+    # ── Fichero seleccionado: leer sus etiquetas antes de abrir el editor ──
+    def _select_file(key: str) -> None:
+        bucket = nav["bucket"]
+        log.info("select file: %s/%s", bucket, key)
+
+        def _do():
+            try:
+                tags, uploaded = backend.read_object_tags(_get_client(), bucket, key)
+            except Exception as ex:
+                issue = backend.issue_for_exception(ex)
+                log.warning("reading the tags of %s/%s failed: %s", bucket, key, issue.code)
+                backend.ui_call(page, lambda: _on_tags_unreadable(key, issue))
+                return
+            backend.ui_call(page, lambda: _open_file_editor(key, tags, uploaded))
+
+        backend.safe_thread(page, _do).start()
+
+    def _open_file_editor(key: str, tags: dict[str, str], uploaded: datetime | None) -> None:
+        sel.update(type="file", key=key, tags_loaded=True)
+        target_label.value    = f"📄 {key}"
+        obj_count_label.value = ""
+        _file_name_label.value    = key
+        # Fecha de subida de la versión actual (LastModified), en la hora local; no cambia con las etiquetas.
+        _file_uploaded_label.value   = f"Uploaded to MinIO: {uploaded.astimezone():%Y-%m-%d %H:%M}" if uploaded else ""
+        _file_uploaded_label.visible = uploaded is not None
+        _file_save_status.visible = False
+        _populate_file_editor(tags)
+        _file_editor_section.visible    = True
+        _profile_editor_section.visible = False
+        right_editor.visible = True
+        _render_browser_contents()
+
+    def _on_tags_unreadable(key: str, issue) -> None:
+        """No se abre el editor: sin las etiquetas actuales, guardar las sustituiría a ciegas (pendiente 11)."""
+        _log(f"⚠️ Could not read the tags of {key} — {issue.title}")
+        _reset_selection()
+        _render_browser_contents()
+        if issue.code == "OBJECT_GONE":
+            show_issue(page, issue, is_web=IS_WEB, context=key, screen="tags",
+                       buttons=[("OK", _load_files)], color=C_WARNING)
+        else:
+            show_issue(page, issue, is_web=IS_WEB, title="Could not read the tags of this file", context=key,
+                       screen="tags", buttons=[("Cancel", None), ("Try again", lambda: _select_file(key))])
 
     # ── Editor ────────────────────────────────────────────────────────────
     profile_names = list(TAG_PROFILES.keys())
-    profile_dd = ft.Dropdown(
-        options=[ft.dropdown.Option(p) for p in profile_names],
-        value=profile_names[0],
-        bgcolor=C_SURFACE2,
-        border_color=C_BORDER,
-        focused_border_color=C_PRIMARY,
-        color=C_TEXT,
-        text_size=13,
-        border_radius=6,
-        content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-        width=220,
-        #on_change=_on_profile_change,
-    )
 
     # Contenedor raíz para los campos dinámicos
     card_container = ft.Container()
@@ -514,7 +505,7 @@ def _build_tag_manager_content(
     apply_btn       = btn_primary("Apply tags →")
     apply_btn.disabled = True
     apply_status    = ft.Text("", size=12, color=C_TEXT_DIM, visible=False)
-        
+
     def _rebuild_tag_fields(profile_name: str, target_container=None, target_fields=None, prefill_values=None) -> None:
         container = target_container if target_container is not None else card_container
         fields    = target_fields    if target_fields    is not None else tag_fields
@@ -567,88 +558,118 @@ def _build_tag_manager_content(
     profile_dd.on_select = _on_profile_change
     _rebuild_tag_fields(profile_names[0])
 
+    # ── Aplicar a una carpeta ─────────────────────────────────────────────
     def do_apply(e) -> None:
+        if sel["type"] != "prefix":
+            return
         tagset = {k: (tf.value or "").strip() for k, tf in tag_fields.items()}
-
         tag_errors = validate_tagset(tagset)
         if tag_errors:
-            show_dialog(page, "Caracteres no permitidos en los tags",
-                        "\n".join(tag_errors), C_ERROR)
+            show_dialog(page, "Invalid characters in tags", "\n".join(tag_errors), C_ERROR)
             return
+        _run_folder_apply(nav["bucket"], sel["key"] or "", tagset, active_profile["name"])
 
-        apply_btn.disabled  = True
-        apply_status.value  = "Applying tags..."
-        apply_status.color  = C_TEXT_DIM
-        apply_status.visible = True
-        log_section.visible  = True
-        page.update()
+    def _run_folder_apply(bucket: str, prefix: str, tagset: dict[str, str], profile: str,
+                          keys: list[str] | None = None) -> None:
+        """Aplica tagset a toda la carpeta o, con `keys`, solo a esos ficheros ("Try again" tras fallos)."""
+        stop = threading.Event()
+        apply_op["stop"] = stop
+        _set_applying(True)
 
         def _do():
-            client = _get_client()
-            bucket = nav["bucket"]
-            target = sel["key"] if sel["type"] == "file" else f"{sel['key'] or ''} (prefix, recursive)"
-            # Solo los nombres de los campos: los valores son metadatos personales y no van al log técnico.
-            print(f"[tag-manager] applying tags to {bucket}/{target} → fields: {[k for k, v in tagset.items() if v]}")
-            ts     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            _log(f"### Tags applied — {ts} ###\n")
-            _log(f"Profile: {active_profile['name']}\n", C_TEXT_DIM)
-            for k, v in tagset.items():
-                if v:
-                    _log(f"  {k}: {v}\n", C_TEXT_DIM)
-            _log("\n")
-
+            lines, op_log = _new_operation("Tags applied" if keys is None else "Tags applied again")
+            op_log(f"📁 Folder in MinIO: {bucket}/{prefix} (all files inside)")
+            if keys is not None:
+                op_log(f"   Only the {len(keys)} file(s) whose tags could not be set before.")
+            op_log(f"Profile: {profile}")
+            _log_tags(op_log, "Tags", tagset)
+            # Al log técnico, solo los nombres de los campos: los valores son metadatos personales.
+            log.info("applying tags: %s/%s files=%s fields=%s", bucket, prefix,
+                     "all" if keys is None else len(keys), [k for k, v in tagset.items() if v])
             try:
-                if sel["type"] == "file":
-                    _log(f"📄 File: {sel['key']}\n")
-                    backend.apply_tags_to_object(client, bucket, sel["key"], tagset)
-                    _log(f"  ✓ {sel['key']}\n", C_ACCENT)
-                    n_ok = 1
+                client = _get_client()
+                if keys is None:
+                    run = backend.apply_tags_to_prefix(client, bucket, prefix, tagset,
+                                                       stop=stop, on_progress=_show_progress)
                 else:
-                    prefix = sel["key"] if sel["key"] is not None else ""
-                    _log(f"📁 Bulk Prefix S3/MinIO: {bucket}/{prefix}\n")
-                    _log(f"⏳ Searching recursively for all objects inside this prefix...\n", C_TEXT_DIM)
-                    n_ok = backend.apply_tags_to_prefix(
-                        client, bucket, prefix, tagset,
-                        log_fn=lambda msg: _log(msg),
-                    )
-
-                print(f"[tag-manager] tags applied OK → {n_ok} object(s) updated in {bucket}/{target}")
-                _log(f"\n✅ {n_ok} object(s) tagged successfully.\n", C_ACCENT)
-
-                def _ok():
-                    apply_btn.disabled   = False
-                    apply_status.value   = f"✅ {n_ok} object(s) updated"
-                    apply_status.color   = C_ACCENT
-                    page.update()
-                backend.ui_call(page, _ok)
-
-            except Exception as ex:
-                err_str = str(ex)
-                print(f"[tag-manager] tags apply FAILED for {bucket}/{target}: {err_str}")
-                _log(f"\n❌ Error: {err_str}\n", C_ERROR)
-                def _err():
-                    apply_btn.disabled   = False
-                    apply_status.value   = "❌ Error applying tags"
-                    apply_status.color   = C_ERROR
-                    page.update()
-                backend.ui_call(page, _err)
-
-            _autosave_tag_log()
+                    run = backend.apply_tags_to_keys(client, bucket, keys, tagset,
+                                                     stop=stop, on_progress=_show_progress)
+            except Exception as ex:                  # no se pudo ni empezar (p. ej. sin acceso a MinIO)
+                log.exception("tags could not be applied")
+                run = backend.TagRun(stopped=backend.issue_for_exception(ex))
+            log.info("tags finished: %s", run.log_line())
+            for line in run.final_lines(IS_WEB):
+                op_log(line)
+            report = _save_report(lines, run.problem_lines())
+            backend.ui_call(page, lambda: _after_folder_apply(run, bucket, prefix, tagset, profile, report))
 
         backend.safe_thread(page, _do).start()
 
+    def _set_applying(running: bool) -> None:
+        """Botones mientras se aplican etiquetas a una carpeta. Solo desde el hilo de la UI."""
+        apply_btn.disabled         = running or sel["type"] != "prefix"
+        cancel_apply_btn.visible   = running
+        cancel_apply_btn.disabled  = False
+        profile_dd.disabled        = running
+        if running:
+            apply_status.value   = "Finding the files in the folder…"
+            apply_status.color   = C_TEXT_DIM
+            apply_status.visible = True
+        page.update()
+
+    def _show_progress(done: int) -> None:
+        def _upd():
+            if apply_op["stop"] is not None and not apply_op["stop"].is_set():
+                apply_status.value = f"Setting tags: {done} files done so far"
+                page.update()
+        backend.ui_call(page, _upd)
+
+    def _on_cancel_apply(e) -> None:
+        if apply_op["stop"] is not None:
+            apply_op["stop"].set()
+            cancel_apply_btn.disabled = True
+            apply_status.value = "Stopping… (waiting for the files in progress)"
+            page.update()
+
+    def _after_folder_apply(run, bucket: str, prefix: str, tagset: dict[str, str], profile: str,
+                            report: Path | None) -> None:
+        apply_op["stop"] = None
+        _set_applying(False)
+        apply_status.value, apply_status.color = _APPLY_STATUS[run.outcome]
+        apply_status.visible = True
+        page.update()
+        if run.outcome not in ("partial", "stopped"):
+            return
+
+        # Try again: tras fallos sueltos, solo esos ficheros (si se guardaron todos); si no, toda la carpeta
+        # (los que ya tienen las etiquetas nuevas quedan igual).
+        retry_keys = list(run.failed) if run.outcome == "partial" and run.can_retry_failed_only else None
+        if run.outcome == "stopped":
+            title = "Tags could not be applied"
+            context = f"{run.ok} file(s) have the new tags; the rest of the folder was not changed."
+        else:
+            title = "Tags were not set on some files"
+            context = f"Tags set on {run.ok} file(s); {run.failed_count} could not be changed: {run.causes_text}."
+            if retry_keys is None:
+                context += "\nTry again will apply the tags to the whole folder again."
+        context = f"{bucket}/{prefix}\n{context}" + (f"\nReport: {report}" if report else "")
+        show_issue(page, run.main_issue, is_web=IS_WEB, title=title, context=context, screen="tags",
+                   buttons=[("Cancel", None),
+                            ("Try again", lambda: _run_folder_apply(bucket, prefix, tagset, profile, retry_keys))],
+                   color=C_ERROR if run.outcome == "stopped" else C_WARNING)
+
     apply_btn.on_click = do_apply
+    cancel_apply_btn = btn_secondary("Cancel", on_click=_on_cancel_apply)
+    cancel_apply_btn.visible = False
 
     # ── Freeform Editor (Individual File) ────────────────────────────
-    _add_btn_ref  = {"btn": None}   
-    _save_btn_ref = {"btn": None}   
-
     _file_name_label  = ft.Text("", size=12, color=C_TEXT_DIM, italic=True)
+    _file_uploaded_label = ft.Text("", size=11, color=C_TEXT_DIM, visible=False)
     _file_tags_col    = ft.Column(spacing=6, tight=True)
     _file_save_status = ft.Text("", size=12, visible=False)
     file_card_container = ft.Container(visible=False, expand=True)
     file_editor_mode = {"mode": "list"}  # "list" o "profile"
-    file_tag_fields: dict = {}    
+    file_tag_fields: dict = {}
 
     file_list_headers = ft.Row(
             [
@@ -660,11 +681,10 @@ def _build_tag_manager_content(
         )
 
     def _refresh_add_btn_state() -> None:
-        if _add_btn_ref["btn"] is not None:
-            _add_btn_ref["btn"].disabled = len(_file_tag_rows) >= 10
+        add_tag_btn.disabled = len(_file_tag_rows) >= 10
 
     def _build_file_editor_row(key: str = "", value: str = "") -> dict:
-        
+
         key_tf = ft.TextField(
             value=key, hint_text="Key",
             bgcolor=C_SURFACE2, border_color=C_BORDER,
@@ -674,7 +694,7 @@ def _build_tag_manager_content(
             content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
             text_size=12, max_length=128, expand=1,
         )
-        
+
         val_container = ft.Container(expand=2)
         key_err = ft.Text("", size=11, color=C_ERROR, visible=False, expand=1)
         val_err = ft.Text("", size=11, color=C_ERROR, visible=False, expand=2)
@@ -788,7 +808,10 @@ def _build_tag_manager_content(
     def _on_prefill_from_profile(e) -> None:
         _switch_to_profile_mode(prefill_profile_dd.value)
 
+    # ── Guardar las etiquetas de un fichero ───────────────────────────────
     def _on_save_file_tags(e) -> None:
+        if sel["type"] != "file" or not sel["tags_loaded"]:
+            return                     # sin las etiquetas actuales, guardar las sustituiría a ciegas
         if file_editor_mode["mode"] == "profile":
             tagset = {k: (c.value or "").strip() for k, c in file_tag_fields.items()}
         else:
@@ -800,53 +823,58 @@ def _build_tag_manager_content(
 
         tag_errors = validate_tagset(tagset)
         if tag_errors:
-            show_dialog(page, "Caracteres no permitidos en los tags",
-                        "\n".join(tag_errors), C_ERROR)
+            show_dialog(page, "Invalid characters in tags", "\n".join(tag_errors), C_ERROR)
             return
 
-        if _save_btn_ref["btn"] is not None:
-            _save_btn_ref["btn"].disabled = True
+        bucket, key, before = nav["bucket"], sel["key"], dict(_current_file_tags["tags"])
+        file_save_btn.disabled    = True
         _file_save_status.value   = "Saving..."
         _file_save_status.color   = C_TEXT_DIM
         _file_save_status.visible = True
         page.update()
 
         def _do():
-            client = _get_client()
+            lines, op_log = _new_operation("Tags saved")
+            op_log(f"📄 File: {bucket}/{key}")
+            _log_tags(op_log, "Tags before", before)
+            _log_tags(op_log, "New tags", tagset)
+            issue = None
             try:
-                backend.apply_tags_to_object(client, nav["bucket"], sel["key"], tagset)
-                def _ok():
-                    if _save_btn_ref["btn"] is not None:
-                        _save_btn_ref["btn"].disabled = False
-                    _file_save_status.value = "✅ Tags saved successfully"
-                    _file_save_status.color = C_ACCENT
-                    page.update()
-                backend.ui_call(page, _ok)
+                backend.apply_tags_to_object(_get_client(), bucket, key, tagset)
             except Exception as ex:
-                err_str = str(ex)
-                log.error("TAGS save failed — %s/%s — %s", nav["bucket"], sel["key"], err_str)
-                def _err():
-                    if _save_btn_ref["btn"] is not None:
-                        _save_btn_ref["btn"].disabled = False
-                    _file_save_status.value = f"❌ Error: {err_str}"
-                    _file_save_status.color = C_ERROR
-                    page.update()
-                backend.ui_call(page, _err)
+                issue = backend.issue_for_exception(ex)
+                log.warning("saving the tags of %s/%s failed: %s", bucket, key, issue.code)
+                op_log(f"❌ Tags not saved — {issue.title}.")
+            else:
+                log.info("tags saved: %s/%s fields=%s", bucket, key, list(tagset))
+                op_log("✅ Tags saved.")
+            report = _save_report(lines)
+            backend.ui_call(page, lambda: _after_file_save(key, tagset, issue, report))
 
         backend.safe_thread(page, _do).start()
+
+    def _after_file_save(key: str, tagset: dict[str, str], issue, report: Path | None) -> None:
+        file_save_btn.disabled = False
+        if issue is None:
+            if sel["key"] == key:
+                _current_file_tags["tags"] = dict(tagset)
+            _file_save_status.value, _file_save_status.color = "✅ Tags saved", C_ACCENT
+            page.update()
+            return
+        _file_save_status.value, _file_save_status.color = "❌ Tags not saved", C_ERROR
+        page.update()
+        report_line = f"\nReport: {report}" if report else ""
+        show_issue(page, issue, is_web=IS_WEB, title="Tags were not saved", context=f"{key}{report_line}",
+                   screen="tags", buttons=[("Close", None)])
 
     def _on_show_raw(e) -> None:
         _populate_raw_list(_current_file_tags["tags"])
 
-    view_raw_btn = ft.TextButton(
-        "Ver tags raw",
-        on_click=_on_show_raw,
-        style=ft.ButtonStyle(color=C_TEXT_DIM),
-        visible=False,
-    )
+    # Botón con borde, como "+ Add tag" y "Pre-fill": que se vea que se puede pulsar.
+    view_raw_btn = btn_secondary("Show raw tags", on_click=_on_show_raw)
+    view_raw_btn.visible = False
 
     add_tag_btn = btn_secondary("+ Add tag", on_click=_on_add_tag_row)
-    _add_btn_ref["btn"] = add_tag_btn
 
     prefill_profile_dd = ft.Dropdown(
         options=[ft.dropdown.Option(p) for p in profile_names],
@@ -864,7 +892,6 @@ def _build_tag_manager_content(
     prefill_btn   = btn_secondary("Pre-fill", on_click=_on_prefill_from_profile)
     file_save_btn = btn_primary("Save tags")
     file_save_btn.on_click = _on_save_file_tags
-    _save_btn_ref["btn"]   = file_save_btn
 
     _file_editor_section = ft.Container(
         visible=False,
@@ -874,7 +901,7 @@ def _build_tag_manager_content(
                 ft.Text("FILE TAGS EDITOR", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600),
                 ft.Container(height=8),
                 ft.Row(
-                    [_file_name_label, view_raw_btn],
+                    [ft.Column([_file_name_label, _file_uploaded_label], spacing=2, tight=True), view_raw_btn],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
@@ -882,7 +909,7 @@ def _build_tag_manager_content(
                 file_list_headers,
                 ft.Container(height=4),
                 _file_tags_col,
-                file_card_container, 
+                file_card_container,
                 ft.Container(height=8),
                 add_tag_btn,
                 ft.Container(height=12),
@@ -938,7 +965,7 @@ def _build_tag_manager_content(
                 ),
                 ft.Container(height=12),
                 ft.Row(
-                    [apply_btn, apply_status],
+                    [apply_btn, cancel_apply_btn, apply_status],
                     spacing=12,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
@@ -958,7 +985,7 @@ def _build_tag_manager_content(
         padding=ft.Padding.only(left=16),
         expand=True,
     )
-    
+
     # ── Layout ────────────────────────────────────────────────────────────
     back_btn = btn_secondary("← Back", on_click=lambda e: on_back())
 
@@ -1005,7 +1032,7 @@ def _build_tag_manager_content(
                         ),
                         ft.VerticalDivider(width=1, color=C_BORDER),
                         # Right panel: Editor
-                        right_editor,  
+                        right_editor,
                     ],
                     spacing=0,
                     expand=True,

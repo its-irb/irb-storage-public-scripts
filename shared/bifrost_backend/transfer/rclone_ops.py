@@ -42,72 +42,38 @@ def rclone_lsjson(perfil: str, path: str = "", timeout: int = 15) -> list[dict]:
     return sorted(items, key=lambda i: (not i["is_dir"], i["name"].lower()))
 
 
-def rclone_list_files_only(perfil_rclone: str, bucket: str, prefix: str) -> list[str]:
-    """Lista exclusivamente los archivos de un prefijo usando rclone lsf.
-    Se ejecuta bajo demanda para no ralentizar el browser principal.
+def rclone_list_files_only(perfil_rclone: str, bucket: str, prefix: str, timeout: int = 15) -> list[str]:
+    """Claves de los ficheros de un prefijo, sin subcarpetas (rclone lsf). Se llama bajo demanda para no
+    ralentizar el navegador.
+
+    Raises:
+        RuntimeError: si rclone lsf falla.
     """
-    import subprocess
-    rclone = get_rclone_executable() # Usa tu función existente
-    
-    # Construimos el path para rclone
-    path_rclone = bucket
-    if prefix:
-        path_rclone = f"{bucket}/{prefix.rstrip('/')}"
-        
-    target = f"{perfil_rclone}:{path_rclone}"
-
-    try:
-        # lsf con --files-only nos devuelve solo los nombres de archivos en este nivel
-        result = subprocess.run(
-            [rclone, "lsf", target, "--files-only"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            **_subprocess_kwargs(), # Usa tus kwargs existentes
-        )
-        if result.returncode != 0:
-            print(f"[backend] ERROR rclone_list_files_only bucket={bucket!r} prefix={prefix!r}: {result.stderr.strip()}")
-            return []
-
-        files = []
-        for line in result.stdout.splitlines():
-            name = line.strip()
-            if name:
-                # El frontend espera la clave completa (prefix + nombre)
-                if prefix:
-                    files.append(f"{prefix.rstrip('/')}/{name}")
-                else:
-                    files.append(name)
-        return files
-    except Exception as e:
-        print(f"[backend] ERROR rclone_list_files_only bucket={bucket!r} prefix={prefix!r}: {e}")
-        return []
+    base = prefix.rstrip("/")
+    target = f"{perfil_rclone}:{bucket}/{base}" if base else f"{perfil_rclone}:{bucket}"
+    result = subprocess.run(
+        [get_rclone_executable(), "lsf", target, "--files-only"],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        **_subprocess_kwargs(),
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or f"rclone lsf failed (code {result.returncode})")
+    names = (line.strip() for line in result.stdout.splitlines())
+    return [f"{base}/{name}" if base else name for name in names if name]
 
 
-def list_prefix_contents(perfil_rclone: str, bucket: str, prefix: str) -> tuple[list[str], list[str]]:
-    """Lista únicamente carpetas (prefijos) usando rclone lsd.
-    Los ficheros se omiten por rendimiento.
+def list_prefix_folders(perfil_rclone: str, bucket: str, prefix: str) -> list[str]:
+    """Subcarpetas de un prefijo, como prefijos terminados en '/' (rclone lsd). Los ficheros se listan aparte y
+    bajo demanda (rclone_list_files_only), por rendimiento.
 
-    Returns:
-        (folders, files): folders son prefijos terminados en '/',,
-                          files siempre estará vacío [].
+    Raises:
+        RuntimeError: si rclone lsd falla.
     """
-    path_rclone = bucket
-    if prefix:
-        path_rclone = f"{bucket}/{prefix.rstrip('/')}"
-    try:
-        raw_folders = rclone_lsd(perfil=perfil_rclone, path=path_rclone)
-        folders = []
-        for f in raw_folders:
-            if prefix:
-                folders.append(f"{prefix.rstrip('/')}/{f}/")
-            else:
-                folders.append(f"{f}/")
-                
-    except Exception as e:
-        print(f"[backend] ERROR list_prefix_contents bucket={bucket!r} prefix={prefix!r}: {e}")
-        folders = []
-    return folders, []
+    base = prefix.rstrip("/")
+    folders = rclone_lsd(perfil=perfil_rclone, path=f"{bucket}/{base}" if base else bucket)
+    return [f"{base}/{name}/" if base else f"{name}/" for name in folders]
 
 
 def obtener_num_cpus() -> int:

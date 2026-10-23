@@ -6,7 +6,7 @@ Rama: `refactor/unified-logging`. Última actualización: 2026-10-23.
 |---|---|---|
 | 0 | Verificación de formatos de rclone 1.72.1 y de Hypercorn 0.18 | Hecha (falta el punto 4: errores reales de MinIO) |
 | PR 1 | Log técnico común (`common/logs.py`) en las dos apps + OOD | **Hecho** |
-| PR 2 | Salida de rclone para el usuario: 2a copy / check · 2b Tag Manager | **2a hecho** (`cc17aa7`, `5d11c22`); 2b revisada, pendiente |
+| PR 2 | Salida de rclone para el usuario: 2a copy / check · 2b Tag Manager | **2a hecho** (`cc17aa7`, `5d11c22`); **2b implementado** (pendiente de commit y de la prueba manual) |
 | PR 3 | Montajes con rclone (MinIO y NetApp): `--log-file` y verificación real | Pendiente |
 | PR 4 | Diálogo de error con referencia y acceso a los logs | Pendiente |
 | PR 5 | Migración de `print` al logger y limpieza del contenido | Pendiente |
@@ -607,6 +607,31 @@ escribir en MinIO WORM):
 | Log técnico | Una línea final; sin nombres, rutas ni valores de etiquetas |
 
 Al final, prueba manual de la usuaria en el bucket `test` (sin WORM).
+
+### Estado de 2b (2026-10-23)
+
+Implementado según la sección 2b. Diferencias y detalles respecto al diseño:
+- `INVALID_TAG` solo reconoce `InvalidTag`: `InvalidArgument`, `BadRequest` y `MalformedXML` también salen en
+  copy por otros motivos y el mensaje ("a tag value is not accepted") sería falso.
+- `list_prefix_contents` pasa a `list_prefix_folders` y devuelve solo las subcarpetas (antes devolvía
+  `(carpetas, [])`).
+- Añadido a petición de la usuaria: debajo del nombre del fichero, "Uploaded to MinIO: <fecha>" (el
+  `LastModified` del objeto, en hora local; no cambia al tocar las etiquetas). `get_object_tags` pasa a
+  `read_object_tags`, que devuelve las etiquetas y esa fecha. Se descartó guardar la fecha del último cambio
+  de etiquetas como una etiqueta más: Histopathology ya usa las 10 que permite MinIO, rompería la detección
+  del perfil y solo sería cierta si todo cambio pasara por BIFROST.
+- Piezas comunes nuevas: `write_report()` (copy, check y tags), `show_issue()` (base del diálogo del PR 4),
+  `log_text()` (color de las líneas de log en copy y Tag Manager), `by_cause()` y `duration_text()`.
+- Limpieza en `tag_manager.py`: estado que solo se escribía (`right_panel`, `sel["count"]`,
+  `sel["display"]`), el `profile_dd` duplicado, las referencias indirectas a botones, la rama de "aplicar a
+  un fichero" de `do_apply` (el botón no se ve con un fichero seleccionado) y los `print`, que pasan al logger
+  `bifrost.tags`.
+
+Probado sin MinIO real: lógica de `s3_tags` con un cliente S3 simulado y las excepciones reales de botocore
+(24 casos: páginas, fallos parciales, paradas por credenciales, red y permiso, Cancel, listado que falla,
+carpeta vacía, progreso, traducción de errores, log sin nombres) y la pantalla con una página Flet simulada
+(21 casos: pop-ups, editor bloqueado sin lectura, Try again, informes, LOGS, Cancel). Copy y check siguen
+igual (30 salidas reales de rclone) y las dos apps arrancan. Falta la prueba manual en el bucket `test`.
 
 ### Estado de 2a (2026-10-21)
 

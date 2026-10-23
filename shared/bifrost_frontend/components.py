@@ -118,6 +118,21 @@ def status_badge(text: str, color: str) -> ft.Container:
         padding=ft.Padding.symmetric(horizontal=10, vertical=4),
     )
     
+def log_text(line: str) -> ft.Text:
+    """Una línea de un panel de log. El color sale de su emoji inicial, con el mismo criterio en todas las
+    pantallas."""
+    color = (
+        C_ACCENT   if line.startswith("✅") else
+        C_ERROR    if line.startswith("❌") else
+        C_WARNING  if line.startswith(("⚠️", "⏹")) else
+        C_PRIMARY  if line.startswith(("🔍", "📤", "📁", "🧪")) else
+        C_TEXT_DIM if line.startswith(("⏳", "🔁", "📄")) else
+        C_TEXT
+    )
+    return ft.Text(line.rstrip("\n"), size=11, color=color,
+                   font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK, selectable=True)
+
+
 # ============================================================================
 # DIÁLOGOS GENÉRICOS
 # ============================================================================
@@ -129,7 +144,9 @@ def show_dialog(
     message: str,
     color: str = C_TEXT,
     actions: list | None = None,
+    content: ft.Control | None = None,
 ):
+    """Diálogo modal. `content` sustituye al texto de `message` si se pasa."""
     def close(e=None):
         page.pop_dialog()
 
@@ -152,14 +169,53 @@ def show_dialog(
             ],
             spacing=8,
         ),
-        content=ft.Text(message, color=C_TEXT_DIM, size=13),
+        content=content or ft.Text(message, color=C_TEXT_DIM, size=13),
         actions=actions,
         bgcolor=C_OVERLAY,
         shape=ft.RoundedRectangleBorder(radius=10),
     )
     page.show_dialog(dlg)
     page.update()
-    
+
+
+def show_issue(
+    page: ft.Page,
+    issue,
+    *,
+    is_web: bool,
+    title: str | None = None,
+    context: str = "",
+    screen: str = "copy",
+    buttons: list[tuple[str, Callable | None]] | None = None,
+    color: str = C_ERROR,
+) -> None:
+    """Diálogo de error a partir de un UserIssue (common/rclone_output.py).
+
+    Muestra `context` (el fichero o el recuento al que se refiere; nunca listas de ficheros), qué ha pasado y
+    qué puede hacer el usuario según la pantalla (`screen`: "copy" o "tags"). `buttons` son pares
+    (texto, acción): cada botón cierra el diálogo y después ejecuta su acción; el último es el principal.
+    El PR 4 añadirá aquí la referencia del error y "Copy details".
+    """
+    def _button(label: str, action: Callable | None, primary: bool):
+        def _click(e):
+            page.pop_dialog()
+            if action:
+                action()
+        return (btn_primary if primary else btn_secondary)(label, on_click=_click)
+
+    buttons = buttons or [("OK", None)]
+    texts = [ft.Text(context, color=C_TEXT, size=13, selectable=True)] if context else []
+    # Con un título propio, el del issue va delante del mensaje para no perder la causa.
+    texts.append(ft.Text(f"{issue.title}: {issue.message}" if title else issue.message, color=C_TEXT_DIM, size=13))
+    if hint := issue.hint_for(is_web, screen=screen):
+        texts.append(ft.Text(f"What you can do: {hint}", color=C_TEXT_DIM, size=13))
+    show_dialog(
+        page, title or issue.title, "", color,
+        actions=[_button(label, action, i == len(buttons) - 1) for i, (label, action) in enumerate(buttons)],
+        content=ft.Column(texts, spacing=10, tight=True, width=460),
+    )
+
+
 # ============================================================================
 # HEADER COMÚN
 # ============================================================================
