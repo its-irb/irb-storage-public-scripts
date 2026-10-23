@@ -7,7 +7,7 @@ Rama: `refactor/unified-logging`. Última actualización: 2026-10-23.
 | 0 | Verificación de formatos de rclone 1.72.1 y de Hypercorn 0.18 | Hecha (falta el punto 4: errores reales de MinIO) |
 | PR 1 | Log técnico común (`common/logs.py`) en las dos apps + OOD | **Hecho** |
 | PR 2 | Salida de rclone para el usuario: 2a copy / check · 2b Tag Manager | **2a hecho** (`cc17aa7`, `5d11c22`); **2b implementado** (pendiente de commit y de la prueba manual) |
-| PR 3 | Montajes con rclone (MinIO y NetApp): `--log-file` y verificación real | Pendiente |
+| PR 3 | Montajes con rclone (MinIO y NetApp): `--log-file` y verificación real | Revisado (2026-10-23), pendiente |
 | PR 4 | Diálogo de error con referencia y acceso a los logs | Pendiente |
 | PR 5 | Migración de `print` al logger y limpieza del contenido | Pendiente |
 | PR 6 | Documentación (`docs-update`) | Pendiente |
@@ -528,9 +528,9 @@ botocore (`EndpointConnectionError`, `ConnectTimeoutError`, `ReadTimeoutError`, 
 Ejemplo en escritorio (macOS):
 
 ```text
-### Tags saved at 2026-10-23 10:20:41 ###
+### Tags applied at 2026-10-23 10:20:41 ###
 📄 File: test-logs/documento.txt
-✅ Tags saved.
+✅ Tags set on 1 file.
 📄 Report saved: /Users/nrodriguez/Library/Logs/BIFROST/transfer/reports/tags-2026-10-23_10-20-41.log
 
 ### Tags applied at 2026-10-23 10:25:02 ###
@@ -567,7 +567,7 @@ En OOD la ruta es la de la carpeta de la sesión: `<carpeta de la sesión>/repor
 |---|---|---|
 | Todo bien | "✅ Tags set on N file(s) in X min." | No |
 | Algunos ficheros fallan | "⚠️ Tags set on N file(s)… M file(s) could not be changed: <recuento por causa>." | "Tags were not set on some files" + recuento + qué hacer + ruta del informe · **Cancel** / **Try again** |
-| Se para por un error general | "❌ Stopped — <título>. N files have the new tags; the rest of the folder was not changed." | "Tags could not be applied" + lo mismo + qué hacer + ruta del informe · **Cancel** / **Try again** |
+| Se para por un error general | "❌ Stopped — <título>. N files have the new tags; the rest of the folder was not changed." | "Tags could not be set" + lo mismo + qué hacer + ruta del informe · **Cancel** / **Try again** |
 | El usuario pulsa Cancel | "⏹ Stopped. N files have the new tags; the rest were not changed." | No |
 | La carpeta no tiene ficheros | "No files found in this folder." | No |
 
@@ -615,6 +615,9 @@ Implementado según la sección 2b. Diferencias y detalles respecto al diseño:
   copy por otros motivos y el mensaje ("a tag value is not accepted") sería falso.
 - `list_prefix_contents` pasa a `list_prefix_folders` y devuelve solo las subcarpetas (antes devolvía
   `(carpetas, [])`).
+- Un fichero y una carpeta usan el mismo formato: cabecera "### Tags applied at …", "New tags:", resultado
+  con el verbo "set" ("✅ Tags set on 1 file." / "✅ Tags set on N file(s) in …", "❌ Tags not set — …") y
+  pop-up "Tags could not be set". Los botones siguen siendo "Save tags" (fichero) y "Apply tags →" (carpeta).
 - Añadido a petición de la usuaria: debajo del nombre del fichero, "Uploaded to MinIO: <fecha>" (el
   `LastModified` del objeto, en hora local; no cambia al tocar las etiquetas). `get_object_tags` pasa a
   `read_object_tags`, que devuelve las etiquetas y esa fecha. Se descartó guardar la fecha del último cambio
@@ -726,42 +729,133 @@ incorporados arriba, y la tabla de verificación los comprueba al programar.
 
 ## PR 3 — Montajes con rclone (MinIO y NetApp)
 
-### Función que se añade a `common/logs.py`
+> Revisado el 2026-10-23 contra el código y lo decidido en la 2a y la 2b (errores traducidos con
+> `UserIssue`/`issue_for_exception`, pop-ups con `show_issue`, log técnico sin nombres de ficheros).
 
-```python
-def rclone_log_path(kind: str, name: str) -> Path:
-    """Ruta nueva para el --log-file de un proceso rclone (mount, netapp). Conserva 30 por tipo."""
-    d = _data_dir(_state["app"] or "bifrost") / "rclone"
-    d.mkdir(parents=True, exist_ok=True)
-    _prune(d, f"{kind}-*.log", KEEP_SESSIONS)
-    safe = re.sub(r"[^\w.-]+", "_", name).strip("_")[:60] or "x"
-    return d / f"{kind}-{safe}-{datetime.now():%Y-%m-%d_%H-%M-%S}.log"
-```
+**Dónde se monta**
 
-### Cambios
+- **Buckets de MinIO**: Bifrost Mount, en escritorio (macOS con fuse-t, Windows con WinFsp, Linux con FUSE).
+- **Shares de la NetApp**: Bifrost Transfer **solo en modo web** (OOD, Linux): el botón "⊞ Mount NetApp" solo
+  aparece con `IS_WEB` (`views/copy.py`). El código de Windows para la NetApp (letras de unidad, `--volname`,
+  `taskkill`) no se usa en la práctica; no se toca en este PR.
 
-- **Excepciones tipadas** (`mount/preflight.py`, `common/rclone.py`): `RcloneMissingError(EnvironmentError)`
-  (la lanza `get_rclone_executable`), `FuseMissingError(EnvironmentError)` (macOS sin fuse-t, Linux sin
-  FUSE), `MountFailedError(Exception)` con `.issue: UserIssue` y `.detail: str` (últimas líneas del log de
-  rclone). `WinFspMissingError` no cambia.
-- **`mount/s3_mount.py`**: `mount_rclone_S3_prefix_to_folder` añade
-  `--log-file <rclone_log_path("mount", f"{perfil}-{prefix}")> --log-level INFO`, devuelve
-  `(proceso, mount_point, log_path)` y lanza `FuseMissingError`. Nueva
-  `wait_until_mounted(proceso, mount_point, log_path, timeout=30)`: cada 0,2 s comprueba `proceso.poll()` (si
-  rclone terminó → `MountFailedError`) y que el punto de montaje responda (`os.listdir` + `os.path.ismount`
-  en macOS/Linux); al agotar el tiempo → `MountFailedError`. `issue` = `classify(últimas 20 líneas)` o
-  `UNEXPECTED`.
-- **`bifrost-mount/src/views/mount.py`** (`do_mount`): el bucle de espera propio pasa a
-  `backend.wait_until_mounted(...)`; "✅ Mounted!" solo si no lanza. Así se corrige el `MOUNT success` tardío
-  observado después de `UNMOUNT ALL`. Excepciones: `WinFspMissingError` (igual) → `MountFailedError` /
-  `FuseMissingError` / `RcloneMissingError` → `show_issue` con título concreto → `Exception` → `UNEXPECTED`.
-  El texto de "Error loading buckets" se traduce con `classify`.
-- **`transfer/smb.py` + `views/shares.py`**: `montar_share_rclone` usa
-  `--log-file <rclone_log_path("netapp", share)>` en vez de `DEVNULL` y, si falla, devuelve el `UserIssue`.
-  `montar_shares_seleccionados` devuelve `dict[nombre, UserIssue]`; la fila muestra "Error" y al pulsarla
-  abre `show_issue`.
-- **`views/rclone_browser.py`**: `f"Error: {ex_val}"` → título + pista de `classify` (o `UNEXPECTED`); el
-  crudo al log técnico.
+**Qué falla hoy (comprobado en el código)**
+
+1. **Bifrost Mount dice "✅ Mounted!" aunque el montaje falle.** La espera de `do_mount` comprueba
+   `os.listdir(carpeta)`, pero en macOS/Linux la carpeta se crea vacía *antes* de montar, así que pasa al
+   instante; y si pasan los 30 s sin éxito lo da por montado igualmente y abre Finder. Con las credenciales
+   caducadas, el usuario ve "Mounted!" y una carpeta vacía.
+2. Cualquier `EnvironmentError` sale con el título "FUSE / WinFSP not detected" (también "No folder selected"
+   o "Mount point already exists"); el resto, en crudo (`str(ex)`).
+3. La carpeta de montaje se calcula dos veces con reglas distintas (`mount_rclone_S3_prefix_to_folder` quita
+   las barras finales; `resolver_mount_point_destino` no). La función de montar no devuelve nada.
+4. **Pendiente 4**: después de "Unmount all", el estado de los montajes queda desfasado (un montaje que
+   "termina" tarde vuelve a marcarse como montado).
+5. La salida de `rclone mount` va a la consola heredada (terminal o `console.log` de Flet), no a un fichero.
+6. **NetApp**: el share se apunta en `mounts_activos` *antes* de saber si se montó; si falla, copy y check
+   siguen traduciendo rutas con un montaje que no existe.
+7. **NetApp**: la salida de rclone va a `DEVNULL` (no se sabe por qué falla) y siempre espera 30 s aunque rclone
+   haya terminado al primer segundo (contraseña mal, sin red): no mira si el proceso sigue vivo.
+8. **NetApp**: la fila del share solo dice "Error".
+9. **Windows, Bifrost Mount**: en "Unmount all", si un desmontaje lanza un error, el último recurso es
+   `taskkill /F /IM rclone.exe`, que cierra **todos** los rclone del usuario (también una copia de Bifrost
+   Transfer). En la práctica casi nunca se ejecuta: el desmontaje ya captura casi todos los errores.
+10. **Windows, Bifrost Mount**: un bucket que quedó montado de una sesión anterior cerrada de golpe se detecta
+    al arrancar como "mounted", pero su proceso no está en `_s3_mount_processes`; al desmontar, en Windows no
+    se hace nada y sigue montado aunque la pantalla diga que no.
+11. Navegador de MinIO (`rclone_browser.py`) y lista de buckets de Bifrost Mount: "Error: <excepción>" y
+    "Error loading buckets: <excepción>" en crudo.
+
+**Decisiones (2026-10-23)**
+
+- El pendiente 4 entra en este PR.
+- Bifrost Mount sigue sin panel de log: los errores se muestran en pop-ups (`show_issue`) con la ruta del log
+  de rclone del montaje.
+- Un único `MountError(issue, log_path)`; `WinFspMissingError` se mantiene porque abre el instalador.
+- `rclone mount` con `--log-file <ruta> --log-level INFO --log-file-max-size 10M --log-file-max-backups 1`
+  (opciones comprobadas en rclone 1.72.1). Medido el 2026-10-23 montando un bucket del MinIO simulado con
+  fuse-t: montar y desmontar deja 5 líneas (425 bytes) en INFO y 2 (241 bytes) en NOTICE, sin nombres de
+  ficheros; la diferencia no compensa perder contexto. Las operaciones de cada fichero van a DEBUG en
+  `rclone mount` (a confirmar en la fase 0 leyendo a través del montaje: macOS no dejó leer el volumen desde la
+  terminal de las pruebas). Lo que puede hacer crecer el fichero son los errores (una línea por fichero que
+  falla, con su nombre) o `--vfs-cache-mode` (una línea de limpieza por minuto, ~150 KB/día): el tope de
+  10 MB más uno anterior lo limita a ~20 MB por montaje.
+- Una sola espera de montaje para MinIO y NetApp. A cambio, cada cambio en ella se prueba en las dos apps y
+  en los tres sistemas (la tabla de verificación lo cubre); el margen de 30 s es un parámetro por si algún
+  montaje necesita más.
+- Windows: nunca `taskkill /IM rclone.exe`. Se cierran solo los procesos que ha montado la app y, para los
+  restos de sesiones anteriores, el `rclone.exe` cuya línea de comandos contiene esa carpeta. Hay que probarlo
+  en un Windows real (`Bifrost/PENDIENTES.md`).
+
+**`common/logs.py`**
+
+- `rclone_log_path(kind, name)`: ruta nueva para el `--log-file` de un montaje (`mount-<perfil>-<bucket>-<fecha>.log`,
+  `netapp-<share>-<fecha>.log`), en `rclone/` junto a `reports/` (en OOD, la carpeta de la sesión). Se
+  conservan 30 por tipo. `report_path` y `rclone_log_path` comparten la elección de carpeta base.
+- Estos logs pueden contener nombres de ficheros (errores al leer uno concreto): se tratan como los informes
+  (el PR 4 no los mete por defecto en el zip de exportación).
+
+**`common/rclone_mount.py` (nuevo, lo usan `mount/s3_mount.py` y `transfer/smb.py`)**
+
+- `MountError(Exception)` con `.issue: UserIssue` y `.log_path: Path | None`.
+- `mount_and_wait(comando, mount_point, log_path, *, env=None, timeout=30) -> Popen`: añade las opciones de
+  log, lanza rclone y cada 0,2 s comprueba:
+  - si rclone ha terminado → `MountError` con `classify(últimas 20 líneas del log)` o `UNEXPECTED`;
+  - si la carpeta está montada de verdad (macOS/Linux: `os.path.ismount` + `os.listdir`; Windows, donde la
+    carpeta no existe hasta que monta: existe + `os.listdir`) → devuelve el proceso;
+  - si pasan 30 s → termina rclone y `MountError(MOUNT_TIMEOUT)`.
+- Log técnico: una línea por montaje (`mount ok: … seconds=…` / `mount failed: code=… log=…`), sin nombres
+  de ficheros.
+
+**Catálogo (`rclone_output.py`)**: `FUSE_MISSING` (pista por sistema), `MOUNT_TIMEOUT` ("The folder did not
+respond"), `MOUNT_BUSY` (`Resource busy`, carpeta en uso), `RCLONE_MISSING` ("rclone not found": instalación
+incompleta) y, para la NetApp, contraseña no aceptada (`STATUS_LOGON_FAILURE`), share inexistente
+(`STATUS_BAD_NETWORK_NAME`) y acceso denegado (`STATUS_ACCESS_DENIED`). **Los textos reales de rclone hay que
+comprobarlos antes** (fase 0 del PR 3): los de MinIO en local, los de la NetApp en OOD.
+
+**`mount/s3_mount.py`**
+
+- `mount_rclone_S3_prefix_to_folder` usa `mount_and_wait` con `rclone_log_path("mount", …)`, guarda el proceso
+  en `_s3_mount_processes` solo si monta, y devuelve la carpeta montada. FUSE ausente, carpeta vacía o
+  carpeta ocupada → `MountError`. Una sola función calcula la carpeta de montaje (la usan montar, desmontar y
+  la detección al arrancar).
+- Desmontar en Windows: si el proceso está en la lista, `taskkill /PID … /T /F` (como ahora); si no (resto de
+  una sesión anterior), buscar el `rclone.exe` cuya línea de comandos contiene esa carpeta
+  (`Get-CimInstance Win32_Process -Filter "Name='rclone.exe'"`) y cerrarlo por PID. Nunca por nombre.
+
+**`bifrost-mount/src/views/mount.py`**
+
+- `do_mount`: "✅ Mounted!" y abrir el explorador solo si `mount_and_wait` monta; `mounted_state` se actualiza
+  solo entonces. Errores: `WinFspMissingError` → instalador (como ahora); `MountError` → `show_issue` con el
+  bucket y la ruta del log de rclone; otro error → `issue_for_exception`.
+- **Pendiente 4**: mientras un bucket se está montando, "Unmount all" y "Mount" quedan desactivados; al
+  terminar "Unmount all" se vuelve a comprobar qué sigue montado de verdad, y los que no se pudieron desmontar
+  se avisan con un pop-up en lugar de darlos por desmontados.
+- "Unmount all" ya no usa `taskkill /IM rclone.exe` (ver `s3_mount.py`).
+- Lista de buckets: error traducido (`issue_for_exception`) en lugar de "Error loading buckets: <excepción>".
+- Diálogos de WinFsp: `show_dialog` en lugar de `page.overlay` + `dlg.open` (la misma API que el resto).
+
+**`transfer/smb.py` + `views/shares.py` (NetApp, OOD)**
+
+- `montar_share_rclone` usa `mount_and_wait` con `rclone_log_path("netapp", share)` en lugar de `DEVNULL`;
+  añade a `mounts_activos` **solo si monta**; devuelve el `MountError` o `None`.
+- `montar_shares_seleccionados` devuelve `dict[nombre, MountError]`; la fila dice "Error" y al pulsarla abre
+  `show_issue` con qué pasó, qué hacer y la ruta del log.
+
+**`views/rclone_browser.py`**: error traducido (`issue_for_exception` + pista), como en el Tag Manager; el
+texto original, al log técnico.
+
+**Verificación del PR 3**
+
+| Dónde | Caso | Resultado esperado |
+|---|---|---|
+| Local (macOS + fuse-t + `rclone serve s3`, sin MinIO real) | Montaje correcto | "✅ Mounted!" cuando la carpeta responde, no antes |
+| Local | Claves no válidas / bucket inexistente | Pop-up traducido en segundos, con la ruta del log; no "Mounted!" |
+| Local | Carpeta ocupada / rclone muere a mitad | `MOUNT_BUSY` / estado correcto tras "Unmount all" |
+| Local | "Unmount all" con un montaje en curso | Botones desactivados; el estado final es el real (pendiente 4) |
+| OOD | Share correcto / contraseña mal / share inexistente | Montado / pop-up con la causa en 1-2 s, sin esperar 30 s |
+| OOD | Share que falla | No aparece en `mounts_activos`; copy no traduce rutas a él |
+| Windows (se implementa en el PR 3; la prueba queda en `PENDIENTES.md`, entrada 17) | Resto de una sesión anterior + "Unmount all" | Se desmonta; ningún otro `rclone.exe` se cierra |
 
 ## PR 4 — Diálogo de error con referencia y acceso a los logs
 
