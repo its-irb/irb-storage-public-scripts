@@ -1,12 +1,12 @@
 # Plan: sistema de logs unificado (log técnico + mensajes al usuario + salida de rclone)
 
-Rama: `refactor/unified-logging`. Última actualización: 2026-10-16.
+Rama: `refactor/unified-logging`. Última actualización: 2026-10-23.
 
 | Fase | Contenido | Estado |
 |---|---|---|
 | 0 | Verificación de formatos de rclone 1.72.1 y de Hypercorn 0.18 | Hecha (falta el punto 4: errores reales de MinIO) |
 | PR 1 | Log técnico común (`common/logs.py`) en las dos apps + OOD | **Hecho** |
-| PR 2 | Salida de rclone para el usuario: copy / check / etiquetas | Pendiente |
+| PR 2 | Salida de rclone para el usuario: 2a copy / check · 2b Tag Manager | **2a hecho** (`cc17aa7`, `5d11c22`); 2b revisada, pendiente |
 | PR 3 | Montajes con rclone (MinIO y NetApp): `--log-file` y verificación real | Pendiente |
 | PR 4 | Diálogo de error con referencia y acceso a los logs | Pendiente |
 | PR 5 | Migración de `print` al logger y limpieza del contenido | Pendiente |
@@ -58,15 +58,25 @@ Dónde va la información útil de rclone:
 | Información | Dónde la ve el usuario | Dónde queda guardada |
 |---|---|---|
 | Carpeta montada o no, y por qué | estado del botón + diálogo con referencia | log técnico + `rclone/mount-*.log` |
-| Progreso de la copia (ficheros, tamaño, velocidad, tiempo restante) | una línea cada 10 s en el panel | log técnico (cada 1 s, DEBUG) |
-| Fichero que no se pudo copiar y por qué | línea en el panel (máx. 20 + "…") | informe (lista completa) + log técnico |
+| Progreso de la copia (comparando / copiando, ficheros, tamaño, velocidad, tiempo restante) | bloque de progreso encima del log, una vez por segundo | log técnico (una línea de stats cada 60 s) |
+| Fichero o carpeta que no se pudo copiar y por qué | al final, en el panel: **solo el número por causa**, sin nombres | informe: lo que mostró el panel + lista de ficheros con su causa (máx. 100) |
+| Ficheros ya idénticos en MinIO (no copiados, sus etiquetas no cambian) | al final, en el panel: el número | informe (lo mismo que el panel) |
 | Resumen final (copiados, fallidos, qué hacer) | bloque final del panel | informe |
-| Check: idénticos / faltan en MinIO / distintos / con error | resumen en el panel + hasta 20 ficheros | informe + fichero `--combined` de esa ejecución |
+| Check: idénticos / faltan en MinIO / distintos / no comparados / con error | resumen en el panel, solo números | informe: lo que mostró el panel + distintos e ilegibles con su causa (máx. 100) |
 | NetApp (Z) montado o no, y por qué | estado de la fila + diálogo al pulsar "Error" | log técnico + `rclone/netapp-*.log` |
 | Error al listar carpetas | texto de error del navegador, traducido | log técnico |
-| Etiquetas aplicadas o error de MinIO | panel del Tag Manager, traducido | informe de etiquetas |
+| Etiquetas aplicadas o error de MinIO | panel LOGS del Tag Manager (recuentos) + pop-up si falla | informe `tags-<fecha>.log` (máx. 100 ficheros con problemas) |
 
 ## Fase 0 — resultados (rclone 1.72.1, Hypercorn 0.18.0)
+
+**Qué está documentado y qué no.** Documentado (estable): los campos del log JSON (`level`, `msg`, `source`,
+`time`; `object`/`objectType` si se refiere a un elemento; `size` en las copias; `stats` igual que
+`core/stats`), los símbolos de `--combined` de `rclone check` y los códigos de salida
+(https://rclone.org/docs/, https://rclone.org/commands/rclone_check/). **No documentado**: el texto de los
+mensajes (`file not in …`, `Attempt N/M failed`, `N files missing`) y cómo rclone envuelve los errores de
+MinIO (`StatusCode: 403 … api error …`, de la librería de AWS). El parser se apoya en lo documentado para
+funcionar y usa los textos solo para traducir el error al usuario, con `UNEXPECTED` si no lo reconoce.
+**Al actualizar rclone, repetir estas pruebas** y revisar el catálogo.
 
 - **JSON de rclone** (`--use-json-log`): cada línea trae `time`, `level` (`info`/`notice`/`error`), `msg`,
   `source` y, si se refiere a un elemento, `object` + `objectType`. Cada fichero copiado sale como
@@ -76,7 +86,10 @@ Dónde va la información útil de rclone:
 - **Reintentos**: rclone repite la operación hasta `--retries` veces (3 por defecto). Cada intento vuelve a
   registrar `Failed to copy` del mismo fichero y termina con `Attempt N/M failed with K errors…` (sin
   `object`). Hay que deduplicar por fichero, y los fallidos reales son los del **último** intento.
-- `stats.transfers` incluye los fallidos: copiados = `transfers − fallidos finales`.
+- ~~`stats.transfers` incluye los fallidos~~ **Corregido (2026-10-21):** `transfers` cuenta solo las copias
+  terminadas sin error; depende de cuándo falla el fichero. Los copiados se cuentan con las líneas `Copied (` y,
+  para los ficheros grandes que rclone copia por partes, `Multi-thread Copied (` (comprobado con
+  `--multi-thread-cutoff 1M --disable Copy` entre carpetas locales).
 - Error de la carpeta raíz: `objectType` acaba en `.Fs` y `object` es "Local file system at …". No es un
   fichero fallido; solo se guarda como primer error.
 - Origen inexistente → rc 3 (`directory not found`). Fichero ilegible con `--checksum` → `…: permission
@@ -97,8 +110,24 @@ Dónde va la información útil de rclone:
   el redirector creaba un registro anidado, así que se perdía `Running on`. En 3.13.15 y 3.14 no pasa
   (comprobado con una reproducción mínima en las dos versiones). Arreglado: `_StreamToLogger` entrega el
   registro directamente a los handlers de `bifrost`, sin pasar por `Logger.handle()`.
-- **Pendiente (punto 4)**: errores reales de MinIO (sin permiso, token caducado, WORM) para afinar los
-  patrones del catálogo. Necesita credenciales de prueba (bucket `test-policies`).
+- **Punto 4, errores reales de MinIO (2026-10-21, minio-archive):**
+  - Claves no válidas y token de sesión falso → `StatusCode: 403 … api error InvalidAccessKeyId: The Access
+    Key Id you provided does not exist in our records.` La regla `CREDENTIALS_EXPIRED` debe ir **antes** que
+    la de permisos (el mensaje también contiene 403).
+  - Servidor inexistente → `dial tcp: lookup …: no such host` (`NETWORK`).
+  - MinIO escribe `StatusCode: 403` (sin espacio): el patrón de permisos pasa a `status ?code: 403`.
+  - Para conectar con un remote al vuelo, el endpoint con puerto va entre comillas simples:
+    `":s3,provider=Minio,endpoint='https://host:9000',…:"`.
+  - `rclone check` contra MinIO (solo lectura, carpeta local → ruta inexistente en `its`): mismo formato que
+    en local. Cada fichero que falta llega como `level=error` con `file not in S3 bucket …` (son diferencias,
+    no fallos), `--combined` marca con `+` lo que falta en MinIO, y rclone escribe además líneas `notice`
+    con los totales (`N files missing`, `N differences found`, `N errors while checking`), sobre el objeto
+    `*s3.Fs`. Rc 1. **Check de un solo fichero** (sin `--combined`): esas líneas `notice` dan los totales
+    para el resumen.
+  - **No probados** (escriben en MinIO y con WORM no se puede deshacer): sin permiso de escritura y
+    sobrescribir con WORM. Se usan los códigos S3 estándar (`AccessDenied`, `ObjectLocked`/`WORM`); según la
+    configuración del WORM, sobrescribir puede crear una versión nueva en lugar de dar error. Probarlos solo
+    en un destino preparado por quien administra MinIO.
 
 ## PR 1 — Log técnico común (hecho)
 
@@ -195,10 +224,42 @@ Dónde va la información útil de rclone:
 
 ## PR 2 — Salida de rclone para el usuario (copy / check / etiquetas)
 
-### Funciones que se añaden a `common/logs.py`
+> **Reescrito el 2026-10-21** tras una revisión adversarial del plan anterior (5 revisores con enfoques
+> distintos y 2 verificadores por hallazgo). Tal como estaba, en muchos casos la app habría dicho al usuario
+> algo falso sobre sus datos. Los problemas que ya existían y que la fase 2 no introduce están en
+> `Bifrost/PENDIENTES.md` (fuera del repo), puntos 10-12: permisos de `rclone.conf`, el editor de etiquetas
+> que puede borrar las existentes y aplicar etiquetas que sustituye las anteriores.
+
+### Decisiones
+
+- **Dos commits**: **2a — copy y check** (`rclone_output.py`, `copy_check.py`, `views/copy.py`, docs) y
+  **2b — Tag Manager** (`tag_manager.py`, `s3_tags.py`, `rclone_ops.py`, textos y docs).
+- **Informes en OOD**: carpeta de la sesión, `$BIFROST_SESSION_DIR/reports/`. La doc da dos caminos: el
+  enlace "Session ID" de la tarjeta de la sesión y, si la tarjeta ya no está, la ruta en la app Files de OOD.
+- **Los textos de los diálogos y mensajes de error entran en esta rama**, aunque no sean logs: forman parte
+  de cómo se comunican los errores al usuario.
+
+### Principios (de la revisión)
+
+1. **No afirmar nada que no se pueda demostrar.** "copied" solo si rclone confirma la copia; "identical"
+   solo si se comparó el contenido; si no se sabe, se dice. Un mensaje engañoso puede llevar a borrar el
+   original.
+2. **Funcionar con lo documentado de rclone** (nivel, `object`/`objectType`, `stats`, ficheros de informe del
+   check, códigos de salida). El texto de los mensajes solo sirve para traducir el error al usuario.
+3. **Clasificar solo el texto del error, nunca la ruta.** Una carpeta `worm_project` o `refused_cells` no
+   debe convertirse en "WORM" o "FUSE".
+4. **Un fallo del parser nunca corta la copia.** `feed` no lanza excepciones.
+5. **Mínimo de datos personales.** El log técnico no guarda la lista de ficheros copiados (solo totales y
+   los ficheros con error). Los informes solo guardan los ficheros con problemas, no el inventario completo.
+6. **Pistas que se puedan seguir.** Hasta el PR 4 no existen ni "ticket" ni "referencia": la pista es
+   "contact ITS and send them the report". Cada pista depende de la pantalla (copy / Tag Manager) y del modo
+   (escritorio / Open OnDemand). Vocabulario del proyecto: MinIO (no S3), NetApp, copy (no transfer), sin
+   "rclone".
+
+### `common/logs.py` — se añade `report_path`
 
 ```python
-_state: dict = {"app": None, "is_web": False, "file": None}   # lo rellena setup_logging
+_state: dict = {"app": None, "is_web": False}   # lo rellena setup_logging
 
 
 def _data_dir(app: str) -> Path:
@@ -215,265 +276,428 @@ def report_path(kind: str, ext: str = "log") -> Path:
     return d / f"{kind}-{datetime.now():%Y-%m-%d_%H-%M-%S}.{ext}"
 ```
 
-### Nuevo `shared/bifrost_backend/common/rclone_output.py`
+- `_prune` debe tolerar que un fichero desaparezca entre el `glob` y el `stat` (`OSError`).
+- En OOD cada sesión tiene su carpeta, así que "30 por tipo" limita **por sesión**. La retención real
+  depende de si OOD limpia las carpetas de sesión: preguntar a quien administra OOD y documentarlo.
 
-Código validado contra la salida real de la fase 0 (copia con un fichero ilegible, origen inexistente y
-check con diferencias).
+### `common/rclone_output.py` — diseño
 
-```python
-"""Interpretación de la salida de rclone: crudo → log técnico; eventos útiles → texto para el usuario."""
+**`UserIssue`** (`code`, `title`, `message`, `hint`) con pistas por contexto:
+`issue.hint_for(screen: "copy"|"check"|"tags", is_web: bool)`. Por ejemplo, `CREDENTIALS_EXPIRED` en el Tag
+Manager dice "Go ← Back to the copy screen, click 🔑 Renew credentials and come back" (allí no hay botón), y
+`NETWORK` en Open OnDemand no habla de la VPN del portátil.
 
-from __future__ import annotations
+**`classify(error_text)`** recibe solo el texto del error:
+- `error_text(msg, obj, roots)` sustituye en el mensaje el `object`, la raíz del origen y la del destino por
+  marcadores y se queda con la parte final ("…: permission denied").
+- Patrones con límite de palabra y orden de prioridad. `CREDENTIALS_EXPIRED` va antes que `MINIO_PERMISSION`
+  (comprobado: `InvalidAccessKeyId` también trae `StatusCode: 403`).
 
-import json
-import logging
-import re
-from dataclasses import dataclass, field
-from pathlib import Path
+**Catálogo** (títulos y pistas en inglés sencillo, sin "S3" ni "rclone"):
 
-log = logging.getLogger("bifrost.rclone")
+| Código | Reconoce | Qué ve el usuario (idea) |
+|---|---|---|
+| `CREDENTIALS_EXPIRED` | `ExpiredToken`, `InvalidAccessKeyId`, `InvalidTokenId`, `InvalidToken`, `SignatureDoesNotMatch` | MinIO access expired · renovar (según pantalla) |
+| `MINIO_PERMISSION` | `AccessDenied`, `status ?code: 403` | No permission in this MinIO folder · pedir acceso al data manager |
+| `BUCKET_NOT_FOUND` | `NoSuchBucket` | MinIO folder not found · elegirla de nuevo |
+| `OBJECT_GONE` | `NoSuchKey` | The file is no longer in MinIO (Tag Manager) · recargar |
+| `INVALID_TAG` | `InvalidTag`, `MalformedXML`, `InvalidArgument`, `BadRequest` | A tag value is not accepted by MinIO · acortarlo o quitar caracteres |
+| `NETWORK` | `no such host`, `dial tcp`, `connection refused`, `i/o timeout`, `timed out`, `TLS handshake timeout`, `Could not connect to the endpoint`, `Connect timeout`, `Read timeout` | Connection problem (MinIO o el servidor SFTP de origen) · escritorio: VPN; OOD: reintentar más tarde y avisar a ITS |
+| `CLOCK_SKEW` | `RequestTimeTooSkewed` | La fecha y hora del ordenador está mal |
+| `MINIO_BUSY` | `SlowDown`, `ServiceUnavailable`, `InternalError`, `XMinioServerNotInitialized`, `status ?code: 50[234]` | MinIO is busy · reintentar en unos minutos |
+| `DISK_FULL` | `no space left on device` | No hay espacio |
+| `SOURCE_PERMISSION` | `permission denied`, `access is denied` (Windows) | Cannot read a file of the source |
+| `FILE_IN_USE` | `being used by another process` (Windows) | Otro programa tiene el fichero abierto · cerrarlo |
+| `SOURCE_CHANGING` | `corrupted on transfer`, `hashes differ` (en copy), `source file is being updated`, `size changed` | El fichero cambió mientras se copiaba · esperar a que el instrumento termine de escribir |
+| `SOURCE_NOT_FOUND` | `directory not found`, `file not found`, `no such file or directory`, `cannot find the (file|path)` | El origen no existe (movido o renombrado) |
+| `WORM_PROTECTED` | `ObjectLocked`, `\bWORM\b` | A file with the same name is already in this MinIO folder and cannot be replaced (sin "use a different name": la app no puede renombrar) |
+| `RCLONE_OPTIONS` | rc 2 | The options in "Additional rclone flags (advanced)" are not valid · revisarlas o restaurar las de por defecto; se muestran las líneas `Error:` de rclone |
+| `UNEXPECTED` | resto | Something went wrong · "Try again. If it keeps happening, contact ITS and send them the report saved at the end of this log." |
 
+`MOUNT_BUSY` y `FUSE_MISSING` solo se usan en los montajes (PR 3), nunca al copiar.
 
-@dataclass(frozen=True)
-class UserIssue:
-    code: str            # estable; aparece en el log técnico
-    title: str           # título corto (diálogo / panel)
-    message: str         # qué ha pasado, en lenguaje sencillo
-    hint: str = ""       # qué puede hacer el usuario ("" si no puede hacer nada)
+**`issue_for_exception(ex)`** (para boto3 en el Tag Manager), que nunca lanza excepciones: lee el código de
+`ex.response["Error"]["Code"]` solo si existe; si no, clasifica `str(ex)`; las clases de conexión de
+botocore (`EndpointConnectionError`, `ConnectTimeoutError`, `ReadTimeoutError`, `ConnectionClosedError`,
+`SSLError`) dan `NETWORK`. Si nada coincide, `UNEXPECTED`.
 
+> El diseño de copy y check de esta sección es el original. Lo implementado y los cambios posteriores
+> (recuentos en lugar de listas, informe = pantalla + ficheros con problemas, etc.) están en «Estado de 2a».
 
-# Orden = prioridad. Patrones de MinIO pendientes de confirmar (fase 0, punto 4).
-_CATALOG: list[tuple[re.Pattern, UserIssue]] = [
-    (re.compile(r"ExpiredToken|InvalidAccessKeyId|SignatureDoesNotMatch|token.*expired", re.I),
-     UserIssue("CREDENTIALS_EXPIRED", "MinIO access expired",
-               "Your temporary MinIO access pass is no longer valid.",
-               "Click “🔑 Renew credentials” and try again.")),
-    (re.compile(r"WORM|ObjectLocked|object lock", re.I),
-     UserIssue("WORM_PROTECTED", "File already in MinIO",
-               "This folder is write-once: a file with the same name is already there and cannot be replaced.",
-               "Copy it to another folder or with a different name.")),
-    (re.compile(r"AccessDenied|403 Forbidden|status code: 403", re.I),
-     UserIssue("MINIO_PERMISSION", "No permission in MinIO",
-               "You do not have permission to read or write in this MinIO folder.",
-               "Check that you chose the right folder. If you need access, ask your group's data manager.")),
-    (re.compile(r"NoSuchBucket", re.I),
-     UserIssue("BUCKET_NOT_FOUND", "MinIO folder not found",
-               "The MinIO folder does not exist or you cannot see it.",
-               "Choose the folder again from the list.")),
-    (re.compile(r"no such host|dial tcp|connection refused|i/o timeout|context deadline exceeded|"
-                r"network is unreachable|TLS handshake timeout|timed out", re.I),
-     UserIssue("NETWORK", "Cannot reach MinIO",
-               "BIFROST cannot connect to the MinIO server.",
-               "Check that the Nexica VPN is on and try again.")),
-    (re.compile(r"RequestTimeTooSkewed", re.I),
-     UserIssue("CLOCK_SKEW", "Your computer's clock is wrong",
-               "MinIO rejected the request because your computer's date or time is not correct.",
-               "Set the date and time to automatic and try again.")),
-    (re.compile(r"SlowDown|status code: 503", re.I),
-     UserIssue("MINIO_BUSY", "MinIO is busy",
-               "The MinIO server is overloaded right now.", "Wait a few minutes and try again.")),
-    (re.compile(r"no space left on device", re.I),
-     UserIssue("DISK_FULL", "Not enough space",
-               "There is no free space left where the data is being written.", "Free some space and try again.")),
-    (re.compile(r"permission denied", re.I),
-     UserIssue("SOURCE_PERMISSION", "Cannot read a file",
-               "BIFROST cannot read a file or folder of the source.",
-               "Check that you have permission to open it.")),
-    (re.compile(r"directory not found|file not found|no such file or directory", re.I),
-     UserIssue("SOURCE_NOT_FOUND", "Source not found",
-               "The source file or folder does not exist (it may have been moved or renamed).",
-               "Check the source path and try again.")),
-    (re.compile(r"mountpoint .* is not empty|already mounted|device or resource busy|resource busy", re.I),
-     UserIssue("MOUNT_BUSY", "Folder already in use",
-               "The place where the folder is opened is already in use.",
-               "Close any Finder or Explorer window showing it, unmount all and try again.")),
-    (re.compile(r"fuse|cgofuse|WinFsp|winfsp", re.I),
-     UserIssue("FUSE_MISSING", "Folder driver not working",
-               "The component that lets your computer open MinIO folders is missing or not working.",
-               "Reinstall BIFROST. If it keeps happening, open a ticket.")),
-]
+**`RunSummary` (copy)**, rediseñado:
 
-UNEXPECTED = UserIssue("UNEXPECTED", "Something went wrong",
-                       "BIFROST could not finish the operation.",
-                       "Try again. If it keeps happening, open a ticket and include the reference below.")
+- **Robustez**: `feed` ignora las líneas JSON que no son un objeto y envuelve todo en `try/except`; un fallo
+  del parser se registra y devuelve `[]`.
+- **Niveles**: `error`, `critical`, `fatal` y `emergency` cuentan como error. `critical` es lo que sale sin
+  VPN o con las credenciales caducadas. Si no hay ninguno, se usan la última `notice` "Failed to …" o
+  `stats.lastError`.
+- **Ficheros copiados**: se cuentan con las líneas `info` cuyo `msg` empieza por `Copied (` o `Multi-thread Copied (`, por `object` y
+  sin duplicar entre intentos. **No** se calcula como `transfers − fallidos`: comprobado que `transfers` no
+  incluye los fallidos. `Copied (replaced existing)` se cuenta aparte con un aviso: "N file(s) replaced a
+  different file with the same name in MinIO".
+- **Nada que copiar**: `transfers == 0` sin errores → "✅ Nothing new to copy: the files were already in
+  MinIO." (no "identical": el usuario puede haber puesto `--size-only`). Sin ficheros en el origen →
+  "Nothing to copy: the folder is empty or everything was excluded."
+- **Prueba (`--dry-run`/`-n`)**: si aparece en las opciones o en los mensajes ("Skipped copy as --dry-run is
+  set") → "🧪 Test run: N file(s) would be copied. Nothing was copied to MinIO." Nunca "copied".
+- **Carpetas ilegibles**: los errores con `objectType` que no es `*.Object` (p. ej. `string`) o con
+  "failed to open directory" van a un grupo propio: "⚠️ Folder X could not be read: its files were NOT
+  copied." Se muestran antes que nada. No cuentan como "1 file failed". Se añade el código de salida 6
+  ("no se puede reintentar").
+- **Reintentos**: durante los intentos no se pintan ❌ por fichero como si fueran definitivos. Se pinta una
+  línea por intento: "⚠️ N file(s) failed in attempt 1 of 3 — trying again (files already copied are
+  skipped)". La lista de fallidos se pinta **al final**, con los del último intento, como mucho 20 más "…and
+  N more (full list in the report)". Si al final todo sale bien: "✅ … (some files needed another try)".
+- **Cancelación**: no se deduce del código de salida. Comprobado: rclone sale con 143 en copias grandes, en
+  Windows `terminate()` da 1 y solo a veces da −15. `do_cancel` pone `expose_proceso["cancelled"] = True`
+  **antes** de terminar el proceso, y el resumen lo consulta primero: "⏹ Copy cancelled. Files already
+  copied stay in MinIO." Se quita el "⚠️ Transfer cancelled by user." de `do_cancel`, que además decía
+  "Transfer" también en el check.
+- **Opciones no válidas (rc 2)**: se guardan las últimas líneas que no son JSON (como mucho 20, sin la
+  ayuda de uso) y se enseñan las que empiezan por `Error:` junto con `RCLONE_OPTIONS`.
+- **Progreso por fases**, solo con campos documentados de `stats`: mientras se compara antes de copiar
+  (`--check-first`) → "⏳ Comparing with MinIO: N files checked"; al copiar → "⏳ Copying: X of Y files · …".
+  Nunca "0 of 0 files". `totalChecks` crece durante la ejecución, así que en la comparación no se pone
+  "de Y". Una línea cada 10 s en el panel.
+- **Resultado**: `summary.outcome` ∈ `ok`, `nothing_to_copy`, `dry_run`, `partial`, `failed`, `cancelled`.
+  Lo usan el resumen, el informe y el estado de la sesión web.
 
+**Check (`RunSummary(operation="check")`)**:
 
-def classify(text: str) -> UserIssue | None:
-    for rx, issue in _CATALOG:
-        if rx.search(text or ""):
-            return issue
-    return None
+- En lugar de `--combined` (que guarda también los ficheros idénticos, es decir, el inventario completo)
+  se usan `--missing-on-dst`, `--differ` y `--error`, en ficheros temporales que solo contienen rutas con
+  problemas. Se leen línea a línea, sin cargarlos enteros en memoria.
+- Totales a partir de las `notice` de rclone: `N matching files`, `N files missing`, `N differences found`,
+  `N errors while checking`, `N hashes could not be checked`. Como se solapan:
+  - faltan en MinIO = `files missing`;
+  - distintos = `differences found` − `files missing`;
+  - errores de lectura = `errors while checking` − `differences found` (si es > 0);
+  - idénticos = `matching files`.
+- **Solo es una diferencia** un `level=error` sobre un fichero (`objectType` `*.Object`) cuyo texto sea de
+  diferencia conocida (`file not in`, `sizes differ`, `hash… differ`). Cualquier otro error (sobre todo si
+  `object` está vacío, es del `Fs` o es `critical`) significa que **el check no pudo terminar**: "❌ The check
+  could not finish — {title}", sin presentar recuentos como si fueran fiables. Así se cubre que no se pueda
+  listar la carpeta de MinIO, que con `--combined` marcaba todo como "missing".
+- **Sin checksum común** ("No common hash found", "N hashes could not be checked"): no se dice
+  "identical", sino "N file(s) have the same size but their content could not be compared".
+- **Carpetas ilegibles del origen**: "Folder X could not be checked".
+- **Check de un solo fichero**: los mismos totales de las `notice`.
+- El código de salida no decide por sí solo: 1 con 0 faltan y 0 distintos y errores de lectura → "could
+  not read the file", no "differences found".
+- Texto final propio del check ("✅ Check finished: all N files are in MinIO and identical", "⚠️ Check
+  finished: N missing in MinIO · N different · …", con qué hacer en cada caso). Nunca "Copy finished".
+- Progreso: "⏳ Comparing files with MinIO: N checked".
 
+### 2a — `shared/bifrost_backend/transfer/copy_check.py`
 
-# https://rclone.org/docs/#exit-code
-_EXIT = {
-    2: UserIssue("RCLONE_USAGE", "Internal problem", "BIFROST started rclone with wrong options.",
-                 "Open a ticket and include the reference below."),
-    3: UserIssue("DIR_NOT_FOUND", "Folder not found", "The source or destination folder does not exist.",
-                 "Check both paths and try again."),
-    4: UserIssue("FILE_NOT_FOUND", "File not found", "The source file does not exist.",
-                 "Check the source path and try again."),
-    5: UserIssue("TEMPORARY", "Temporary problem", "Some files failed because of a temporary problem.",
-                 "Start the operation again: files already copied are skipped."),
-    7: UserIssue("FATAL", "Operation stopped", "rclone stopped because of a problem that retrying will not fix.",
-                 "Open a ticket and include the reference below."),
-}
+- Flags: quitar `--progress` y `--stats=1s`; añadir `--use-json-log --log-level INFO --stats 1s
+  --stats-log-level NOTICE`. **Nada de esto cambia qué se copia ni cómo**: solo el formato de la salida. Se
+  mantienen `--checksum --check-first --copy-links` y las exclusiones.
+- **`summary` y `proceso = None` se crean antes del `try`**, y todo lo que puede fallar va dentro:
+  `get_rclone_executable`, `preparar_origen_para_check` y los ficheros temporales del check. Si no se pueden
+  crear los ficheros del check, se sigue sin ellos y se avisa. **`on_finish(summary)` se llama siempre**
+  (desde el `finally`) y con un resumen válido. Hoy, si algo falla antes de lanzar rclone, la UI se queda en
+  "running".
+- El comando completo va al log técnico (INFO), con el **valor** de la cabecera `x-amz-tagging` sustituido
+  por las claves de las etiquetas: los valores son metadatos personales y ya van en el informe.
+- **Log técnico (principio 5)**: no se escribe una línea por fichero copiado. Solo los errores por fichero
+  (necesarios para soporte), los totales y una línea de `stats` cada 60 s, no cada segundo.
+- Las líneas que no son JSON van al log técnico y se guardan para el caso rc 2.
 
+### 2a — `bifrost-transfer/src/views/copy.py`
 
-def explain_exit(rc: int, first_error: str = "") -> UserIssue:
-    return classify(first_error) or _EXIT.get(rc, UNEXPECTED)
+- **Validar "Additional rclone flags (advanced)" antes de lanzar** `do_copy` o `do_check`. Se rechazan, con
+  un diálogo "This option can't be used here", las opciones que controlan el log o la salida o que pueden
+  volcar secretos: `-v*`, `-q`, `--verbose`, `--quiet`, `--log-*`, `--use-json-log`, `--stats*`, `-P`,
+  `--progress`, `--dump*`, `--config`, `--combined`, `--missing-on-*`, `--differ`, `--match`, `--error`,
+  `--header*`, y cualquier opción cuyo nombre contenga `secret`, `token`, `pass` o `key`. Las opciones
+  normales (`--transfers`, `--checkers`, `--s3-no-check-bucket`…) siguen funcionando.
+- **Informe por operación**: cada `do_copy`/`do_check` crea su propia lista `op_lines` y un envoltorio
+  `op_log` que añade a la lista y llama a `_dispatch_log`. El informe se escribe en `on_finish`, a partir
+  de una cabecera fija (origen, destino, etiquetas, inicio y fin, resultado), `op_lines` y la lista
+  completa de ficheros con problemas del `RunSummary`. **No** sale del buffer web (que mezcla operaciones y
+  pierde las primeras líneas al llegar a 5000) ni de los controles de la UI (en escritorio, las últimas
+  líneas aún no han llegado cuando se guarda).
+- `_autosave_log` también en escritorio, con `report_path("copy"|"check")`. Se borra su rotación propia (el
+  `glob("bifrost-*.log")` borraba también otros logs). Al terminar, el panel muestra "📄 Report saved: <ruta>".
+- **"Save log"**: en web, a `report_path()`; en escritorio, el selector de fichero de siempre.
+- **Estado de la sesión web**: `copy_proceso["status"]` (compartido por referencia entre páginas; el antiguo
+  `copy_status` se copiaba por valor en cada `_ws_save`) toma el `outcome` del resumen, y `_replay` tiene un texto para
+  cada caso. Hoy un check con diferencias sale como "✅ Process finished" y una cancelación como "ended with
+  errors". Los textos de reconexión dejan de remitir a `~/bifrost-logs/`.
+- Quitar la línea duplicada `_cancelling: list = [False]`.
+- Diálogo "Renew S3 Credentials" (`copy.py:118`; también `mount.py:336`) → "Renew MinIO access", por
+  vocabulario.
 
+### 2a — Documentación (en el mismo commit)
 
-_ATTEMPT = re.compile(r"^Attempt (\d+)/(\d+) failed")
+- `docs/user/transfer-data.md`: los posibles resultados de la copia (copiado, nada nuevo, con problemas,
+  carpeta ilegible, cancelado, prueba) y del check (idéntico, falta en MinIO, distinto, no comparado por
+  falta de checksum, no se pudo terminar), con **qué hacer** en cada caso. Dónde está el informe en cada
+  sistema (`~/Library/Logs/BIFROST/transfer/reports/`, que Finder oculta; `%LOCALAPPDATA%\IRB\BIFROST\
+  transfer\reports\`; `~/.local/state/bifrost/transfer/reports/`; en OOD, la carpeta de la sesión).
+  "Save log" y Cancel.
+- `docs/user/troubleshooting.md` ("I lost the log of a copy") y `docs/user/web-mode-ood.md` ("Logs"): los
+  dos caminos en OOD (enlace "Session ID" y la ruta
+  `~/ondemand/data/sys/dashboard/batch_connect/<sys|dev>/<app>/output/<session id>/reports/` en la app
+  Files). Avisar de que los informes contienen nombres de ficheros.
+- Doc de desarrollo y de agentes (`docs/development/operations.md`, `frontend.md`, `docs/agent/frontend.md`):
+  quitar `~/bifrost-logs/` y `~/rclone-combined-check.txt` como sitios de guardado y explicar `reports/`.
 
+### 2b — Tag Manager (`views/tag_manager.py`, `transfer/s3_tags.py`, `transfer/rclone_ops.py`, `bifrost_frontend/components.py`)
 
-@dataclass
-class RunSummary:
-    """Acumula la salida JSON de una ejecución y produce las líneas que ve el usuario."""
-    operation: str                       # "copy" | "check"
-    stats: dict = field(default_factory=dict)
-    first_error: str = ""
-    _current: dict[str, tuple[UserIssue, str]] = field(default_factory=dict)   # fichero → (issue, crudo)
-    _last_attempt: tuple[int, int, dict] | None = None                         # (n, total, fallidos)
-    _shown: set[str] = field(default_factory=set)
-    _last_progress: float = 0.0
+> Revisado el 2026-10-23 para seguir lo decidido en la 2a: en pantalla, recuentos; nombres de ficheros solo en
+> el informe (máximo 100); informe = lo que mostró la pantalla + ficheros con problemas; log técnico sin
+> nombres, rutas ni valores de etiquetas.
 
-    MAX_LISTED = 20
+**Qué falla hoy (comprobado en el código)**
 
-    def feed(self, raw: str, now: float) -> list[str]:
-        """Procesa una línea de rclone; registra el crudo y devuelve 0..n líneas para el usuario."""
-        raw = raw.rstrip("\n")
-        if not raw.strip():
-            return []
-        try:
-            ev = json.loads(raw)
-        except json.JSONDecodeError:
-            log.info("%s: %s", self.operation, raw)
-            return []
-        level, msg = ev.get("level", ""), (ev.get("msg") or "").strip()
-        obj, obj_type = ev.get("object", ""), ev.get("objectType", "")
-        out: list[str] = []
-        if "stats" in ev:
-            self.stats = ev["stats"]
-            log.debug("%s stats %s", self.operation, {k: self.stats.get(k) for k in
-                      ("bytes", "totalBytes", "transfers", "totalTransfers", "errors", "eta")})
-            if now - self._last_progress >= 10:
-                self._last_progress = now
-                out.append(f"⏳ {self.progress_text()}\n")
-            return out
-        log.log(logging.ERROR if level == "error" else logging.DEBUG, "%s %s %s", self.operation, obj, msg)
-        if level != "error":
-            return out
-        self.first_error = self.first_error or msg
-        if m := _ATTEMPT.match(msg):                          # fin de un intento con errores
-            n, total = int(m[1]), int(m[2])
-            self._last_attempt = (n, total, self._current)
-            self._current = {}
-            if n < total:
-                out.append(f"🔁 Retrying the files that failed (attempt {n + 1} of {total})…\n")
-        elif obj and not obj_type.endswith(".Fs"):            # error de un fichero (no de la carpeta raíz)
-            issue = classify(msg) or UNEXPECTED
-            self._current[obj] = (issue, msg)
-            if obj not in self._shown and len(self._shown) < self.MAX_LISTED:
-                self._shown.add(obj)
-                out.append(f"❌ {obj}: {issue.title}\n")
-        return out
+1. El panel dice "✅ N object(s) tagged successfully" aunque fallen ficheros: `apply_tags_to_prefix` cuenta los
+   fallos pero no los devuelve.
+2. Escribe una línea `✓ <fichero>` por cada objeto en el panel (100.000 ficheros, 100.000 líneas).
+3. `_autosave_tag_log` guarda en `~/bifrost-logs/` (también en OOD) todo lo acumulado desde que se abrió la
+   pantalla, no la operación; no usa `report_path`.
+4. Guardar las etiquetas de un fichero no deja ningún registro y el error sale en crudo (`❌ Error: <excepción>`).
+5. `list_prefix_contents` y `rclone_list_files_only` devuelven `[]` si fallan: un error parece una carpeta vacía.
+6. Aplicar a una carpeta lista todos los objetos en memoria antes de empezar, no se puede parar y, sin red,
+   cada objeto agota los reintentos de botocore (5 intentos, 60 s de espera) en 8 hilos: puede quedarse horas
+   sin conseguir nada y sin decirlo.
+7. Pendiente 11: si falla la lectura de las etiquetas de un fichero, el editor sale vacío con Save activo, y
+   guardar sustituye las etiquetas que tenía (se pierden sin registro).
+8. Textos en español: "Caracteres no permitidos en los tags" (dos diálogos), "Ver tags raw" y
+   "📁 Bulk Prefix S3/MinIO".
 
-    def failed(self, rc: int) -> dict[str, tuple[UserIssue, str]]:
-        """Ficheros que siguen fallando al terminar (los del último intento)."""
-        if rc == 0:
-            return {}
-        if self._last_attempt and self._last_attempt[0] == self._last_attempt[1]:
-            return self._last_attempt[2]
-        return self._current
+**Decisiones (2026-10-23)**
 
-    def progress_text(self) -> str:
-        s = self.stats
-        done, total = s.get("transfers", 0), s.get("totalTransfers", 0)
-        text = f"{done} of {total} files · {_size(s.get('bytes', 0))} of {_size(s.get('totalBytes', 0))}"
-        if s.get("speed"):
-            text += f" · {_size(s['speed'])}/s"
-        if s.get("eta"):
-            text += f" · about {_duration(s['eta'])} left"
-        return text
+- El pendiente 11 entra en la 2b, con la opción A: el editor no se abre sin haber leído las etiquetas.
+- El pendiente 12 (aplicar sustituye todas las etiquetas del fichero) se queda como está, también el texto.
+- Se escriben y se muestran todas las etiquetas del perfil, también las vacías, como en copy.
+- Los avisos de error son pop-ups, sin listar ficheros, con un `show_issue` que se crea ya y que el PR 4
+  amplía.
+- El panel LOGS está siempre visible y todas las operaciones dejan rastro con la ruta completa del informe.
+- Aplicar a una carpeta: botón Cancel, por páginas de 1.000 y parar ante errores generales.
 
-    def final_lines(self, rc: int) -> list[str]:
-        failed = self.failed(rc)
-        copied = max(self.stats.get("transfers", 0) - len(failed), 0)
-        if rc == 0:
-            return [f"\n✅ Copy finished: {copied} file(s) copied.\n"]
-        if not failed:                                    # falló la operación entera, no un fichero
-            issue = explain_exit(rc, self.first_error)
-            return [f"\n❌ The copy could not finish — {issue.title}: {issue.message}\n",
-                    *([f"   What you can do: {issue.hint}\n"] if issue.hint else [])]
-        lines = [f"\n⚠️ Copy finished with problems: {copied} file(s) copied, {len(failed)} failed.\n"]
-        if len(failed) > self.MAX_LISTED:
-            lines.append(f"   … and {len(failed) - self.MAX_LISTED} more (full list in the report).\n")
-        issues = [i for i, _ in failed.values()] or [explain_exit(rc, self.first_error)]
-        hints = list(dict.fromkeys(i.hint for i in issues if i.hint))
-        lines += [f"   What you can do: {h}\n" for h in hints[:3]]
-        return lines
+**Errores (`common/rclone_output.py`)**
 
+- `issue_for_exception(ex)`, que nunca lanza: usa `ex.response["Error"]["Code"]` si existe; las clases de
+  conexión de botocore (`EndpointConnectionError`, `ConnectTimeoutError`, `ReadTimeoutError`,
+  `ConnectionClosedError`, `SSLError`) dan `NETWORK`; si no, `classify(error_text(str(ex)))`; si nada,
+  `UNEXPECTED`.
+- Catálogo nuevo: `OBJECT_GONE` (`NoSuchKey`: "This file is no longer in MinIO") e `INVALID_TAG`
+  (`InvalidTag`, `MalformedXML`, `InvalidArgument`, `BadRequest`: "A tag value is not accepted by MinIO").
+- Pista según la pantalla: `hint_for(is_web, screen="copy"|"tags")`. En el Tag Manager no hay botón de
+  renovar: para `CREDENTIALS_EXPIRED` y `PROFILE_MISSING` la pista es "Go ← Back, click 🔑 Renew credentials
+  and open Tag Manager again."
 
-def parse_combined_report(path: Path) -> dict[str, list[str]]:
-    """Lee el --combined de rclone check: '=' idéntico, '+' falta en MinIO, '*' distinto, '!' error al leer
-    ('-' = solo en MinIO; no aparece con --one-way)."""
-    groups: dict[str, list[str]] = {"=": [], "-": [], "+": [], "*": [], "!": []}
-    if path.exists():
-        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            if len(line) > 2 and line[0] in groups:
-                groups[line[0]].append(line[2:])
-    return groups
+**Pop-up: `show_issue` en `bifrost_frontend/components.py`**
 
+- `show_issue(page, issue, *, is_web, title=None, context="", actions=None)`: título, contexto (el fichero
+  seleccionado o un recuento; nunca listas), mensaje del `UserIssue`, "What you can do" y los botones que pase
+  quien la llama. Se apoya en `show_dialog(actions=…)`, que ya existe.
+- El PR 4 añade dentro `ref`, "Copy details" y "Open logs folder"; las llamadas del Tag Manager no cambian.
 
-def _size(n: float) -> str:
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if n < 1024 or unit == "TB":
-            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
-        n /= 1024
-    return f"{n:.1f} TB"
+**Editor de un fichero (pendiente 11, opción A)**
 
+- `_select_file` lee las etiquetas **antes** de abrir el editor:
+  - lectura correcta → editor normal y `sel["tags_loaded"] = True`;
+  - `NoSuchKey` → pop-up "This file is no longer in MinIO" con **OK**, y se recarga la lista;
+  - otro error → pop-up "Could not read the tags of this file" con el fichero, el error traducido y qué hacer,
+    y los botones **Cancel** y **Try again**. Try again vuelve a leer. Cancel quita la selección (el panel
+    derecho vuelve a "Select a folder or a file"). El editor no se abre y "Apply tags" queda desactivado para
+    ese fichero.
+- `_on_save_file_tags` y `do_apply` sobre un fichero comprueban `sel["tags_loaded"]` antes de escribir.
+- Se quita la línea roja del panel izquierdo (`browser_error`) para este caso.
+- No se añaden reintentos: botocore ya hace 5.
 
-def _duration(seconds: float) -> str:
-    seconds = int(seconds)
-    if seconds < 90:
-        return f"{seconds} s"
-    if seconds < 5400:
-        return f"{seconds // 60} min"
-    return f"{seconds // 3600} h {seconds % 3600 // 60} min"
+**Panel LOGS siempre visible (como en la pantalla de copia)**
+
+- Cada operación tiene su lista de líneas (como `_new_operation` en copy). Al terminar se escribe su informe y
+  la línea "📄 Report saved: <ruta completa>".
+- Función común `write_report(kind, lines, problems)` en `common/logs.py`, usada por copy, check y el Tag
+  Manager. Sustituye `_write_report` de copy y `_autosave_tag_log`. Se quitan `_log_buffer` y
+  `~/bifrost-logs/` como destino.
+- En LOGS puede salir el nombre del fichero que el usuario ha seleccionado (como el origen en copy); nunca
+  listas de ficheros de una carpeta.
+
+| Operación | En LOGS | Informe `tags-<fecha>.log` | Pop-up |
+|---|---|---|---|
+| Guardar las etiquetas de un fichero | Resultado y ruta del informe | Fichero, etiquetas que tenía, etiquetas nuevas y resultado | Solo si falla |
+| Aplicar a una carpeta | Etiquetas, recuentos y ruta del informe | Lo del panel + `--- Files with problems ---` (máximo 100, con su causa) | Si hay fallos o se para |
+| No se pueden leer las etiquetas de un fichero | "⚠️ Could not read the tags of <fichero> — <título>" | No (no se ha cambiado nada) | Sí |
+
+Ejemplo en escritorio (macOS):
+
+```text
+### Tags saved at 2026-10-23 10:20:41 ###
+📄 File: test-logs/documento.txt
+✅ Tags saved.
+📄 Report saved: /Users/nrodriguez/Library/Logs/BIFROST/transfer/reports/tags-2026-10-23_10-20-41.log
+
+### Tags applied at 2026-10-23 10:25:02 ###
+📁 Folder in MinIO: test/test-logs/ (all files inside)
+Profile: IRB Standard
+Tags:
+  project_name: melanoma
+  compute_node:
+  sample_type: tissue
+  …
+⚠️ Tags set on 4,980 file(s) in 2 min. 20 file(s) could not be changed: 20 × No permission in MinIO.
+   What you can do: Check that you chose the right folder. If you need access, ask your group's data manager.
+   The list of these files is in the report.
+📄 Report saved: /Users/nrodriguez/Library/Logs/BIFROST/transfer/reports/tags-2026-10-23_10-27-15.log
 ```
 
-Exportar en `backend.py`: `UserIssue`, `classify`, `explain_exit`, `UNEXPECTED`, `report_path`.
+En OOD la ruta es la de la carpeta de la sesión: `<carpeta de la sesión>/reports/tags-<fecha>.log`.
 
-### `shared/bifrost_backend/transfer/copy_check.py`
+**Aplicar a una carpeta**
 
-- `ejecutar_rclone_copy` / `ejecutar_rclone_check`: quitar `--progress` y `--stats=1s`; añadir
-  `--use-json-log --log-level INFO --stats 1s --stats-log-level NOTICE`.
-- El comando completo deja de ir al panel ("🧾 Full command") y pasa al log técnico.
-- Bucle de salida: `for out in summary.feed(linea, time.monotonic()): log_fn(out)`. Al terminar, `log_fn`
-  recibe `summary.final_lines(rc)` en lugar de "✅ Copy completed successfully." / "❌ Copy error. Code: N".
-  `log_fn` sigue recibiendo texto, así que el panel, el buffer web, el throttle y `_replay` no cambian.
-- Parámetro opcional `report: list[str] | None`: se rellena con `summary.failed(rc)` completo para el informe.
-- `ejecutar_rclone_check`: `--combined` en `report_path("check-combined", "txt")` (uno por ejecución, en lugar
-  del fijo `~/rclone-combined-check.txt`); al terminar, resumen de `parse_combined_report`:
-  "N identical · N missing in MinIO · N different · N with errors" + hasta 20 ficheros de cada grupo con
-  problemas. rc 1 sigue siendo "differences found".
+- `apply_tags_to_prefix` trabaja **por páginas**: lista 1.000 objetos (`list_objects_v2`), los etiqueta
+  (8 hilos) y pasa a la página siguiente. Empieza al momento y usa poca memoria con cualquier tamaño de carpeta.
+- Devuelve un resultado: `ok`, `failed` (fichero → issue; en memoria hasta 10.000), `stopped` (motivo) y
+  `total`.
+- **Progreso**: una línea que se reescribe como mucho una vez por segundo, "Setting tags: N files done so
+  far". Sin total ni porcentaje: no se sabe hasta el final.
+- **Cancel** junto a Apply mientras dura la operación: deja de enviar ficheros y espera a los que están en
+  curso.
+- **Parar ante errores generales** (`threading.Event`): `CREDENTIALS_EXPIRED`, `NETWORK` y `CLOCK_SKEW`
+  siempre; `MINIO_PERMISSION` si fallan los primeros 20 ficheros seguidos.
+- **Finales posibles:**
 
-### `bifrost-transfer/src/views/copy.py`
+| Final | En LOGS | Pop-up |
+|---|---|---|
+| Todo bien | "✅ Tags set on N file(s) in X min." | No |
+| Algunos ficheros fallan | "⚠️ Tags set on N file(s)… M file(s) could not be changed: <recuento por causa>." | "Tags were not set on some files" + recuento + qué hacer + ruta del informe · **Cancel** / **Try again** |
+| Se para por un error general | "❌ Stopped — <título>. N files have the new tags; the rest of the folder was not changed." | "Tags could not be applied" + lo mismo + qué hacer + ruta del informe · **Cancel** / **Try again** |
+| El usuario pulsa Cancel | "⏹ Stopped. N files have the new tags; the rest were not changed." | No |
+| La carpeta no tiene ficheros | "No files found in this folder." | No |
 
-- `_autosave_log`: quitar `if not IS_WEB: return None`; escribir en `backend.report_path("copy"|"check")`;
-  añadir la lista completa de fallidos y la ruta del `--combined`; borrar su rotación propia (el
-  `glob("bifrost-*.log")` actual borra también los ficheros de consola y de etiquetas).
-- Llamar a `_autosave_log()` también en escritorio al terminar copy y check.
-- "Save log" se mantiene.
-- Quitar la línea duplicada `_cancelling: list = [False]`.
+- **Try again**: con fallos sueltos reintenta **solo esos** (si eran más de 10.000, vuelve a aplicar la carpeta
+  entera y el pop-up lo avisa); tras una parada general vuelve a aplicar la carpeta entera (los ficheros ya
+  hechos quedan igual). Con "MinIO access expired", el pop-up dice que hay que renovar las credenciales antes.
+  **Cancel** cierra el pop-up.
+- Log técnico: `tags finished: outcome=… total=… ok=… failed=… stopped=… duration=…s`; los errores, una vez
+  por tipo y sin nombres ni rutas; de las etiquetas, solo los nombres de los campos (ya hecho).
 
-### `bifrost-transfer/src/views/tag_manager.py`
+**Listar carpetas y ficheros (`rclone_ops.py`)**: `list_prefix_contents` y `rclone_list_files_only` lanzan
+`RuntimeError` como `rclone_lsd`, en lugar de devolver `[]`. El Tag Manager muestra el error traducido en el
+navegador en lugar de "(empty content)". El hilo de `_async_load` pasa a `safe_thread`.
 
-- Errores de boto3 (`ClientError`): `backend.classify(ex.response["Error"]["Code"]) or backend.UNEXPECTED` →
-  "❌ {title} — {hint}" en el panel; el crudo al log técnico.
-- `_autosave_tag_log` → `backend.report_path("tags")`.
-- Texto en inglés: "Caracteres no permitidos en los tags" → "Characters not allowed in tags".
+**Textos**: los dos "Caracteres no permitidos en los tags" → "Invalid characters in tags" (como en copy);
+"Ver tags raw" → "Show raw tags"; "📁 Bulk Prefix S3/MinIO: …" → "📁 Folder in MinIO: {bucket}/{prefix} (all
+files inside)".
+
+**Docs**: `docs/user/tag-manager.md` (panel LOGS, informes, pop-ups, Cancel, Try again, qué hacer si sale
+"MinIO access expired"; quitar "The app renews its MinIO access automatically", que solo pasa al iniciar
+sesión), la sección de etiquetas de `troubleshooting.md`, `docs/development/operations.md` y `frontend.md`.
+
+**Verificación de la 2b** (S3 simulado con moto o el Stubber de botocore, solo en el entorno de pruebas; nunca
+escribir en MinIO WORM):
+
+| Caso | Resultado esperado |
+|---|---|
+| Leer etiquetas falla (red, `AccessDenied`) | Pop-up con Cancel / Try again; el editor no se abre; guardar está bloqueado |
+| El fichero ya no existe (`NoSuchKey`) | Pop-up "no longer in MinIO" y la lista se recarga |
+| Guardar un fichero | Línea en LOGS con la ruta completa; informe con etiquetas anteriores y nuevas |
+| Carpeta vacía | "No files found in this folder." |
+| Carpeta de 2.500 ficheros (3 páginas) | "Tags set on 2,500 file(s)"; progreso "done so far" |
+| Fallos parciales | Recuentos por causa; informe con máximo 100; Try again solo con los fallidos |
+| Credenciales caducadas a mitad | Se para enseguida; pop-up con la pista de renovar |
+| Cancel a mitad | "⏹ Stopped…", sin pop-up |
+| Error al listar | Error traducido en el navegador, no "(empty content)" |
+| Log técnico | Una línea final; sin nombres, rutas ni valores de etiquetas |
+
+Al final, prueba manual de la usuaria en el bucket `test` (sin WORM).
+
+### Estado de 2a (2026-10-21)
+
+Implementado según el diseño de arriba y probado con rclone 1.72.1 en local (todos los casos de la tabla de
+verificación salvo los de MinIO real y el Tag Manager). Una revisión independiente del código encontró y se
+corrigió:
+- **Cancelar y volver a copiar enseguida mezclaba las dos operaciones**: Copy/Check siguen desactivados hasta
+  que la operación termina de verdad, y el proceso solo se libera del estado compartido si es el suyo.
+- **En web, el resultado podía quedar en un diccionario de sesión antiguo** (`copy_status` se copiaba por
+  valor en cada `_ws_save`): ahora vive en `copy_proceso["status"]`, compartido por referencia.
+- `--syslog`, `-i`/`--interactive` y opciones cortas agrupadas (`-vP`) bloqueadas; rclone se lanza con
+  `stdin` cerrado; sin ninguna salida de rclone el resultado es "failed", nunca ✅.
+- Códigos de salida 8 y 10 (límites) con mensaje propio y 9 (`--error-on-no-transfer`) como "nada nuevo".
+- Check sin nada que comparar: no dice "all 0 files identical".
+
+Cambios del 2026-10-22, tras las pruebas en `minio:test`:
+- **El log no afirma etiquetas que no se han puesto.** Al repetir una copia con otros metadatos, los
+  ficheros idénticos se saltan y conservan sus etiquetas, pero el panel mostraba `### Metadata ###` con los
+  valores nuevos. Ahora el bloque se titula "Tags for the files copied in this run" y el resumen dice cuántos
+  ficheros ya estaban y no cambiaron. El dato sale de `rclone copy --match` (rclone anota la decisión que ya
+  toma; sin lecturas ni peticiones extra). Se descuentan los copiados en un intento anterior.
+- **Nombres de ficheros solo en el informe**: con copias masivas las listas podían tener miles de líneas. El
+  panel da recuentos por causa y dice que la lista está en el informe; el informe guarda lo que mostró el
+  panel y, debajo, los ficheros con problemas (no copiados, carpetas ilegibles, sustituidos, distintos,
+  ilegibles) con su causa, hasta 100; el log técnico escribe cada tipo de error sin nombres ni rutas. Los que
+  faltan en MinIO no se nombran nunca. Copy muestra origen y destino como check y todas las etiquetas del perfil (también las vacías, que
+  también se escriben en cada fichero). Check no guarda listas en memoria.
+- **Tamaño, duración y método**: el resumen dice cuántos ficheros y cuántos datos se copiaron, en cuánto
+  tiempo y a qué velocidad media; check dice cómo comparó ("compared by MD5 checksum"); tras una copia
+  correcta se sugiere "✓ Check data". El log técnico termina con una línea completa (`log_line()`): bytes,
+  intentos, duración, velocidad y huella usada. Todo sale de la salida de rclone, sin coste extra.
+- **Listas por fichero y disco temporal** (comprobado con un disco de 1 MB): si rclone no puede crear la
+  lista aborta la operación, y si se llena a mitad la corta sin avisar. Con menos de 100 MB libres se
+  trabaja sin listas; los recuentos de check salen de los totales de rclone; copy solo da el número de
+  "ya estaban" si es fiable; se borran restos de más de 7 días.
+- **Log técnico en el navegador y el Tag Manager**: dejan de escribir listados de buckets, carpetas y
+  ficheros (solo recuentos) y los valores de las etiquetas aplicadas (solo los nombres de los campos).
+- **Mensaje de los ya idénticos**: el número va en "Files in this copy: N copied · M already in MinIO" (o en
+  "Nothing new to copy: the M file(s)…") y debajo "⚠️ Files already in MinIO were not copied again, so their
+  tags were NOT updated: if their tags in MinIO are different from the ones above, they still have the old
+  ones. To change them, use Tag Manager." No se afirma que las etiquetas sean distintas: rclone no las mira y
+  comprobarlas costaría una petición por fichero. Si no se sabe si había alguno (reintentos sin lista
+  fiable), el aviso empieza por "If some files were already in MinIO…".
+
+### Para el PR 4 (anotado aquí para no perderlo)
+
+
+- `export_logs_zip` no debe incluir por defecto los informes (`reports/`): tienen nombres de ficheros y
+  valores de etiquetas. Solo los logs técnicos, pasados por el filtro de secretos, y los informes que el
+  usuario marque. Zip con permisos 0600. Avisar en el diálogo y en la doc de qué contiene.
+
+### Pendiente de decidir
+
+- **Ficheros antiguos**: `~/rclone-combined-check.txt` (inventario completo del último check, nombre fijo
+  que solo escribía la app) y `~/bifrost-logs/`. ¿Se borran al arrancar, se dejan o se documentan?
+
+### Verificación de 2a y 2b
+
+Cada caso se reproduce en local con el rclone 1.72.1 del repo (carpetas temporales y `:memory:`; nunca
+escribir en MinIO) y se pasa por el parser real:
+
+| Caso | Resultado esperado |
+|---|---|
+| Copia correcta | "✅ Copy finished: N copied" con N = líneas "Copied (" |
+| Repetir una copia ya hecha | "Nothing new to copy…", no "0 copied" |
+| Un fichero ilegible (`chmod 000`), con reintentos 1 y 3 | recuento correcto; un solo ❌ al final; ninguno durante los intentos |
+| Fichero que falla en el intento 1 y luego funciona | sin ❌ en el panel; "(some files needed another try)" |
+| Subcarpeta ilegible | "Folder X could not be read…", no "1 failed" |
+| Origen inexistente | "The copy could not finish — Source not found" |
+| Cancelar una copia grande (multi-thread) y una pequeña | "⏹ Copy cancelled…" en los dos (rc 143 y −15) |
+| `--dry-run` en las opciones | "🧪 Test run…", nunca "copied" |
+| `--bogus`, `-v`, `--dump headers` en las opciones | diálogo de opción no permitida; rclone no se lanza |
+| Carpeta llamada `worm_project` o `refused_cells` con un fichero ilegible | "Cannot read a file", no WORM ni FUSE |
+| Destino con mismo nombre y otro contenido | aviso de "replaced" |
+| Check idéntico / con un fichero que falta / con uno distinto / un solo fichero | totales correctos y textos de check |
+| Check con el destino ilegible | "The check could not finish", no "N missing" |
+| Check sin checksum común (`:chunker,hash_type=none:`) | "content could not be compared", no "identical" |
+| Copia y check con `level=critical` (remote mal configurado) | error clasificado, no "Something went wrong" |
+| Línea JSON que no es un objeto (`[]`, `null`) | ignorada, la copia sigue |
+| Dos operaciones seguidas | dos informes separados, cada uno solo con lo suyo |
+| `report_path` sin permiso de escritura | la operación termina y avisa; la UI no se queda en "running" |
+| Web: cerrar la pestaña en medio y volver (copia, check con diferencias, cancelación) | texto de reconexión correcto para cada resultado |
+| Tag Manager: claves falsas, sin red, 0 ficheros, fallos parciales | resumen real; se para ante errores generales; sin inundar el panel |
+| Contra MinIO (solo lectura, como en la fase 0) | check de una carpeta local contra una ruta existente e inexistente |
+
+Al final, prueba manual de la usuaria en la app con una carpeta pequeña en un destino de pruebas que elija.
+
+**Hallazgos de la revisión que no se llegaron a verificar dos veces** (la revisión se paró a mitad):
+carpeta ilegible del origen en el check, check sin hash común, solapamiento de totales del check, textos de
+Windows, JSON que no es objeto, "replaced existing" y lectura del `--combined` en memoria. Están
+incorporados arriba, y la tabla de verificación los comprueba al programar.
 
 ## PR 3 — Montajes con rclone (MinIO y NetApp)
 
@@ -558,7 +782,9 @@ def export_logs_zip(app: str, sessions: int = 5) -> Path:
 
 - `show_dialog` gana un parámetro opcional `content: ft.Control | None` (sustituye al texto si se pasa).
   Ningún uso actual cambia.
-- Nuevo `show_issue(page, issue, *, ref, is_web=False)`: título del `UserIssue`, mensaje, "What you can do:
+- `show_issue` se crea en la 2b (título, contexto, mensaje, qué hacer y botones que pase quien llama). El PR 4
+  le añade `ref`, "Copy details" y "Open logs folder", sin cambiar las llamadas. Diseño completo:
+  `show_issue(page, issue, *, ref, is_web=False)`: título del `UserIssue`, mensaje, "What you can do:
   …" y "Reference: MNT-7F3A" seleccionable. Botones: **Copy details** (`await page.clipboard.set(...)` con
   referencia, código, hora, app, versión y ruta del log), **Open logs folder** (solo escritorio) y **OK**. En
   web, el texto pide adjuntar `output.log` de la carpeta de la sesión de Open OnDemand.
@@ -604,4 +830,5 @@ Por módulo (`log = logging.getLogger("bifrost.<área>")`), del más ruidoso al 
    (`uv sync --reinstall-package bifrost-shared`; la instalación no es editable).
 3. Probar siempre con `flet run` real, no solo importando o llamando a `ft.run`.
 4. Cuando lleguen pytest y mypy: tests de `classify`, `explain_exit`, `RunSummary.feed`,
-   `parse_combined_report`, `_RedactFilter`, `_StreamToLogger` y `log_dir` (funciones puras).
+   el resumen del check, `issue_for_exception`, `_RedactFilter`, `_StreamToLogger` y `log_dir` (funciones
+   puras); la tabla de verificación de la fase 2 sirve de base.
