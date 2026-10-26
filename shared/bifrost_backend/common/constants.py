@@ -23,7 +23,6 @@ MINIO_SERVERS = {
             "profile": "minio",
             "endpoint": "https://minio.sc.irbbarcelona.org:9000",
             "extra_rclone_config": {
-                "no_check_bucket": "true",
                 "region": "eu-south-2",
             }
         }

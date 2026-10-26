@@ -85,27 +85,23 @@ def configure_rclone(
     if config_path.exists():
         config.read(config_path)
 
-    if profilename in config:
-        section = config[profilename]
-        section["endpoint"]          = endpoint
-        section["access_key_id"]     = aws_access_key_id
-        section["secret_access_key"] = aws_secret_access_key
-        section["session_token"]     = aws_session_token
-    else:
+    if profilename not in config:
         config[profilename] = {
-            "type":              "s3",
-            "provider":          "Minio",
-            "endpoint":          endpoint,
-            "acl":               "bucket-owner-full-control",
-            "env_auth":          "false",
-            "access_key_id":     aws_access_key_id,
-            "secret_access_key": aws_secret_access_key,
-            "session_token":     aws_session_token,
+            "type":     "s3",
+            "provider": "Minio",
+            "acl":      "bucket-owner-full-control",
+            "env_auth": "false",
         }
-
-    if extra_config:
-        for key, value in extra_config.items():
-            config[profilename][key] = str(value)
+    section = config[profilename]
+    section["endpoint"]          = endpoint
+    section["access_key_id"]     = aws_access_key_id
+    section["secret_access_key"] = aws_secret_access_key
+    section["session_token"]     = aws_session_token
+    # No comprobar ni crear el bucket antes de escribir: los buckets los crea ITS y los usuarios no tienen
+    # permiso para crearlos. Se escribe siempre para que también lo tengan los perfiles creados sin esta opción.
+    section["no_check_bucket"]   = "true"
+    for key, value in (extra_config or {}).items():
+        section[key] = str(value)
 
     with open(config_path, "w") as f:
         config.write(f)
