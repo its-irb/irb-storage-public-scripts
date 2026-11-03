@@ -65,10 +65,9 @@ A continuación:
 1. (Transfer) calcula el modo de ejecución (`IS_WEB`) y llama a
    `_propagar_is_web()` (ver «Modo web»).
 2. Reenvuelve `sys.stdout`/`sys.stderr` en UTF-8 (consola Windows). No tocar.
-3. Configura el log persistente: en `bifrost-mount`, `session_log.py` escribe
-   en `~/bifrost-mount-logs/`; en `bifrost-transfer`, toda la salida de consola
-   se duplica en `~/bifrost-logs/bifrost-console-*.log` (se conservan los 50
-   ficheros más recientes).
+3. Configura el log técnico con `backend.setup_logging(...)` (ver
+   [operations.md](operations.md#logs)) y registra el cierre con
+   `backend.register_shutdown(...)`.
 4. Define `main(page: ft.Page)`, arma el flujo de vistas y lo arranca con
    `ft.run(main)`. En modo clúster, transfer además crea la app ASGI con
    `ft.app(main, export_asgi_app=True)`.
@@ -163,7 +162,7 @@ IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or (os.environ.get("B
 
 `IS_WEB` solo existe de verdad en `main.py`, porque depende de `__name__`. Los
 módulos que se sacaron de `main.py` y lo leen (`web_session`, `views.shares`,
-`views.copy`, `views.tag_manager`) declaran `IS_WEB = False`, y
+`views.copy`, `views.tag_manager`, `views.rclone_browser`) declaran `IS_WEB = False`, y
 `_propagar_is_web()` les copia el valor real al importar y justo después de la
 línea de `main()` que lo actualiza. Las funciones leen la variable de su
 módulo al ejecutarse, por eso basta con actualizarla. Si un módulo nuevo lee
@@ -196,9 +195,8 @@ contraseña LDAP nunca se guarda aquí.**
 | `endpoint` | `str` | URL endpoint S3 |
 | `extra_config` | `dict\|None` | Config extra rclone |
 | `copy_log_buffer` | `list[str]` | Líneas de log desde el inicio (cap 5000) |
-| `copy_status` | `str` | `"idle"\|"running"\|"done"\|"error"` |
 | `copy_origen` / `copy_destino` | `str` | Paths |
-| `copy_proceso` | `dict` | `{"proc": Popen \| None}` |
+| `copy_proceso` | `dict` | `{"proc": Popen \| None, "cancelled": bool, "status": "running" \| outcome}`; se comparte por referencia entre páginas (el `status` de la última operación vive aquí) |
 | `copy_log_callbacks` | `list[Callable]` | Funciones `log()` de las páginas suscritas |
 
 Gestión: `_ws_save(usuario, state)` (guarda al navegar a la vista de copia),
@@ -224,12 +222,33 @@ sesión antigua y se sigue el flujo normal.
 
 - Espera 200 ms para que se estabilice el árbol de controles.
 - Muestra un banner de reconexión con el estado actual.
-- Reproduce las últimas **200 líneas** del buffer (el resto vive en
-  `~/bifrost-logs/`).
-- Si `proc.poll() is None` → restaura el botón Cancel y lanza
-  `_watch_proc_end` para detectar el final.
-- Si el proceso ya terminó (carrera entre `copy_status` y el teardown de
-  `proc`) → ajusta `copy_status` a `"done"` o `"error"`.
+- Reproduce las últimas **200 líneas** del buffer (el log completo de cada
+  operación está en su informe, ver «Informe de cada operación»).
+- Lee `copy_proceso["status"]`: si es `"running"` (desde el clic hasta
+  `on_finish`, también mientras rclone aún no ha arrancado o se está
+  parando) → arranca el ticker de progreso de la página (ver abajo), que
+  restaura los botones. Si no, contiene el `outcome` del `RunSummary` (`ok`,
+  `partial`, `differences`, `failed`, `cancelled`…) y se muestra un texto para
+  cada caso.
+
+### Bloque de progreso (`_start_progress_ticker`)
+
+Encima de LOG OUTPUT, mientras `copy_proceso["status"] == "running"`. Un hilo
+por página lee `RunSummary.progress_snapshot()` una vez por segundo (el hilo
+de rclone solo guarda el último `stats`; la interfaz nunca lo frena) y pinta
+texto, barra y hasta `MAX_CURRENT` ficheros en curso. También fija los
+botones (Cancel visible salvo si `copy_proceso["cancelled"]`; Copy/Check
+deshabilitados) y los restaura al terminar.
+
+- Lo arrancan `do_copy`/`do_check`, `_replay` y `log()` si la operación está
+  en marcha (así lo ve también otra pestaña de la misma sesión web).
+- Solo tiene ticker la última vista de copia construida en la página: se
+  registra en `page.session.store["copy_progress_ticker"]` y el de una vista
+  anterior se para.
+- Con la pestaña cerrada no envía nada (`ui_call` devuelve `False`) y sigue
+  esperando por si Flet reconecta la misma sesión; si la operación termina
+  mientras tanto, oculta el bloque sin `page.update()` y la reconexión ya lo
+  recibe oculto. Si Flet destruye la sesión, el ticker se para.
 
 ### Log dispatcher con throttle (`_dispatch_log`)
 
@@ -254,18 +273,19 @@ el mismo log; los callbacks que fallan (página muerta) se eliminan
 automáticamente. El lock `_dispatch_lock` protege `_dispatch_pending` y
 `_dispatch_last` de carreras entre el timer y el hilo de rclone.
 
-### Autosave de logs
+### Informe de cada operación
 
-Al terminar cada copy/check (éxito o error), `_autosave_log()` vuelca el
-buffer a:
-
-```text
-~/bifrost-logs/bifrost-YYYY-MM-DD_HH-MM-SS.log
-```
-
-Crítico en modo web: el buffer en memoria está capeado a 5000 líneas y solo se
-replayean 200 en pantalla; el log completo solo existe en el disco del servidor
-OOD.
+Cada copy/check crea su propia lista de líneas (`_new_operation` → `op_log`, que
+también llama a `_dispatch_log`). Al terminar, `ejecutar_rclone_copy/check`
+llama siempre a `on_finish(summary)` y la vista escribe el informe con
+`_write_report` en `backend.report_path("copy"|"check")`: exactamente las líneas
+que vio el usuario en esa operación (inicio, origen y destino, todas las
+etiquetas del perfil y resumen) y, debajo, `summary.problem_lines()`: los ficheros con
+problemas, hasta 100. El panel solo da recuentos (ver «Logs» en
+`operations.md`). No se usa
+el buffer web (mezcla operaciones y está capeado a 5000 líneas) ni los
+controles del panel. Cancel pone `_active_proceso["cancelled"] = True` antes de
+terminar rclone; el resumen lo usa para decir "cancelled".
 
 ## El bug `IndexError: list index out of range`
 
@@ -344,7 +364,13 @@ tareas asyncio.
 - **Threads** — `backend.safe_thread(page, target)` en lugar de
   `threading.Thread`; con `threading.Timer`, envolver el callback en
   `lambda: ui_call(page, fn)`.
-- **Diálogos de error** — `show_dialog(page, "Error", msg, color=C_ERROR)`.
+- **Diálogos de error** — `show_dialog(page, "Error", msg, color=C_ERROR)`. Para errores traducidos
+  (`UserIssue`), `show_issue(page, issue, *, is_web, title=None, context="", screen="copy"|"tags",
+  buttons=[(texto, acción), …])`: contexto (un fichero o un recuento, nunca listas), qué ha pasado y qué
+  hacer; cada botón cierra el diálogo y ejecuta su acción. El PR 4 le añadirá la referencia y "Copy
+  details".
+- **Líneas de los paneles de log** — `log_text(line)` (color según el emoji inicial; lo usan copy y el Tag
+  Manager).
 - **Confirmaciones** — `show_confirm(page, title, message, on_yes, on_no=None)`.
 - **Logs de copia** — siempre por `_dispatch_log` (transfer/web); nunca
   `log_list.controls.append(...)` directo desde un hilo.

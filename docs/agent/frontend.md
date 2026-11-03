@@ -52,9 +52,8 @@ from bifrost_frontend.frontend import *      # theme + components + shared views
 
 Then: 1) (transfer) computes the run mode (`IS_WEB`) and calls
 `_propagar_is_web()`; 2) re-wraps `sys.stdout`/`sys.stderr` in UTF-8 (Windows
-console) — **do not touch**; 3) persistent log: mount through `session_log.py`
-(`~/bifrost-mount-logs/`); transfer tees all console output to
-`~/bifrost-logs/bifrost-console-*.log` (keeps the 50 most recent files);
+console) — **do not touch**; 3) technical log with `backend.setup_logging(...)` and shutdown cleanup with
+`backend.register_shutdown(...)` (see `docs/development/operations.md#logs`);
 4) defines `main(page: ft.Page)` and starts with `ft.run(main)` (in cluster
 mode transfer also builds the ASGI `app` with `ft.app(main, export_asgi_app=True)`).
 
@@ -109,7 +108,7 @@ IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or (os.environ.get("B
 
 - `main(page)` also sets `IS_WEB = IS_WEB or page.web`. `IS_WEB` lives only in
   `main.py`; `_propagar_is_web()` copies it to `web_session`, `views.shares`,
-  `views.copy` and `views.tag_manager` (see `architecture.md`).
+  `views.copy`, `views.tag_manager` and `views.rclone_browser` (see `architecture.md`).
 - ASGI server: **Hypercorn** (a single asyncio event loop). Each tab opens its
   own WebSocket with its own `page` object.
 - Sessions in `_WEB_SESSIONS` (`web_session.py`; global dict by `username`;
@@ -122,9 +121,12 @@ IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or (os.environ.get("B
 - Log dispatcher `_dispatch_log` with a **150 ms throttle** (buffer cap 5000
   lines, several callbacks per user, `_dispatch_lock` lock). Without the
   throttle Hypercorn saturates and reconnections hang.
-- Autosave: when each copy/check ends, `_autosave_log()` dumps the buffer to
-  `~/bifrost-logs/bifrost-YYYY-MM-DD_HH-MM-SS.log` (critical in web mode: the
-  in-memory buffer is capped and the full log only exists on disk).
+- Per-operation report: each copy/check keeps its own lines (`op_log`); when it
+  ends, `on_finish(summary)` writes the report with `_write_report` to
+  `backend.report_path("copy"|"check")` (desktop: `<log dir>/reports/`; web:
+  `$BIFROST_SESSION_DIR/reports/`). rclone output is parsed by
+  `common/rclone_output.RunSummary` (panel: progress + summary; raw output to the
+  technical log). Do not rebuild reports from the web buffer or the UI controls.
 - The `Mount NetApp` button (web mode only) opens the CIFS shares view
   (`go_cifs`).
 
@@ -147,7 +149,10 @@ With `threading.Timer`, wrap the callback:
 - **Colours**: only constants from `bifrost_frontend.frontend` (`C_PRIMARY`,
   `C_ERROR`, …). Do not hardcode hex values.
 - **Buttons**: prefer `btn_primary` / `btn_secondary` over raw `ft.Button`.
-- **Error dialogs**: `show_dialog(page, "Error", msg, color=C_ERROR)`.
+- **Error dialogs**: `show_dialog(page, "Error", msg, color=C_ERROR)`. For translated errors (`UserIssue`):
+  `show_issue(page, issue, *, is_web, title=None, context="", screen="copy"|"tags", buttons=[(label, action), …])`
+  (context is one file or a count, never lists; each button closes the dialog, then runs its action).
+- **Log panel lines**: `log_text(line)` (colour from the leading emoji; used by copy and Tag Manager).
 - **Confirmations**: `show_confirm(page, title, message, on_yes, on_no=None)`.
 - **Copy logs** (transfer/web): always go through `_dispatch_log`; never
   `log_list.controls.append(...)` directly from a thread.

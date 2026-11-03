@@ -105,9 +105,11 @@ The destination bucket browser includes a **"Filter by lab…"** field that lets
 
 The Tag Manager lets you browse buckets, folders, and files in S3 and apply metadata tags in bulk — without re-uploading any data. Select a profile, fill in the fields, and apply the tagset to a file, a folder, or an entire bucket prefix.
 
-When you select an individual file, if its existing tags match a known profile, the editor automatically switches to the profile view with the values pre-filled — so you can review and edit them using the same dropdowns, date pickers, and multi-value fields used during upload. A **"Ver tags raw"** button lets you switch back to the raw key/value list at any time.
+When you select an individual file, if its existing tags match a known profile, the editor automatically switches to the profile view with the values pre-filled — so you can review and edit them using the same dropdowns, date pickers, and multi-value fields used during upload. A **"Show raw tags"** button lets you switch back to the raw key/value list at any time.
 
 The Tag Manager bucket browser also includes the same **"Filter by lab…"** field, which works identically to the one in the copy form.
+
+Like the copy screen, it has a **LOGS** panel and saves a report of each operation (`reports/tags-<date>.log`). Errors open a window with what happened and what to do (**Try again** / **Cancel**); a folder can be stopped with **Cancel** while its tags are being applied, and a file's editor only opens once its current tags have been read.
 
 ---
 
@@ -323,10 +325,9 @@ Each entry contains:
 | `endpoint` | `str` | S3 endpoint URL |
 | `extra_config` | `dict\|None` | Extra rclone config (if applicable) |
 | `copy_log_buffer` | `list[str]` | All log lines since the copy started |
-| `copy_status` | `str` | `"idle"` \| `"running"` \| `"done"` \| `"error"` |
 | `copy_origen` | `str` | Source path of the last copy |
 | `copy_destino` | `str` | Destination path of the last copy |
-| `copy_proceso` | `dict` | `{"proc": Popen \| None}` — the live rclone subprocess |
+| `copy_proceso` | `dict` | `{"proc": Popen \| None, "cancelled": bool, "status": "running" \| outcome}` — the live rclone subprocess and the state of the last copy/check; shared by reference across pages |
 | `copy_log_callbacks` | `list[Callable]` | `log()` functions of currently subscribed pages |
 
 #### Session management functions
@@ -352,9 +353,9 @@ When the user closes and reopens the tab:
 The `_replay` thread:
 - Waits 200 ms for the control tree to stabilize
 - Shows a reconnection banner with the current status
-- Replays the last 200 lines from the buffer (the rest is in `~/bifrost-logs/`)
-- If `_active_proceso["proc"]` is still alive (`proc.poll() is None`), restores the Cancel button and launches `_watch_proc_end` to detect when it finishes
-- If the process already ended (race between `copy_status` and `proc` teardown), adjusts status to `"done"` or `"error"`
+- Replays the last 200 lines from the buffer (the full log of each operation is in its report)
+- If `copy_proceso["status"]` is `"running"`, starts the page's progress ticker, which shows the progress block, restores the Cancel button and re-enables the buttons when the operation ends
+- `copy_proceso["status"]` says whether the last copy/check is still running or how it ended (`ok`, `partial`, `differences`, `failed`, `cancelled`…); a matching message is shown
 
 ---
 
@@ -450,18 +451,13 @@ The only places where `page.update()` can be called directly without `ui_call` a
 
 ---
 
-### Log autosave
+### Reports of each copy and check
 
-At the end of each copy or check (success or error), `_autosave_log()` saves the buffer contents to:
-
-```
-~/bifrost-logs/bifrost-YYYY-MM-DD_HH-MM-SS.log
-```
-
-This is especially important in web mode because:
-- The in-memory buffer is truncated to the last 5000 lines
-- On reconnection only the last 200 lines are replayed on screen
-- The full log is always available on the OOD server filesystem
+At the end of each copy or check, the app saves a report (header, what the user saw and the full list of
+files with problems) with `report_path()`: on desktop in `<log folder>/reports/`
+(`~/Library/Logs/BIFROST/transfer/reports/` on macOS), in web mode in the Open OnDemand session folder
+(`$BIFROST_SESSION_DIR/reports/`, next to `output.log`). The last 30 reports of each type are kept. See
+`docs/development/operations.md` for the technical log.
 
 ---
 
