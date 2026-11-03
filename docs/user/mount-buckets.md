@@ -66,7 +66,7 @@ click **⊠ Unmount all** again.
 
 | Problem | What to do |
 |---|---|
-| A window says **Could not mount the bucket** | Follow its "What you can do" line. The window also shows the path of BIFROST's log file (**Details: …**): send it to ITS if the problem continues. |
+| A window says **Could not mount the bucket** | Follow its "What you can do" line. If the problem continues, click **Export logs…** and send the file to ITS with the error code shown under the title (see [Error codes](troubleshooting.md#error-codes)). |
 | **MinIO access expired** | Click **🔑 Renew credentials** and mount again. |
 | Mac: **BIFROST cannot open the mounted folder** | In **System Settings → Privacy & Security → Files and Folders**, allow BIFROST to access network volumes, then mount again. |
 | **The folder did not respond** | MinIO did not answer in time. Check that the Nexica VPN is on and try again. |

@@ -48,6 +48,8 @@ llamando a `backend.X` (`from bifrost_backend import backend`).
 | `common/rclone.py` — resolución de rclone | `get_rclone_executable()` — resuelve el binario en (1) `FLET_ASSETS_DIR/bin/` (apps empaquetadas), (2) `bifrost-<flavour>/src/assets/bin/` del repo (desarrollo; se construye con `APP_INFO["flavour"]`), (3) PATH (modo web/clúster); si no lo encuentra lanza `EnvironmentError`. `obtener_ruta_rclone_conf()` (ejecuta `rclone config file`; el resultado se cachea con `lru_cache`), `rclone_lsd()` (solo carpetas — S3 destino), `_subprocess_kwargs()`. |
 | `common/updates.py` — autoupdate | `_parse_version()`, `check_update_version()`, `should_check_for_updates()`, `get_update_file_suffix()`, `download_new_binary()`, `get_emoji_font_asset_path()`. |
 | `common/ui_helpers.py` — Flet ⇄ threading | `ui_call(page, fn)`, `safe_thread(page, target)`. |
+| `common/logs.py` — log técnico, informes y exportación | `setup_logging()`, `log_dir()`, `report_path()`, `write_report()`, `rclone_log_path()`, `open_in_file_browser()`, `export_logs_zip(sessions=EXPORTED_SESSIONS)` → ruta del zip, en `~/Downloads` (0600) con los logs de las 5 últimas sesiones y los informes de copy, check y Tag Manager de esas sesiones. |
+| `common/rclone_output.py` — errores para el usuario y salida de rclone | `UserIssue(code, num, title, message, hint, web_hint, tags_hint)`: `num` es el tipo en el código que ve el usuario (tabla en [operations.md](operations.md#logs)); `hint_for(is_web, screen)`; `reference(screen)` → `MNT101-1103-141526`. Catálogo, `classify()`, `error_text()`, `error_key()`, `issue_for_exception()`. `RunSummary` (copy y check): `finish()` fija `ref` si la operación acaba con errores (`error_issue()`), que va en la primera línea de `final_lines()` y en `log_line()`. |
 | `mount/preflight.py` — checks de FS userland | `WinFspMissingError`, `_check_winfsp_windows()`, `install_winfsp_windows(on_progress)`, `_get_fuse_macos()`, `_macos_app_bundle_frameworks()`, `_check_fuse_linux()`. |
 | `common/rclone_mount.py` — lanzar y comprobar montajes | `mount_and_wait(comando, carpeta, log_path, env=, timeout=30)` → `Popen`: lanza `rclone mount` con un log temporal de solo errores en JSON (`--use-json-log --log-level ERROR`, máx. 10 MB + 1) y solo lo da por bueno si la carpeta se puede listar (rclone monta al instante aunque falle la conexión o las credenciales; la lectura de prueba va en otro hilo porque puede tardar minutos). Si falla → `MountError(issue)` con la causa leída del log de rclone, cuyos errores pasan al log técnico. `drain_rclone_log(log, etiqueta)`: pasa los errores del fichero al log técnico (`bifrost.rclone`, cada texto una vez, sin nombres de ficheros, hasta 100) y lo borra; lo usan el fallo de un montaje y todos los desmontajes. Si la carpeta ya está montada no lanza nada (`MOUNT_BUSY`): la comprobación vería ese montaje y no el nuevo. `is_mounted(carpeta)`, `stop_process(proc)`. Lo usan los montajes de MinIO y de la NetApp. |
 | `mount/s3_mount.py` — montaje S3 | `mount_rclone_S3_prefix_to_folder()` → carpeta montada y comprobada (`MountError` / `WinFspMissingError`); si ya está montada y responde, la devuelve sin lanzar otro rclone; si el sistema quitó un montaje de esta sesión (macOS tras un corte de red) y su rclone sigue vivo, lo para antes de volver a montar. `resolver_mount_point_destino()` (única fuente de la carpeta de un bucket), `desmontar_punto_montaje()` → `bool` (termina solo el rclone de ese montaje; para restos de sesiones anteriores, el `rclone mount` cuya línea de comandos tiene exactamente esa carpeta —`ps` en macOS/Linux, PowerShell en Windows—, así rclone desmonta limpio; solo fuerza el desmontaje si la carpeta sigue montada; nunca `taskkill /IM` ni otros rclone, como las copias), `desmontar_todos_los_mounts_s3()` (y helpers de limpieza de puntos de montaje colgados). |
@@ -117,15 +119,17 @@ completo del bug está en [frontend.md](frontend.md).
 
 ## `safe_thread(page, target, daemon=True)`
 
-Envuelve `target` en un `threading.Thread` con try/except; cualquier
-excepción se muestra en un diálogo vía `ui_call`. Es la forma estándar de
-lanzar acciones de usuario en background.
+Envuelve `target` en un `threading.Thread` con try/except: una excepción no
+controlada va al log técnico con su traza y un código (`unexpected error
+ref=APP999-…`) y el usuario ve el pop-up de `UNEXPECTED` con ese mismo código
+(vía `ui_call`). Es la forma estándar de lanzar acciones de usuario en
+background.
 
 ## Acoplamiento backend → frontend
 
 ```python
 # common/ui_helpers.py, dentro de safe_thread (diferido: evita un import circular)
-from bifrost_frontend.frontend import show_dialog, C_ERROR
+from bifrost_frontend.frontend import show_issue
 # common/rclone.py, common/updates.py
 from config import APP_INFO
 ```

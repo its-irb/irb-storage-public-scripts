@@ -409,8 +409,7 @@ def build_rclone_browser(
 
                 def _err():
                     loading_row.visible = False
-                    hint = issue.hint_for(IS_WEB)
-                    error_text.value    = f"⚠️ {issue.title}. {hint}" if hint else f"⚠️ {issue.title}."
+                    error_text.value    = issue_line(issue, is_web=IS_WEB, screen="copy")
                     error_text.visible  = True
                     page.update()
                 backend.ui_call(page, _err)

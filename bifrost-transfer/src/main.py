@@ -379,8 +379,8 @@ def main(page: ft.Page):
                         state["usar_privilegios"],
                         state["credenciales_admin"],
                     )
-                except ValueError as ex:
-                    backend.ui_call(page, lambda ex_val=ex: show_dialog(page, "Error", str(ex_val), C_ERROR))
+                except ValueError as ex:             # faltan las credenciales de administrador: no es un fallo
+                    backend.ui_call(page, lambda ex_val=ex: show_dialog(page, "ITS privileges", str(ex_val), C_WARNING))
                     return
 
                 shares = backend.obtener_shares_accesibles(

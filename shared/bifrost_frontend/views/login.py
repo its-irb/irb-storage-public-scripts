@@ -97,7 +97,7 @@ def build_login_content(
 
     content = ft.Column(
         [
-            build_header(subtitle="Authentication", IS_WEB=is_web, no_ldap=no_ldap),
+            build_header(subtitle="Authentication", IS_WEB=is_web, no_ldap=no_ldap, page=page),
             ft.Container(expand=True),
             ft.Row(
                 [

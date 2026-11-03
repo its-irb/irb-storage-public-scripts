@@ -109,8 +109,8 @@ Detalle y decisiones: `docs/superpowers/plans/PLAN-logging-improvements.md`.
   un montaje perdido o al cerrar la app), pasa sus errores al log técnico con `[bifrost.rclone]`
   (`drain_rclone_log`: cada error distinto una vez, con el `RequestID` de la primera vez para buscarlo en el log
   de MinIO, sin nombres de ficheros, hasta 100) y lo borra. Un montaje
-  normal no deja ninguna línea de rclone. Si un montaje falla, el pop-up da la ruta del log técnico de la
-  sesión (`current_log_file()`; en OOD, `output.log`). El log técnico registra `mount ok: <carpeta> (rclone pid
+  normal no deja ninguna línea de rclone. Si un montaje falla, el pop-up da el código del error (ver abajo), no
+  rutas. El log técnico registra `mount ok: <carpeta> (rclone pid
   N, N s)` / `mount failed: <carpeta> code=…` (debajo, los errores de rclone), `already mounted` si la carpeta ya estaba montada (no se lanza otro rclone), `no longer mounted`
   si el sistema quitó el montaje (al recargar la lista o al pulsar el bucket, que se vuelve a montar: `mounting
   again` y `stopping rclone pid N of the lost mount`, porque su rclone sigue vivo),
@@ -118,6 +118,43 @@ Detalle y decisiones: `docs/superpowers/plans/PLAN-logging-improvements.md`.
   desmontaje con el PID que se para (`unmount <carpeta>: stopping rclone pid N` o, si es un resto de una
   sesión anterior, `rclone from a previous session, PIDs [N]` … `done (N s)`). Si la lista de buckets no se
   puede cargar: `bucket list failed: profile=… code=…` y, con `[bifrost.rclone]`, el texto de rclone.
+- **Códigos de error** (PR 4): cada error que ve el usuario (pop-ups, la línea de error en lugar de una lista y
+  la primera línea del resumen de copy, check y Tag Manager cuando fallan) lleva un código
+  `<pantalla><tipo>-<MMDD>-<HHMMSS>`, por ejemplo `MNT101-1103-141526`. Pantalla: `MNT` montar un bucket, `NET`
+  NetApp, `CPY` copy (y "Save log" y el navegador de MinIO de copy), `CHK` check, `TAG` Tag Manager, `APP`
+  actualizar BIFROST o fallo no previsto. El tipo es el campo `num` de cada `UserIssue`
+  (`common/rclone_output.py`); `UserIssue.reference(screen)` crea el código.
+
+  | Familia | Número | `code` |
+  |---|---|---|
+  | 1xx MinIO | 101 · 102 · 103 · 104 · 105 · 106 · 107 · 108 · 109 | `CREDENTIALS_EXPIRED` · `PROFILE_MISSING` · `MINIO_PERMISSION` · `BUCKET_NOT_FOUND` · `OBJECT_GONE` · `WORM_PROTECTED` · `INVALID_TAG` · `MINIO_BUSY` · `CLOCK_SKEW` |
+  | 2xx red y límites | 201 · 202 · 203 · 204 | `NETWORK` · `TEMPORARY` · `TRANSFER_LIMIT` · `TIME_LIMIT` |
+  | 3xx ficheros de origen | 301 · 302 · 303 · 304 · 305 | `SOURCE_NOT_FOUND` · `SOURCE_PERMISSION` · `SOURCE_CHANGING` · `FILE_IN_USE` · `DISK_FULL` |
+  | 4xx montajes | 401 · 402 · 403 · 404 · 405 | `MOUNT_TIMEOUT` · `MOUNT_BUSY` · `MOUNT_NOT_ALLOWED` · `UNMOUNT_FAILED` · `FUSE_MISSING` |
+  | 5xx NetApp | 501 · 502 · 503 | `NETAPP_LOGIN` · `NETAPP_SHARE_NOT_FOUND` · `NETAPP_PERMISSION` |
+  | 9xx BIFROST | 901 · 902 · 903 · 999 | `RCLONE_MISSING` · `RCLONE_OPTIONS` · `FATAL` · `UNEXPECTED` |
+
+  Reglas: un número no se reutiliza ni cambia nunca (un código de una versión antigua sigue significando lo
+  mismo); las variantes de una misma causa comparten número (`FUSE_MISSING` de macOS y de Linux, los tres
+  `SOURCE_NOT_FOUND`); un error nuevo toma el siguiente número libre de su familia. Esta tabla, la de
+  `docs/agent/backend.md` y la de la guía de usuario (`docs/user/troubleshooting.md`, con qué hacer) se
+  actualizan en el mismo commit que añada o cambie un error del catálogo.
+
+  En el log técnico, para buscar por código:
+  - `issue shown: ref=MNT101-1103-141526 code=CREDENTIALS_EXPIRED screen=mount` (logger `bifrost.ui`) cada vez
+    que se muestra un error, sin el contexto (en el Tag Manager es el nombre del fichero).
+  - `copy finished: … ref=CPY103-…`, `check finished: … ref=CHK…`, `tags finished: … ref=TAG…` cuando la
+    operación acaba con errores: copy y check `failed` o `partial`, check con ficheros que no pudo leer, Tag
+    Manager `stopped` o `partial`. Lo que el check encuentra distinto o que falta en MinIO es un resultado, no
+    un error: sin código. El tipo es el del error que explica el resultado (en un parcial, la causa más
+    frecuente).
+  - `unexpected error ref=APP999-…` con la traza (`safe_thread`) y `update failed ref=APP…` con la suya.
+- **"Export logs…"** (escritorio, en la cabecera de todas las pantallas; en OOD no existe: la pista pide el
+  `output.log` de la sesión): tras una confirmación, `export_logs_zip()` guarda en `~/Downloads`
+  `BIFROST-<app>-logs-<fecha>.zip` (permisos 0600) con los logs de las 5 últimas sesiones (`EXPORTED_SESSIONS`)
+  y los informes de copy, check y Tag Manager desde el inicio de la más antigua; `rclone/` no entra. Antes de
+  comprimir escribe `exporting logs to <zip>: sessions=N reports=M`, así que el log de la sesión actual dice
+  hasta dónde llega.
 - Logs antiguos que ya no se escriben: `~/bifrost-mount-logs/`, `~/rclone-combined-check.txt` y
   `~/bifrost-logs/` (también los `bifrost-tags-*.log` del Tag Manager). Pendiente de decidir si se borran.
 

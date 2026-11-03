@@ -86,6 +86,7 @@ class TagRun:
     stopped: UserIssue | None = None                              # error general que paró la operación
     cancelled: bool = False                                       # la paró el usuario
     seconds: float = 0.0
+    ref: str | None = None                                        # código del error, si lo hubo (finish())
 
     @property
     def outcome(self) -> str:
@@ -114,12 +115,26 @@ class TagRun:
         """True si se guardaron todos los fallidos y "Try again" puede reintentar solo esos."""
         return 0 < self.failed_count == len(self.failed)
 
+    def finish(self) -> TagRun:
+        """Al terminar: si hubo errores, fija el código que verán el usuario y el log técnico
+        (TAG103-1103-141526)."""
+        if self.outcome in ("stopped", "partial"):
+            self.ref = self.main_issue.reference("tags")
+        return self
+
     def _done(self) -> str:
         text = f"{self.ok} file(s) have the new tags"
         return text + (f"; {self.failed_count} could not be changed" if self.failed_count else "")
 
     def final_lines(self, is_web: bool) -> list[str]:
-        """Resumen para el panel (y el informe), sin nombres de ficheros."""
+        """Resumen para el panel (y el informe), sin nombres de ficheros. El código del error, si lo hubo, va en la
+        primera línea: la que dice que falló."""
+        lines = self._summary_lines(is_web)
+        if self.ref:
+            lines[0] = f"{lines[0]} (Error {self.ref})"
+        return lines
+
+    def _summary_lines(self, is_web: bool) -> list[str]:
         o = self.outcome
         if o == "empty":
             return ["No files found in this folder."]
@@ -153,8 +168,9 @@ class TagRun:
     def log_line(self) -> str:
         """Resultado en una línea para el log técnico (sin nombres de ficheros ni valores de etiquetas)."""
         stopped = self.stopped.code if self.stopped else "-"
-        return (f"outcome={self.outcome} total={self.ok + self.failed_count} ok={self.ok} "
+        line = (f"outcome={self.outcome} total={self.ok + self.failed_count} ok={self.ok} "
                 f"failed={self.failed_count} stopped={stopped} duration={self.seconds:.0f}s")
+        return f"{line} ref={self.ref}" if self.ref else line
 
 
 def apply_tags_to_prefix(s3_client, bucket: str, prefix: str, tagset: dict[str, str], *,
@@ -246,7 +262,7 @@ def _apply_tags(s3_client, bucket: str, key_pages: Iterable[list[str]], tagset: 
             run.stopped = run.stopped or issue_for_exception(ex)
     run.cancelled = stop.is_set() and run.stopped is None
     run.seconds = time.monotonic() - start
-    return run
+    return run.finish()
 
 
 def get_bucket_tags(s3_client, bucket: str) -> dict[str, str]:

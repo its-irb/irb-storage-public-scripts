@@ -170,5 +170,6 @@ cluster it goes to the same reports folder.
 | You do not see the destination folder | You probably do not have access yet. Ask your group's data manager. |
 | The copy stops halfway | Files already copied stay in MinIO. Start the copy again: files that are already there and identical are not copied again. |
 | You need the full log of a copy or check | Open its report, see [Where the full report is saved](#where-the-full-report-is-saved). |
+| The summary shows an **error code** (for example `CPY103-1103-141526`) | Follow its "What you can do" line. If it keeps happening, click **Export logs…** and send the file to ITS with the code (see [Error codes](troubleshooting.md#error-codes)). |
 | A window says **Option not allowed** | Some options in **Additional rclone flags (advanced)** cannot be used. Remove them, or put back the default values. |
 | The label at the top is red or orange (**🔑 Credentials expire in …**), or you are about to start a long copy | Your MinIO access pass is about to run out. Click **🔑 Renew credentials** before copying (see [getting-started.md](getting-started.md#renew-your-minio-access-pass-by-hand)). |

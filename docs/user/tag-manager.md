@@ -91,4 +91,4 @@ current labels would replace them blindly. A window explains the problem; click
 | You do not see the folder or file | Check that you signed in with the right user and that you have access to that folder. If the list shows an error, follow what it says. |
 | A window says the labels could not be read, saved or applied | Follow the "What you can do" line, then click **Try again**. For a folder, Try again only retries the files that failed (or the whole folder again if the operation stopped). |
 | "MinIO access expired" | Go **← Back**, click **🔑 Renew credentials** and open the Tag Manager again. |
-| It keeps failing | See [troubleshooting.md](troubleshooting.md) and send ITS the report (the path is in the LOGS panel). |
+| It keeps failing | Click **Export logs…** and send the file to ITS with the error code shown in the window and in the LOGS panel (see [Error codes](troubleshooting.md#error-codes)). |

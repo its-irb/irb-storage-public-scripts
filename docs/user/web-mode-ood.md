@@ -128,3 +128,4 @@ If you need to keep a report, download it or copy it to another folder.
 | It takes long or says it is checking for updates | It is probably reconnecting. Wait for the reconnection banner to finish loading. |
 | It asks for the password again | It is expected. Type your IRB password. |
 | It cannot connect | Check that you are on the cluster network and that the Nexica VPN is on. |
+| An error shows a **code** (for example `NET501-1103-141526`) | Follow its "What you can do" line. If it keeps happening, send ITS the code and the `output.log` file of your session (see [Logs and reports](#logs-and-reports) and [Error codes](troubleshooting.md#error-codes)). |

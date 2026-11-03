@@ -771,9 +771,8 @@ def _build_copy_content(
                     with open(path, "w", encoding="utf-8") as f:
                         f.write(contenido)
                     show_dialog(page, "Log saved", f"Saved to:\n{path}", C_ACCENT)
-                except Exception as ex:
-                    err_str = str(ex)
-                    show_dialog(page, "Error", err_str, C_ERROR)
+                except OSError as ex:
+                    _log_not_saved(ex)
 
         pick_file_btn   = btn_secondary("📄 File",
                             on_click=lambda e: page.run_task(_pick_file, e))
@@ -1001,6 +1000,10 @@ def _build_copy_content(
     # ── Guardar log ────────────────────────────────────────────────────────
     # El informe de cada operación se guarda solo al terminar (_write_report). "Save log" guarda además lo
     # que se ve en el panel: en web, en la carpeta de informes; en escritorio, donde elija el usuario.
+    def _log_not_saved(ex: OSError) -> None:
+        logger.warning("saving the log failed: %s", ex)
+        show_issue(page, backend.issue_for_exception(ex), is_web=IS_WEB, title="Could not save the log", screen="copy")
+
     def do_save_log(e):
         if IS_WEB and web_session is not None:
             contenido = "".join(web_session.get("copy_log_buffer", []))
@@ -1017,9 +1020,8 @@ def _build_copy_content(
                 fpath = backend.report_path("log")
                 fpath.write_text(contenido, encoding="utf-8")
                 show_dialog(page, "Log saved", f"Saved to:\n{fpath}", C_ACCENT)
-            except Exception as ex:
-                err_str = str(ex)
-                show_dialog(page, "Error", err_str, C_ERROR)
+            except OSError as ex:
+                _log_not_saved(ex)
         else:
             ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             page.run_task(_save_log_picker, f"bifrost-{ts}.log")
@@ -1060,7 +1062,7 @@ def _build_copy_content(
     # ── Layout ────────────────────────────────────────────────────────────
     content = ft.Column(
         [
-            build_header(subtitle=f"Copy & Verify — {perfil_rclone}", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
+            build_header(subtitle=f"Copy & Verify — {perfil_rclone}", IS_WEB=IS_WEB, no_ldap=NO_LDAP, page=page),
             ft.Container(
                 content=ft.Row(
                     [c for c in [back_btn, tags_btn, cifs_btn, expiry_badge, ft.Container(expand=True), renew_btn] if c is not None],

@@ -140,7 +140,7 @@ def build_credentials_content(
 
     content = ft.Column(
         [
-            build_header(subtitle="MinIO credentials — Auto renewal", IS_WEB=is_web, no_ldap=no_ldap),
+            build_header(subtitle="MinIO credentials — Auto renewal", IS_WEB=is_web, no_ldap=no_ldap, page=page),
             ft.Container(
                 content=ft.Column(
                     [

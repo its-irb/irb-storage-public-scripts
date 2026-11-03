@@ -36,7 +36,7 @@ def _build_shares_content(
     if not shares:
         content = ft.Column(
             [
-                build_header(subtitle=f"NetApp Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
+                build_header(subtitle=f"NetApp Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP, page=page),
                 ft.Container(
                     content=ft.Row(
                         [btn_secondary("← Back", on_click=lambda e: on_back())],
@@ -87,11 +87,11 @@ def _build_shares_content(
     _mounted_badges:   dict[str, ft.Container] = {}
     _mounting:         set[str] = set()
 
-    def _show_mount_error(name: str, error) -> None:
-        """Pop-up con por qué falló el montaje de un share y dónde está el log técnico."""
-        log_file = backend.current_log_file()
-        context = name + (f"\nDetails: {log_file}" if log_file else "")
-        show_issue(page, error.issue, is_web=IS_WEB, title="Could not mount the NetApp share", context=context)
+    def _show_mount_error(name: str, error, ref: str | None = None) -> str:
+        """Pop-up con por qué falló el montaje de un share. Devuelve su código: al pulsar "Error (details)" se vuelve
+        a mostrar el mismo."""
+        return show_issue(page, error.issue, is_web=IS_WEB, title="Could not mount the NetApp share", context=name,
+                          screen="netapp", ref=ref)
 
     def _select_share(name: str) -> None:
         if _selected["name"]:
@@ -133,9 +133,9 @@ def _build_shares_content(
                 if error is None:
                     badge.visible = True
                 else:
-                    error_btn.on_click = lambda e: _show_mount_error(name, error)
+                    ref = _show_mount_error(name, error)
+                    error_btn.on_click = lambda e: _show_mount_error(name, error, ref)
                     error_btn.visible  = True
-                    _show_mount_error(name, error)
                 page.update()
             backend.ui_call(page, _after)
 
@@ -311,7 +311,7 @@ def _build_shares_content(
 
     content = ft.Column(
         [
-            build_header(subtitle=f"NetApp Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
+            build_header(subtitle=f"NetApp Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP, page=page),
             ft.Container(
                 content=ft.Row(
                     [c for c in [back_btn_widget] if c is not None],

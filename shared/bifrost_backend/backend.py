@@ -42,7 +42,8 @@ from .common.logs import (
     report_path,
     write_report,
     open_in_file_browser,
-    current_log_file,
+    export_logs_zip,
+    EXPORTED_SESSIONS,
 )
 from .common.rclone_output import (
     MAX_CURRENT,

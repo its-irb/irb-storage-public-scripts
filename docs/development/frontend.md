@@ -364,11 +364,17 @@ tareas asyncio.
 - **Threads** — `backend.safe_thread(page, target)` en lugar de
   `threading.Thread`; con `threading.Timer`, envolver el callback en
   `lambda: ui_call(page, fn)`.
-- **Diálogos de error** — `show_dialog(page, "Error", msg, color=C_ERROR)`. Para errores traducidos
-  (`UserIssue`), `show_issue(page, issue, *, is_web, title=None, context="", screen="copy"|"tags",
-  buttons=[(texto, acción), …])`: contexto (un fichero o un recuento, nunca listas), qué ha pasado y qué
-  hacer; cada botón cierra el diálogo y ejecuta su acción. El PR 4 le añadirá la referencia y "Copy
-  details".
+- **Diálogos de error** — avisos sobre lo que escribe el usuario: `show_dialog(page, título, msg,
+  color=C_ERROR)`. Errores del programa (`UserIssue`): `show_issue(page, issue, *, is_web, title=None,
+  context="", screen=…, buttons=[(texto, acción), …], ref=None) -> str`: debajo del título, el código
+  ("Error MNT101-1103-141526"); después el contexto (el bucket, un fichero o un recuento; nunca listas ni rutas
+  de logs), qué ha pasado y qué hacer; cada botón cierra el diálogo y ejecuta su acción. `screen` (`mount`,
+  `netapp`, `copy`, `check`, `tags`, `app`) da el principio del código y la pista; con `ref` se reutiliza un
+  código (el de una operación o el de la primera vez que se mostró) y devuelve el código. Para un error en lugar
+  de una lista: `issue_line(issue, *, is_web, screen)` (texto de una línea con su código). Las dos escriben
+  `issue shown: ref=… code=… screen=…` en el log técnico.
+- **Cabecera** — `build_header(subtitle, IS_WEB, no_ldap, page=None)`; con `page`, en escritorio, el botón
+  "Export logs…" (confirmación y `backend.export_logs_zip()`). Todas las pantallas pasan `page`.
 - **Líneas de los paneles de log** — `log_text(line)` (color según el emoji inicial; lo usan copy y el Tag
   Manager).
 - **Confirmaciones** — `show_confirm(page, title, message, on_yes, on_no=None)`.

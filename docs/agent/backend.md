@@ -15,6 +15,8 @@ backend (internal MinIO requests use `verify=False`).
 | `common/rclone.py` — rclone resolution | `get_rclone_executable()` — looks for rclone in (1) `FLET_ASSETS_DIR/bin/` (packaged apps), (2) `bifrost-<flavour>/src/assets/bin/` of the repo (dev, built from `APP_INFO["flavour"]`), (3) PATH (web/cluster); raises `EnvironmentError` if not found. `obtener_ruta_rclone_conf()` (runs `rclone config file`; result cached with `lru_cache`), `rclone_lsd()` (folders only — S3 destination), `_subprocess_kwargs()`. |
 | `common/updates.py` — autoupdate | `_parse_version()`, `check_update_version()`, `should_check_for_updates()`, `get_update_file_suffix()`, `download_new_binary()`, `get_emoji_font_asset_path()`. |
 | `common/ui_helpers.py` — Flet ⇄ threading | `ui_call(page, fn)`, `safe_thread(page, target)`. |
+| `common/logs.py` — technical log, reports, export | `setup_logging()`, `log_dir()`, `report_path()`, `write_report()`, `rclone_log_path()`, `open_in_file_browser()`, `export_logs_zip(sessions=EXPORTED_SESSIONS)` → path of the zip, in `~/Downloads` (0600) with the logs of the last 5 sessions and the copy, check and Tag Manager reports of those sessions. |
+| `common/rclone_output.py` — user-facing errors, rclone output | `UserIssue(code, num, title, message, hint, web_hint, tags_hint)`: `num` is the type in the code the user sees (see "Error codes" below); `hint_for(is_web, screen)`; `reference(screen)` → `MNT101-1103-141526`. Catalog, `classify()`, `error_text()`, `error_key()`, `issue_for_exception()`. `RunSummary` (copy and check): `finish()` sets `ref` when the operation ends with errors (`error_issue()`); it goes on the first line of `final_lines()` and in `log_line()`. |
 | `mount/preflight.py` — userland FS checks | `WinFspMissingError`, `_check_winfsp_windows()`, `install_winfsp_windows(on_progress)`, `_get_fuse_macos()`, `_macos_app_bundle_frameworks()`, `_check_fuse_linux()`. |
 | `common/rclone_mount.py` — start and verify mounts | `mount_and_wait()` → `Popen`: starts `rclone mount` with a temporary errors-only JSON log (`--use-json-log --log-level ERROR`, max 10 MB + 1) and only succeeds once the folder can be listed (rclone mounts instantly even with bad credentials or no network; the probe listing runs in another thread because it can take minutes). On failure → `MountError(issue)` with the cause read from rclone's log, whose errors go to the technical log. `drain_rclone_log(log, label)`: moves the file's errors to the technical log (`bifrost.rclone`, each text once, no file names, up to 100) and deletes it; called when a mount fails and on every unmount. If the folder is already mounted it launches nothing (`MOUNT_BUSY`): the probe would see that mount, not the new one. `is_mounted()`, `stop_process()`. Used by MinIO and NetApp mounts. |
 | `mount/s3_mount.py` — S3 mount | `mount_rclone_S3_prefix_to_folder()` → verified mount folder (`MountError` / `WinFspMissingError`); if the folder is already mounted and answers, returns it without a second rclone; if the system removed this session's mount (macOS after a network cut) and its rclone is still alive, stops it before mounting again. `resolver_mount_point_destino()` (single source of a bucket's folder), `desmontar_punto_montaje()` → `bool` (stops only that mount's rclone; for leftovers of a previous session, the `rclone mount` whose command line has that exact folder — `ps` on macOS/Linux, PowerShell on Windows — so rclone unmounts cleanly; forces the unmount only if the folder is still mounted; never `taskkill /IM`, never other rclone such as copies), `desmontar_todos_los_mounts_s3()` (+ stale mount-point cleanup helpers). |
@@ -65,17 +67,52 @@ mutation from a background thread must go through `ui_call`** to avoid races
 with Flet's diff walker (`IndexError` in `_compare_lists`; details in
 `docs/development/frontend.md`).
 
+## Error codes
+
+Every error the user sees (pop-ups, the error line shown instead of a list, and
+the first summary line of a copy, check or Tag Manager operation that failed)
+carries a code `<screen><type>-<MMDD>-<HHMMSS>`, for example
+`MNT101-1103-141526`. Screen: `MNT` bucket mount, `NET` NetApp, `CPY` copy
+(also "Save log" and the copy screen's MinIO browser), `CHK` check, `TAG` Tag
+Manager, `APP` updating BIFROST or an unexpected failure. The type is the
+`num` of the `UserIssue`; `UserIssue.reference(screen)` builds the code.
+
+| Family | Number | `code` |
+|---|---|---|
+| 1xx MinIO | 101 · 102 · 103 · 104 · 105 · 106 · 107 · 108 · 109 | `CREDENTIALS_EXPIRED` · `PROFILE_MISSING` · `MINIO_PERMISSION` · `BUCKET_NOT_FOUND` · `OBJECT_GONE` · `WORM_PROTECTED` · `INVALID_TAG` · `MINIO_BUSY` · `CLOCK_SKEW` |
+| 2xx network and limits | 201 · 202 · 203 · 204 | `NETWORK` · `TEMPORARY` · `TRANSFER_LIMIT` · `TIME_LIMIT` |
+| 3xx source files | 301 · 302 · 303 · 304 · 305 | `SOURCE_NOT_FOUND` · `SOURCE_PERMISSION` · `SOURCE_CHANGING` · `FILE_IN_USE` · `DISK_FULL` |
+| 4xx mounts | 401 · 402 · 403 · 404 · 405 | `MOUNT_TIMEOUT` · `MOUNT_BUSY` · `MOUNT_NOT_ALLOWED` · `UNMOUNT_FAILED` · `FUSE_MISSING` |
+| 5xx NetApp | 501 · 502 · 503 | `NETAPP_LOGIN` · `NETAPP_SHARE_NOT_FOUND` · `NETAPP_PERMISSION` |
+| 9xx BIFROST | 901 · 902 · 903 · 999 | `RCLONE_MISSING` · `RCLONE_OPTIONS` · `FATAL` · `UNEXPECTED` |
+
+Rules: a number is never reused or changed (a code from an old version keeps
+its meaning); variants of the same cause share a number (`FUSE_MISSING` for
+macOS and Linux, the three `SOURCE_NOT_FOUND`); a new error takes the next free
+number of its family. Update this table, the one in
+`docs/development/operations.md` and the user one
+(`docs/user/troubleshooting.md`, with what to do) in the same commit that adds
+or changes a catalog error.
+
+In the technical log: `issue shown: ref=… code=… screen=…` (logger
+`bifrost.ui`) every time an error is shown, without its context (in the Tag
+Manager it is a file name); `ref=…` at the end of `copy/check/tags finished`
+when the operation ends with errors; `unexpected error ref=APP999-…` with the
+traceback (`safe_thread`).
+
 ## `safe_thread(page, target, daemon=True)`
 
-Creates a `threading.Thread` that wraps `target` in try/except and shows any
-exception in a dialog through `ui_call`. Prefer it over a bare
+Creates a `threading.Thread` that wraps `target` in try/except: an unhandled
+exception goes to the technical log with its traceback and a code
+(`unexpected error ref=APP999-…`), and the user sees the `UNEXPECTED` pop-up
+with that same code (through `ui_call`). Prefer it over a bare
 `threading.Thread` for user actions.
 
 ## Backend coupling
 
 ```python
 # common/ui_helpers.py, inside safe_thread (lazy: avoids a circular import)
-from bifrost_frontend.frontend import show_dialog, C_ERROR
+from bifrost_frontend.frontend import show_issue
 # common/rclone.py, common/updates.py
 from config import APP_INFO
 ```

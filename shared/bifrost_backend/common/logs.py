@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import threading
+import zipfile
 from datetime import datetime
 from importlib import metadata
 from pathlib import Path
@@ -21,13 +22,18 @@ from pathlib import Path
 _FORMAT = "%(asctime)s.%(msecs)03d %(levelname)-7s [%(name)s] %(message)s"
 _DATEFMT = "%Y-%m-%d %H:%M:%S"
 KEEP_SESSIONS = 30
+EXPORTED_SESSIONS = 5        # sesiones que lleva el zip de "Export logs…"
 # `flet run` pasa este prefijo a la app y espera una línea "PAGE_URL_…" sin modificar en stdout.
 _PASSTHROUGH_PREFIX = os.environ.get("FLET_DISPLAY_URL_PREFIX")
 # App empaquetada con `flet build`: su arranque (serious_python) define esta variable y manda stdout/stderr a
 # un console.log propio, que se vacía en cada arranque y que su sys.exit cierra. Flet solo lo usa para mostrar
 # la pantalla "Error running app" si la app falla al arrancar, así que ahí solo hacen falta avisos y errores.
 _PACKAGED = "FLET_PYTHON_CALLBACK_SOCKET_ADDR" in os.environ
-_state: dict = {"app": None, "is_web": False, "file": None}   # lo rellena setup_logging
+_state: dict = {"app": None, "is_web": False}   # lo rellena setup_logging
+# Fecha y hora en el nombre de los logs de sesión y de los informes: ordena por antigüedad.
+_STAMP = re.compile(r"\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d")
+
+log = logging.getLogger("bifrost.logs")
 
 
 def log_dir(app: str) -> Path:
@@ -65,15 +71,19 @@ def _folder(name: str) -> Path:
     return folder
 
 
+def _unique_path(folder: Path, stem: str, ext: str) -> Path:
+    """<folder>/<stem>.<ext>, o <stem>-2.<ext>, -3… si ya existe (dos ficheros en el mismo segundo)."""
+    path, n = folder / f"{stem}.{ext}", 2
+    while path.exists():
+        path, n = folder / f"{stem}-{n}.{ext}", n + 1
+    return path
+
+
 def _new_file(folder_name: str, kind: str, ext: str) -> Path:
     """Ruta nueva <base>/<folder_name>/<kind>-<fecha>.<ext>, sin pisar ninguna. Conserva 30 por tipo."""
     folder = _folder(folder_name)
     _prune(folder, f"{kind}-*.{ext}", KEEP_SESSIONS - 1)
-    stem = f"{kind}-{datetime.now():%Y-%m-%d_%H-%M-%S}"
-    path, n = folder / f"{stem}.{ext}", 2
-    while path.exists():                     # dos ficheros del mismo tipo en el mismo segundo
-        path, n = folder / f"{stem}-{n}.{ext}", n + 1
-    return path
+    return _unique_path(folder, f"{kind}-{datetime.now():%Y-%m-%d_%H-%M-%S}", ext)
 
 
 def report_path(kind: str, ext: str = "log") -> Path:
@@ -87,15 +97,6 @@ def rclone_log_path(kind: str, name: str) -> Path:
     pasan al log técnico y se borra al desmontar (rclone_mount.drain_rclone_log)."""
     label = re.sub(r"[^\w.-]+", "_", name).strip("_")[:60] or "x"
     return _folder("rclone") / f"{kind}-{label}.log"
-
-
-def current_log_file() -> Path | None:
-    """El log técnico de esta sesión: el fichero de escritorio o, en Open OnDemand, output.log de la carpeta de
-    la sesión. None si no hay ninguno (web en local)."""
-    session_dir = os.environ.get("BIFROST_SESSION_DIR")
-    if _state["is_web"] and session_dir:
-        return Path(session_dir) / "output.log"
-    return _state["file"]
 
 
 def write_report(kind: str, lines: list[str], problems: list[str] | None = None) -> Path:
@@ -126,7 +127,39 @@ def open_in_file_browser(path: str | Path, select: bool = False) -> None:
         else:
             subprocess.Popen(["xdg-open", str(path.parent if select else path)])
     except Exception as ex:
-        logging.getLogger("bifrost").warning("could not open %s in the file browser: %s", path, ex)
+        log.warning("could not open %s in the file browser: %s", path, ex)
+
+
+def export_logs_zip(sessions: int = EXPORTED_SESSIONS) -> Path:
+    """Guarda en Descargas un zip para ITS con los logs de las `sessions` últimas sesiones de esta app (escritorio)
+    y los informes de copy, check y Tag Manager de esas sesiones, y devuelve su ruta. Puede lanzar OSError.
+
+    El log de la sesión actual se escribe línea a línea, así que lleva todo hasta este momento. Los informes tienen
+    nombres de ficheros y valores de etiquetas: la pantalla lo avisa antes de exportar. rclone/ no entra: son
+    ficheros temporales y sus errores ya están en el log.
+    """
+    app = _state["app"]
+    folder = log_dir(app)
+    session_logs = sorted(folder.glob(f"bifrost-{app}-*.log"))[-sessions:]
+    since = _stamp(session_logs[0]) if session_logs else ""
+    reports = sorted(path for kind in ("copy", "check", "tags")
+                     for path in (folder / "reports").glob(f"{kind}-*.log") if _stamp(path) >= since)
+    target = Path.home() / "Downloads"
+    target.mkdir(exist_ok=True)
+    zip_path = _unique_path(target, f"BIFROST-{app}-logs-{datetime.now():%Y-%m-%d_%H-%M-%S}", "zip")
+    # Antes de comprimir, para que el log de esta sesión diga hasta dónde llega.
+    log.info("exporting logs to %s: sessions=%d reports=%d", zip_path, len(session_logs), len(reports))
+    fd = os.open(zip_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)    # solo el usuario puede leerlo
+    with os.fdopen(fd, "wb") as fh, zipfile.ZipFile(fh, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in [*session_logs, *reports]:
+            zf.write(path, path.relative_to(folder))
+    return zip_path
+
+
+def _stamp(path: Path) -> str:
+    """La fecha y hora del nombre de un log de sesión o de un informe ("" si no la tiene)."""
+    match = _STAMP.search(path.name)
+    return match[0] if match else ""
 
 
 class _RedactFilter(logging.Filter):
@@ -244,7 +277,6 @@ def setup_logging(app: str, *, is_web: bool, version: str) -> Path | None:
             _prune(d, f"bifrost-{app}-*.log", KEEP_SESSIONS - 1)
             log_file = d / f"bifrost-{app}-{datetime.now():%Y-%m-%d_%H-%M-%S}.log"
             _add_handler(logging.FileHandler(log_file, encoding="utf-8"), logging.DEBUG)
-            _state["file"] = log_file
         except OSError as ex:
             log_file, file_error = None, f"Cannot create log file in {d}: {ex}"
 

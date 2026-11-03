@@ -112,7 +112,7 @@ docs/superpowers/         # Historical feature specs and plans
   real path of the shared package. `pyproject.toml` is not versioned: it is
   generated from `pyproject-template.toml`.
 - The backend imports from the frontend only in one place:
-  `common/ui_helpers.safe_thread` imports `show_dialog` and `C_ERROR` lazily
+  `common/ui_helpers.safe_thread` imports `show_issue` lazily
   (inside the function) to show unhandled exceptions. Keep that import lazy:
   a top-level import would create a circular import.
 - **Views never import `main`**: `main.py` imports the views, so the reverse

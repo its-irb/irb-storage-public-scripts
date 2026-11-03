@@ -19,7 +19,7 @@ from pathlib import Path
 from sys import platform as sys_platform
 
 from ..common.rclone import _get_user_agent, _subprocess_kwargs, get_rclone_executable
-from ..common.rclone_output import RunSummary
+from ..common.rclone_output import FAILED, UNEXPECTED, RunSummary
 from .s3_tags import construir_tag_string
 
 log = logging.getLogger("bifrost.copy")
@@ -247,10 +247,10 @@ def _terminar(operacion, summary: RunSummary, rc, log_fn, on_finish, expose_proc
             log_fn(line)
         log.info("%s finished: %s", operacion, summary.log_line())
     except Exception:
-        log.exception("%s: could not build the summary", operacion)
-        summary.outcome = "failed"
-        log_fn(f"\n❌ The {operacion} ended, but BIFROST could not read its result. Do not delete the "
-               "original. If it keeps happening, contact ITS and send them the report saved at the end of this log.\n")
+        summary.outcome, summary.ref = FAILED, UNEXPECTED.reference(operacion)
+        log.exception("%s: could not build the summary ref=%s", operacion, summary.ref)
+        log_fn(f"\n❌ The {operacion} ended, but BIFROST could not read its result. (Error {summary.ref})\n"
+               f"   Do not delete the original. What you can do: {UNEXPECTED.hint_for(summary.is_web)}\n")
     finally:
         try:
             if on_finish:

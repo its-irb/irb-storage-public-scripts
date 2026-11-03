@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import logging
 import threading
-import traceback
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+from .rclone_output import UNEXPECTED
+
+if TYPE_CHECKING:
+    import flet as ft
 
 log = logging.getLogger("bifrost.ui")
 
@@ -38,26 +44,15 @@ def ui_call(page: ft.Page, fn: Callable) -> bool:
 
 
 def safe_thread(page: ft.Page, target: Callable, daemon: bool = True) -> threading.Thread:
-    """
-    Crea un Thread que captura cualquier excepción no controlada y la muestra
-    en un diálogo de error en lugar de matar el proceso silenciosamente.
-    """
+    """Crea un Thread que, si `target` falla sin controlarlo, deja la traza en el log técnico con un código y se
+    lo muestra al usuario (UNEXPECTED), en lugar de perder el error en silencio."""
     def _wrapper():
         try:
             target()
-        except Exception as exc:
-            from bifrost_frontend.frontend import show_dialog, C_ERROR  # lazy: evita import circular
-            tb = traceback.format_exc()
-            print(f"[safe_thread] Unhandled exception:\n{tb}")
-            _exc = exc  # capture before Python deletes the except-clause variable
-            def _show(e=_exc):
-                show_dialog(
-                    page,
-                    "Unexpected error",
-                    f"{type(e).__name__}: {e}\n\nCheck console or contact ITS.",
-                    C_ERROR,
-                )
-            ui_call(page, _show)
+        except Exception:
+            from bifrost_frontend.frontend import show_issue  # lazy: evita import circular
+            ref = UNEXPECTED.reference("app")
+            log.exception("unexpected error ref=%s", ref)
+            ui_call(page, lambda: show_issue(page, UNEXPECTED, is_web=page.web, screen="app", ref=ref))
 
-    t = threading.Thread(target=_wrapper, daemon=daemon)
-    return t
+    return threading.Thread(target=_wrapper, daemon=daemon)

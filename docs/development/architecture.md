@@ -43,7 +43,7 @@ rclone.
   (`no_ldap`, `is_web`, `prefill_user`, `log_event`, `write_log`,
   `done_message`). Un arreglo en esas vistas se hace una vez para las dos apps.
 - **Backend que importa del frontend**: solo `safe_thread`
-  (`common/ui_helpers.py`) importa `show_dialog` y `C_ERROR` de
+  (`common/ui_helpers.py`) importa `show_issue` de
   `bifrost_frontend.frontend`, para mostrar en un diálogo las excepciones no
   capturadas de los hilos. El import es diferido (dentro de la función) para
   evitar un import circular. Es un compromiso consciente (no es un backend

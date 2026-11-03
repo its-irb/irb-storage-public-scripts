@@ -23,6 +23,7 @@ import shutil
 from collections import Counter, deque
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 log = logging.getLogger("bifrost.rclone")
@@ -32,9 +33,15 @@ log = logging.getLogger("bifrost.rclone")
 # ERRORES PARA EL USUARIO
 # ============================================================================
 
+# Primera parte del código de un error: la pantalla en la que se muestra.
+_SCREEN_CODES = {"mount": "MNT", "netapp": "NET", "copy": "CPY", "check": "CHK", "tags": "TAG", "app": "APP"}
+
+
 @dataclass(frozen=True)
 class UserIssue:
     code: str                    # estable; aparece en el log técnico
+    num: int                     # tipo en el código que ve el usuario: no se reutiliza ni cambia nunca (tabla en
+                                 # docs/development/operations.md)
     title: str                   # título corto
     message: str                 # qué ha pasado, en lenguaje sencillo
     hint: str = ""               # qué puede hacer el usuario ("" si no puede hacer nada)
@@ -42,161 +49,172 @@ class UserIssue:
     tags_hint: str | None = None  # pista en el Tag Manager, si es distinta (allí no hay botón de renovar)
 
     def hint_for(self, is_web: bool, screen: str = "copy") -> str:
-        """Pista según el modo (escritorio u Open OnDemand) y la pantalla ("copy" o "tags")."""
+        """Pista según el modo (escritorio u Open OnDemand) y la pantalla (solo cambia en "tags")."""
         if screen == "tags" and self.tags_hint is not None:
             return self.tags_hint
         return self.web_hint if (is_web and self.web_hint is not None) else self.hint
 
+    def reference(self, screen: str) -> str:
+        """Código de esta vez que se muestra el error: pantalla, tipo y momento (MNT101-1103-141526). También va
+        al log técnico, así que ITS encuentra esa vez concreta y, por el tipo, sabe la causa sin abrirlo."""
+        return f"{_SCREEN_CODES[screen]}{self.num:03d}-{datetime.now():%m%d-%H%M%S}"
 
-_CONTACT_ITS = "If it keeps happening, contact ITS and send them the report saved at the end of this log."
+
+# Cómo hacer llegar un error a ITS: en escritorio, con "Export logs…"; en Open OnDemand, el output.log de la sesión.
+_CONTACT_ITS = ("If it keeps happening, click “Export logs…” at the top and send the file to ITS with the error "
+                "code.")
+_CONTACT_ITS_WEB = ("If it keeps happening, contact ITS with the error code and the output.log file of your session "
+                    "folder.")
 _RENEW_FROM_TAGS = "Go ← Back, click “🔑 Renew credentials” and open Tag Manager again."
 
 # Orden = prioridad. CREDENTIALS_EXPIRED va antes que MINIO_PERMISSION: MinIO responde a una clave no válida
 # con "StatusCode: 403 … InvalidAccessKeyId" (comprobado, fase 0).
 _CATALOG: list[tuple[re.Pattern, UserIssue]] = [
     (re.compile(r"\b(ExpiredToken|InvalidAccessKeyId|InvalidTokenId|InvalidToken|SignatureDoesNotMatch)\b"),
-     UserIssue("CREDENTIALS_EXPIRED", "MinIO access expired",
+     UserIssue("CREDENTIALS_EXPIRED", 101, "MinIO access expired",
                "Your temporary MinIO access pass is no longer valid.",
                "Click “🔑 Renew credentials” and try again.",
                tags_hint=_RENEW_FROM_TAGS)),
     # Sensible a mayúsculas a propósito: una carpeta "worm_project" no es un error de WORM.
     (re.compile(r"didn't find section in config file"),
-     UserIssue("PROFILE_MISSING", "MinIO access not set up",
+     UserIssue("PROFILE_MISSING", 102, "MinIO access not set up",
                "BIFROST cannot find your MinIO access settings on this computer.",
                "Click “🔑 Renew credentials” and try again.",
                tags_hint=_RENEW_FROM_TAGS)),
     (re.compile(r"\bObjectLocked\b|\bWORM\b"),
-     UserIssue("WORM_PROTECTED", "File already in MinIO",
+     UserIssue("WORM_PROTECTED", 106, "File already in MinIO",
                "A file with the same name is already in this MinIO folder and it cannot be replaced.",
                "The file already in MinIO is kept. If you also need this version, copy it into a new folder "
                "(for example, one named with today's date).")),
     (re.compile(r"\bAccessDenied\b|403 Forbidden|status ?code: 403", re.I),
-     UserIssue("MINIO_PERMISSION", "No permission in MinIO",
+     UserIssue("MINIO_PERMISSION", 103, "No permission in MinIO",
                "You do not have permission to read or write in this MinIO folder.",
                "Check that you chose the right folder. If you need access, ask your group's data manager.")),
     (re.compile(r"\bNoSuchBucket\b"),
-     UserIssue("BUCKET_NOT_FOUND", "MinIO folder not found",
+     UserIssue("BUCKET_NOT_FOUND", 104, "MinIO folder not found",
                "The MinIO folder does not exist or you cannot see it.",
                "Choose the folder again from the list.")),
     (re.compile(r"\bNoSuchKey\b"),
-     UserIssue("OBJECT_GONE", "File no longer in MinIO",
+     UserIssue("OBJECT_GONE", 105, "File no longer in MinIO",
                "This file is no longer in MinIO. It may have been deleted or moved.",
                "Open the folder again to see what it contains now.")),
     (re.compile(r"\bInvalidTag\b"),
-     UserIssue("INVALID_TAG", "Tag not accepted",
+     UserIssue("INVALID_TAG", 107, "Tag not accepted",
                "MinIO did not accept one of the tags (a value may be too long or contain characters it does not "
                "allow).",
                "Shorten the value or remove unusual characters, and try again.")),
     # Montajes. fuse-t (macOS) escribe "mount failed" si la carpeta ya está montada (comprobado, fase 0 del PR 3).
     (re.compile(r"\bmount failed\b|Resource busy|mountpoint is not empty", re.I),
-     UserIssue("MOUNT_BUSY", "Mount folder in use",
+     UserIssue("MOUNT_BUSY", 402, "Mount folder in use",
                "The local folder for this mount is in use (it may already be mounted).",
                "Click “Unmount all” and mount again. If it keeps happening, restart the computer.")),
     (re.compile(r"rclone not found"),
-     UserIssue("RCLONE_MISSING", "BIFROST is incomplete",
+     UserIssue("RCLONE_MISSING", 901, "BIFROST is incomplete",
                "A component BIFROST needs (rclone) is missing.",
                "Reinstall BIFROST.")),
     # NetApp (SMB). Textos de los códigos de Windows; los mensajes reales de rclone están por confirmar en OOD.
     (re.compile(r"STATUS_LOGON_FAILURE|logon failure|attempted logon is invalid", re.I),
-     UserIssue("NETAPP_LOGIN", "NetApp did not accept your password",
+     UserIssue("NETAPP_LOGIN", 501, "NetApp did not accept your password",
                "The NetApp rejected your user name or password.",
                "Sign out and sign in again with your current IRB password.")),
     (re.compile(r"STATUS_BAD_NETWORK_NAME|network name cannot be found", re.I),
-     UserIssue("NETAPP_SHARE_NOT_FOUND", "NetApp share not found",
+     UserIssue("NETAPP_SHARE_NOT_FOUND", 502, "NetApp share not found",
                "The NetApp share does not exist or you cannot see it.",
                "Contact ITS.")),
     (re.compile(r"STATUS_ACCESS_DENIED"),
-     UserIssue("NETAPP_PERMISSION", "No permission on the NetApp share",
+     UserIssue("NETAPP_PERMISSION", 503, "No permission on the NetApp share",
                "You do not have permission to open this NetApp share.",
                "If you need access, ask your group's data manager.")),
     (re.compile(r"no such host|dial tcp|connection refused|connection reset|i/o timeout|timed out|"
                 r"TLS handshake timeout|network is unreachable|Could not connect to the endpoint|"
                 r"Connect timeout|Read timeout|context deadline exceeded", re.I),
-     UserIssue("NETWORK", "Connection problem",
+     UserIssue("NETWORK", 201, "Connection problem",
                "BIFROST lost the connection to a server (MinIO, or the SFTP server if you are copying from one).",
                "Check that the Nexica VPN is on and try again.",
-               web_hint="Try again in a few minutes. " + _CONTACT_ITS)),
+               web_hint="Try again in a few minutes. " + _CONTACT_ITS_WEB)),
     (re.compile(r"\bRequestTimeTooSkewed\b"),
-     UserIssue("CLOCK_SKEW", "Your computer's clock is wrong",
+     UserIssue("CLOCK_SKEW", 109, "Your computer's clock is wrong",
                "MinIO rejected the request because the date or time of the computer is not correct.",
                "Set the date and time to automatic and try again.",
-               web_hint="Try again in a few minutes. " + _CONTACT_ITS)),
+               web_hint="Try again in a few minutes. " + _CONTACT_ITS_WEB)),
     (re.compile(r"\b(SlowDown|ServiceUnavailable|InternalError|XMinioServerNotInitialized)\b|status ?code: 50[234]",
                 re.I),
-     UserIssue("MINIO_BUSY", "MinIO is busy",
+     UserIssue("MINIO_BUSY", 108, "MinIO is busy",
                "The MinIO server could not answer right now.",
                "Wait a few minutes and try again.")),
     (re.compile(r"no space left on device", re.I),
-     UserIssue("DISK_FULL", "Not enough space",
+     UserIssue("DISK_FULL", 305, "Not enough space",
                "There is no free space left where the data is being written.",
                "Free some space and try again.")),
     (re.compile(r"being used by another process", re.I),
-     UserIssue("FILE_IN_USE", "A file is open in another program",
+     UserIssue("FILE_IN_USE", 304, "A file is open in another program",
                "Another program has a file of the source open, so it cannot be read.",
                "Close the program that is using it and copy again.")),
     (re.compile(r"corrupted on transfer|source file is being updated", re.I),
-     UserIssue("SOURCE_CHANGING", "A file changed while it was being copied",
+     UserIssue("SOURCE_CHANGING", 303, "A file changed while it was being copied",
                "The file was modified during the copy, so the copy was not kept.",
                "Wait until the instrument or program has finished writing it, then copy again.")),
     (re.compile(r"permission denied|access is denied", re.I),
-     UserIssue("SOURCE_PERMISSION", "Cannot open a file or folder",
+     UserIssue("SOURCE_PERMISSION", 302, "Cannot open a file or folder",
                "BIFROST is not allowed to open a file or folder.",
                "Check that you have permission to open it. If not, ask the owner of the folder.")),
     (re.compile(r"directory not found|file not found|no such file or directory|cannot find the (file|path)",
                 re.I),
-     UserIssue("SOURCE_NOT_FOUND", "Source not found",
+     UserIssue("SOURCE_NOT_FOUND", 301, "Source not found",
                "The file or folder does not exist (it may have been moved or renamed).",
                "Check the source path and try again.")),
 ]
 
-UNEXPECTED = UserIssue("UNEXPECTED", "Something went wrong",
+UNEXPECTED = UserIssue("UNEXPECTED", 999, "Something went wrong",
                        "BIFROST could not finish the operation.",
-                       "Try again. " + _CONTACT_ITS)
+                       "Try again. " + _CONTACT_ITS,
+                       web_hint="Try again. " + _CONTACT_ITS_WEB)
 
 # Montajes: problemas que BIFROST detecta por sí mismo (no salen de un texto de rclone).
-FUSE_MISSING_MACOS = UserIssue("FUSE_MISSING", "Folder driver missing",
+FUSE_MISSING_MACOS = UserIssue("FUSE_MISSING", 405, "Folder driver missing",
                                "BIFROST cannot mount folders on this Mac: the driver it needs (fuse-t) is missing.",
                                "Reinstall BIFROST.")
-FUSE_MISSING_LINUX = UserIssue("FUSE_MISSING", "FUSE is not installed",
+FUSE_MISSING_LINUX = UserIssue("FUSE_MISSING", 405, "FUSE is not installed",
                                "BIFROST needs FUSE to mount folders on this computer.",
                                "Install it (sudo apt install fuse3, or sudo dnf install fuse3), or ask ITS.")
-MOUNT_TIMEOUT = UserIssue("MOUNT_TIMEOUT", "The folder did not respond",
+MOUNT_TIMEOUT = UserIssue("MOUNT_TIMEOUT", 401, "The folder did not respond",
                           "The folder was mounted, but MinIO or the NetApp did not answer in time.",
                           "Check that the Nexica VPN is on and try again.",
-                          web_hint="Try again in a few minutes. " + _CONTACT_ITS)
-MOUNT_NOT_ALLOWED = UserIssue("MOUNT_NOT_ALLOWED", "BIFROST cannot open the mounted folder",
+                          web_hint="Try again in a few minutes. " + _CONTACT_ITS_WEB)
+MOUNT_NOT_ALLOWED = UserIssue("MOUNT_NOT_ALLOWED", 403, "BIFROST cannot open the mounted folder",
                               "The system did not let BIFROST open the folder it mounted.",
                               "On a Mac: System Settings → Privacy & Security → Files and Folders → allow BIFROST "
                               "to access network volumes, then mount again.")
-UNMOUNT_FAILED = UserIssue("UNMOUNT_FAILED", "Could not unmount",
+UNMOUNT_FAILED = UserIssue("UNMOUNT_FAILED", 404, "Could not unmount",
                            "A mounted folder is still in use, so it could not be unmounted.",
                            "Close the windows or programs that are using it and click “Unmount all” again.")
 
 # https://rclone.org/docs/#exit-code
 _EXIT = {
-    2: UserIssue("RCLONE_OPTIONS", "Options not valid",
+    2: UserIssue("RCLONE_OPTIONS", 902, "Options not valid",
                  "The options in “Additional rclone flags (advanced)” were not accepted.",
                  "Check them, or restore the default values, and try again."),
-    3: UserIssue("SOURCE_NOT_FOUND", "Folder not found",
+    3: UserIssue("SOURCE_NOT_FOUND", 301, "Folder not found",
                  "The source or destination folder does not exist.",
                  "Check both paths and try again."),
-    4: UserIssue("SOURCE_NOT_FOUND", "File not found",
+    4: UserIssue("SOURCE_NOT_FOUND", 301, "File not found",
                  "The source file does not exist.",
                  "Check the source path and try again."),
-    5: UserIssue("TEMPORARY", "Temporary problem",
+    5: UserIssue("TEMPORARY", 202, "Temporary problem",
                  "Some files failed because of a temporary problem.",
                  "Try again: files already copied are skipped."),
-    8: UserIssue("TRANSFER_LIMIT", "Transfer limit reached",
+    8: UserIssue("TRANSFER_LIMIT", 203, "Transfer limit reached",
                  "The limit set in “Additional rclone flags (advanced)” (--max-transfer) was reached, so not "
                  "all files were copied.",
                  "Copy again to continue: files already copied are skipped."),
-    10: UserIssue("TIME_LIMIT", "Time limit reached",
+    10: UserIssue("TIME_LIMIT", 204, "Time limit reached",
                   "The time limit set in “Additional rclone flags (advanced)” (--max-duration) was reached, so "
                   "not all files were copied.",
                   "Copy again to continue: files already copied are skipped."),
-    7: UserIssue("FATAL", "The operation stopped",
+    7: UserIssue("FATAL", 903, "The operation stopped",
                  "It stopped because of a problem that trying again will not fix.",
-                 "Contact ITS and send them the report saved at the end of this log."),
+                 "Click “Export logs…” at the top and send the file to ITS with the error code.",
+                 web_hint="Contact ITS with the error code and the output.log file of your session folder."),
 }
 
 # Rutas y textos entre comillas: se quitan antes de clasificar para que el nombre de una carpeta
@@ -283,7 +301,9 @@ class RunSummary:
     """Acumula la salida JSON de un rclone copy o check y produce lo que ve el usuario.
 
     Uso: `feed()` por cada línea de rclone (devuelve líneas para el panel), `finish()` al terminar y después
-    `final_lines()` y `log_line()`. `feed()` nunca lanza excepciones: un fallo del parser no puede cortar la copia.
+    `final_lines()` y `log_line()`. Si hubo errores, `finish()` fija `ref`, el código del error que el resumen y el
+    log técnico muestran (CPY103-1103-141526). `feed()` nunca lanza excepciones: un fallo del parser no puede
+    cortar la copia.
 
     Solo se guardan nombres donde hacen falta para contar bien: los copiados (para no contar como "ya estaban"
     los que se subieron en un intento anterior), los que fallan en cada intento y las carpetas o ficheros que
@@ -302,6 +322,7 @@ class RunSummary:
         self.stats: dict = {}
         self.outcome: str | None = None
         self.rc: int | None = None
+        self.ref: str | None = None                        # código del error, si lo hubo (lo fija finish())
         # copy
         self.copied: set[str] = set()
         self.copied_bytes = 0
@@ -480,6 +501,8 @@ class RunSummary:
             log.warning("%s: %d more file error(s) of other kinds not logged (limit %d)", self.operation,
                         self._unlogged_errors, MAX_LOGGED_ERRORS)
         self.outcome = self._decide_outcome(rc, cancelled)
+        if issue := self.error_issue():
+            self.ref = issue.reference(self.operation)
         return self.outcome
 
     def _count_unchanged(self, match: Path | None) -> int | None:
@@ -542,6 +565,8 @@ class RunSummary:
         fields["duration"] = f"{elapsed:.0f}s"
         if self.operation == "copy" and elapsed >= 1:
             fields["speed"] = f"{human_size(self.copied_bytes / elapsed)}/s".replace(" ", "")
+        if self.ref:
+            fields["ref"] = self.ref
         return " ".join(f"{k}={v}" for k, v in fields.items())
 
     def failed_files(self) -> dict[str, Problem]:
@@ -625,6 +650,19 @@ class RunSummary:
         return {"text": text, "fraction": fraction, "current": current[:MAX_CURRENT],
                 "more": max(len(current) - MAX_CURRENT, 0)}
 
+    def error_issue(self) -> UserIssue | None:
+        """El error que explica el resultado (da el tipo de su código), o None si no hubo errores. Lo que el check
+        encuentra distinto o que falta en MinIO es un resultado, no un error; los ficheros que no pudo leer, sí."""
+        if self.outcome == FAILED:
+            return self.main_issue()
+        if self.outcome == PARTIAL:
+            problems = [*self.failed_files().values(), *self.folders.values()]
+        elif self.outcome == DIFFERENCES and self.unreadable_count:
+            problems = self._unreadable_problems()
+        else:
+            return None
+        return Counter(p.issue for p in problems).most_common(1)[0][0]
+
     def main_issue(self) -> UserIssue:
         """El problema que explica un FAILED."""
         if self.rc == 2:
@@ -638,12 +676,15 @@ class RunSummary:
         return _EXIT.get(self.rc, UNEXPECTED)
 
     def final_lines(self) -> list[str]:
-        """Resumen para el panel (y por tanto para el informe). Llamar después de finish()."""
+        """Resumen para el panel (y por tanto para el informe). Llamar después de finish(). El código del error, si
+        lo hubo, va en la primera línea: la que dice que la operación falló."""
         o = self.outcome
         if self.operation == "copy":
             lines = self._copy_lines(o)
         else:
             lines = self._check_lines(o)
+        if self.ref:
+            lines[0] = f"{lines[0]} (Error {self.ref})"
         return ["\n"] + [ln if ln.endswith("\n") else ln + "\n" for ln in lines]
 
     def _issue_lines(self, issue: UserIssue) -> list[str]:
@@ -763,16 +804,21 @@ class RunSummary:
             lines.append("   Different from the original — what you can do: do not delete the original. Contact "
                          "ITS.")
         if self.unreadable_count:
-            known = list(self.unreadable.values()) + list(self.folders.values())
-            unknown = [Problem(UNEXPECTED, "")] * max(self.unreadable_count - len(known), 0)
-            lines.append(f"❌ Could not be read: {by_cause(p.issue for p in known + unknown)}.")
-            lines += self._hints(known)
+            problems = self._unreadable_problems()
+            lines.append(f"❌ Could not be read: {by_cause(p.issue for p in problems)}.")
+            lines += self._hints(problems)
         if uncompared or self.no_common_hash:
             lines.append(f"⚠️ The content of {uncompared or 'some'} file(s) could not be compared "
                          "(no checksum available); only their size was checked.")
         if self.different or self.unreadable_count:
             lines.append("   The list of the files that are different or could not be read is in the report.")
         return lines
+
+    def _unreadable_problems(self) -> list[Problem]:
+        """Lo que el check no pudo leer, con su causa. Los totales de rclone pueden contar más de los que nombró
+        en sus mensajes: esos, sin causa conocida (UNEXPECTED)."""
+        known = [*self.unreadable.values(), *self.folders.values()]
+        return known + [Problem(UNEXPECTED, "")] * max(self.unreadable_count - len(known), 0)
 
     def problem_lines(self) -> list[str]:
         """Para el informe: ficheros con problemas y su causa, hasta MAX_REPORTED_NAMES en total."""

@@ -103,7 +103,8 @@ def build_rclone_browser(
                 on_busy(False, "")
                 _render_buckets(selected_state.get("_all_buckets", []))
                 if still_mounted:
-                    show_issue(page, backend.UNMOUNT_FAILED, is_web=False, context=", ".join(still_mounted))
+                    show_issue(page, backend.UNMOUNT_FAILED, is_web=False, context=", ".join(still_mounted),
+                               screen="mount")
             backend.ui_call(page, _done)
 
         backend.safe_thread(page, _do).start()
@@ -223,8 +224,7 @@ def build_rclone_browser(
 
             def _err():
                 loading_row.visible = False
-                hint = issue.hint_for(False)
-                error_text.value    = f"⚠️ {issue.title}. {hint}" if hint else f"⚠️ {issue.title}."
+                error_text.value    = issue_line(issue, is_web=False, screen="mount")
                 error_text.visible  = True
                 if "_all_buckets" in selected_state:
                     _render_buckets(selected_state["_all_buckets"])   # la lista anterior, con los montajes al día
@@ -525,9 +525,8 @@ def _build_mount_bucket(
     def _after_mount(ruta: str, error, *, was_mounted: bool) -> None:
         if error is not None:
             _set_busy(False)
-            log_file = backend.current_log_file()
-            context = ruta + (f"\nDetails: {log_file}" if log_file else "")
-            show_issue(page, error.issue, is_web=False, title="Could not mount the bucket", context=context)
+            show_issue(page, error.issue, is_web=False, title="Could not mount the bucket", context=ruta,
+                       screen="mount")
             if was_mounted:
                 dest_browser_refresh()       # la lista aún lo marcaba como montado
             return
@@ -574,7 +573,7 @@ def _build_mount_bucket(
     # ── Layout ────────────────────────────────────────────────────────────
     content = ft.Column(
         [
-            build_header(no_ldap=NO_LDAP, subtitle=f"Mount — {perfil_rclone}"),
+            build_header(no_ldap=NO_LDAP, subtitle=f"Mount — {perfil_rclone}", page=page),
             ft.Container(
                 content=ft.Row(
                     [back_btn, expiry_badge, ft.Container(expand=True), renew_btn],

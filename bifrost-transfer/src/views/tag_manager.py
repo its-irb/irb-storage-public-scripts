@@ -6,7 +6,6 @@ import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from pathlib import Path
 from typing import Callable
 
 import flet as ft
@@ -105,17 +104,16 @@ def _build_tag_manager_content(
         for k, v in tags.items():
             op_log(f"  {k}: {v}")
 
-    def _save_report(lines: list[str], problems: list[str] | None = None) -> Path | None:
+    def _save_report(lines: list[str], problems: list[str] | None = None) -> None:
         """Escribe el informe de la operación y deja su ruta en LOGS. Nunca rompe el final de la operación."""
         try:
             path = backend.write_report("tags", lines, problems)
         except Exception as ex:
             log.exception("tags report could not be saved")
             _log(f"⚠️ Could not save the report: {ex}")
-            return None
+            return
         log.info("tags report saved: %s", path)
         _log(f"📄 Report saved: {path}")
-        return path
 
     def _get_client():
         if s3["client"] is None:
@@ -153,8 +151,7 @@ def _build_tag_manager_content(
         """Error al listar, traducido. Solo desde el hilo de la UI."""
         browser_loading.visible = False
         _render_browser_contents()
-        hint = issue.hint_for(IS_WEB, screen="tags")
-        browser_error.value   = f"⚠️ {issue.title}. {hint}" if hint else f"⚠️ {issue.title}."
+        browser_error.value   = issue_line(issue, is_web=IS_WEB, screen="tags")
         browser_error.visible = True
         page.update()
 
@@ -485,15 +482,15 @@ def _build_tag_manager_content(
 
     def _on_tags_unreadable(key: str, issue) -> None:
         """No se abre el editor: sin las etiquetas actuales, guardar las sustituiría a ciegas (pendiente 11)."""
-        _log(f"⚠️ Could not read the tags of {key} — {issue.title}")
         _reset_selection()
         _render_browser_contents()
         if issue.code == "OBJECT_GONE":
-            show_issue(page, issue, is_web=IS_WEB, context=key, screen="tags",
-                       buttons=[("OK", _load_files)], color=C_WARNING)
+            ref = show_issue(page, issue, is_web=IS_WEB, context=key, screen="tags",
+                             buttons=[("OK", _load_files)], color=C_WARNING)
         else:
-            show_issue(page, issue, is_web=IS_WEB, title="Could not read the tags of this file", context=key,
-                       screen="tags", buttons=[("Cancel", None), ("Try again", lambda: _select_file(key))])
+            ref = show_issue(page, issue, is_web=IS_WEB, title="Could not read the tags of this file", context=key,
+                             screen="tags", buttons=[("Cancel", None), ("Try again", lambda: _select_file(key))])
+        _log(f"⚠️ Could not read the tags of {key} — {issue.title} (Error {ref})")
 
     # ── Editor ────────────────────────────────────────────────────────────
     profile_names = list(TAG_PROFILES.keys())
@@ -596,12 +593,12 @@ def _build_tag_manager_content(
                                                      stop=stop, on_progress=_show_progress)
             except Exception as ex:                  # no se pudo ni empezar (p. ej. sin acceso a MinIO)
                 log.exception("tags could not be set")
-                run = backend.TagRun(stopped=backend.issue_for_exception(ex))
+                run = backend.TagRun(stopped=backend.issue_for_exception(ex)).finish()
             log.info("tags finished: %s", run.log_line())
             for line in run.final_lines(IS_WEB):
                 op_log(line)
-            report = _save_report(lines, run.problem_lines())
-            backend.ui_call(page, lambda: _after_folder_apply(run, bucket, prefix, tagset, profile, report))
+            _save_report(lines, run.problem_lines())
+            backend.ui_call(page, lambda: _after_folder_apply(run, bucket, prefix, tagset, profile))
 
         backend.safe_thread(page, _do).start()
 
@@ -631,8 +628,7 @@ def _build_tag_manager_content(
             apply_status.value = "Stopping… (waiting for the files in progress)"
             page.update()
 
-    def _after_folder_apply(run, bucket: str, prefix: str, tagset: dict[str, str], profile: str,
-                            report: Path | None) -> None:
+    def _after_folder_apply(run, bucket: str, prefix: str, tagset: dict[str, str], profile: str) -> None:
         apply_op["stop"] = None
         _set_applying(False)
         apply_status.value, apply_status.color = _APPLY_STATUS[run.outcome]
@@ -652,8 +648,8 @@ def _build_tag_manager_content(
             context = f"Tags set on {run.ok} file(s); {run.failed_count} could not be changed: {run.causes_text}."
             if retry_keys is None:
                 context += "\nTry again will apply the tags to the whole folder again."
-        context = f"{bucket}/{prefix}\n{context}" + (f"\nReport: {report}" if report else "")
-        show_issue(page, run.main_issue, is_web=IS_WEB, title=title, context=context, screen="tags",
+        show_issue(page, run.main_issue, is_web=IS_WEB, title=title, context=f"{bucket}/{prefix}\n{context}",
+                   screen="tags", ref=run.ref,
                    buttons=[("Cancel", None),
                             ("Try again", lambda: _run_folder_apply(bucket, prefix, tagset, profile, retry_keys))],
                    color=C_ERROR if run.outcome == "stopped" else C_WARNING)
@@ -838,22 +834,23 @@ def _build_tag_manager_content(
             op_log(f"📄 File: {bucket}/{key}")
             _log_tags(op_log, "Tags before", before)
             _log_tags(op_log, "New tags", tagset)
-            issue = None
+            issue = ref = None
             try:
                 backend.apply_tags_to_object(_get_client(), bucket, key, tagset)
             except Exception as ex:
                 issue = backend.issue_for_exception(ex)
-                log.warning("saving the tags of %s/%s failed: %s", bucket, key, issue.code)
-                op_log(f"❌ Tags not set — {issue.title}.")
+                ref = issue.reference("tags")
+                log.warning("saving the tags of %s/%s failed: %s ref=%s", bucket, key, issue.code, ref)
+                op_log(f"❌ Tags not set — {issue.title}. (Error {ref})")
             else:
                 log.info("tags saved: %s/%s fields=%s", bucket, key, list(tagset))
                 op_log("✅ Tags set on 1 file.")
-            report = _save_report(lines)
-            backend.ui_call(page, lambda: _after_file_save(key, tagset, issue, report))
+            _save_report(lines)
+            backend.ui_call(page, lambda: _after_file_save(key, tagset, issue, ref))
 
         backend.safe_thread(page, _do).start()
 
-    def _after_file_save(key: str, tagset: dict[str, str], issue, report: Path | None) -> None:
+    def _after_file_save(key: str, tagset: dict[str, str], issue, ref: str | None) -> None:
         file_save_btn.disabled = False
         if issue is None:
             if sel["key"] == key:
@@ -863,9 +860,8 @@ def _build_tag_manager_content(
             return
         _file_save_status.value, _file_save_status.color = "❌ Tags not set", C_ERROR
         page.update()
-        report_line = f"\nReport: {report}" if report else ""
-        show_issue(page, issue, is_web=IS_WEB, title="Tags could not be set", context=f"{key}{report_line}",
-                   screen="tags", buttons=[("Close", None)])
+        show_issue(page, issue, is_web=IS_WEB, title="Tags could not be set", context=key, screen="tags",
+                   buttons=[("Close", None)], ref=ref)
 
     def _on_show_raw(e) -> None:
         _populate_raw_list(_current_file_tags["tags"])
@@ -991,7 +987,7 @@ def _build_tag_manager_content(
 
     content = ft.Column(
         [
-            build_header(subtitle=f"Tag Manager — {perfil_rclone}", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
+            build_header(subtitle=f"Tag Manager — {perfil_rclone}", IS_WEB=IS_WEB, no_ldap=NO_LDAP, page=page),
             ft.Container(
                 content=ft.Row(
                     [back_btn, ft.Container(expand=True)],

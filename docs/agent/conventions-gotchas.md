@@ -19,7 +19,7 @@ Cross-cutting knowledge that constrains any change. Technical details in
 ## Structure and coupling
 
 4. **The backend imports from the frontend in one place only**:
-   `common/ui_helpers.safe_thread` imports `show_dialog` and `C_ERROR` from
+   `common/ui_helpers.safe_thread` imports `show_issue` from
    `bifrost_frontend.frontend` lazily (inside the function) to show unhandled
    exceptions. Keep it lazy: a top-level import creates a circular import.
 5. **`config.py` must be importable as a top-level module** in each app — the

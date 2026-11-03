@@ -149,9 +149,16 @@ With `threading.Timer`, wrap the callback:
 - **Colours**: only constants from `bifrost_frontend.frontend` (`C_PRIMARY`,
   `C_ERROR`, …). Do not hardcode hex values.
 - **Buttons**: prefer `btn_primary` / `btn_secondary` over raw `ft.Button`.
-- **Error dialogs**: `show_dialog(page, "Error", msg, color=C_ERROR)`. For translated errors (`UserIssue`):
-  `show_issue(page, issue, *, is_web, title=None, context="", screen="copy"|"tags", buttons=[(label, action), …])`
-  (context is one file or a count, never lists; each button closes the dialog, then runs its action).
+- **Error dialogs**: notices about what the user typed: `show_dialog(page, title, msg, color=C_ERROR)`. Program
+  errors (`UserIssue`): `show_issue(page, issue, *, is_web, title=None, context="", screen=…, buttons=[(label,
+  action), …], ref=None) -> str` — under the title, the error code ("Error MNT101-1103-141526"); then the context
+  (the bucket, one file or a count; never lists or log paths), what happened and what to do; each button closes
+  the dialog, then runs its action. `screen` (`mount`, `netapp`, `copy`, `check`, `tags`, `app`) sets the code
+  prefix and the hint; `ref` reuses a code (an operation's, or the one shown the first time); it returns the
+  code. An error shown instead of a list: `issue_line(issue, *, is_web, screen)`. Both log `issue shown: ref=…
+  code=… screen=…`.
+- **Header**: `build_header(subtitle, IS_WEB, no_ldap, page=None)`; with `page`, on desktop, the "Export logs…"
+  button (confirmation, then `backend.export_logs_zip()`). Every screen passes `page`.
 - **Log panel lines**: `log_text(line)` (colour from the leading emoji; used by copy and Tag Manager).
 - **Confirmations**: `show_confirm(page, title, message, on_yes, on_no=None)`.
 - **Copy logs** (transfer/web): always go through `_dispatch_log`; never
