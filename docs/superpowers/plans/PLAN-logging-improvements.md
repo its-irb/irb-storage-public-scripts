@@ -8,7 +8,7 @@ Rama: `refactor/unified-logging`. Última actualización: 2026-11-03.
 | PR 1 | Log técnico común (`common/logs.py`) en las dos apps + OOD | **Hecho** |
 | PR 2 | Salida de rclone para el usuario: 2a copy / check · 2b Tag Manager | **2a hecho** (`cc17aa7`, `5d11c22`); **2b implementado** (pendiente de commit y de la prueba manual) |
 | PR 3 | Montajes con rclone (MinIO y NetApp): verificación real y errores de rclone al log técnico | **Implementado** (pendiente de commit, de la prueba manual y de Windows) |
-| PR 4 | Diálogo de error con referencia y acceso a los logs | Pendiente |
+| PR 4 | Referencia en cada error y exportación de los logs | Pendiente (plan revisado el 2026-11-03) |
 | PR 5 | Migración de `print` al logger y limpieza del contenido | Pendiente |
 | PR 6 | Documentación (`docs-update`) | Pendiente |
 
@@ -22,9 +22,9 @@ Rama: `refactor/unified-logging`. Última actualización: 2026-11-03.
 3. **Salida de rclone integrada**: la salida cruda va al log técnico; lo que importa al usuario (progreso,
    fichero copiado o fallido, resumen, montaje correcto o fallido, diferencias del check) se traduce y se
    muestra en la UI y en los **informes de operación**.
-4. **Acceso fácil a los logs**: código de referencia en cada error y botones "Copy details", "Open logs
-   folder" y "Export logs…" (zip para adjuntar al **ticket**). En OOD, informes en la carpeta de la sesión,
-   junto a `output.log`.
+4. **Acceso fácil a los logs**: código de referencia en cada error y, en escritorio, botón "Export logs…" (zip
+   de las 5 últimas sesiones para enviar a ITS). En OOD, informes en la carpeta de la sesión, junto a
+   `output.log`. (Revisado el 2026-11-03: ver el PR 4.)
 
 Decisiones tomadas: fichero por sesión (se conservan 30); carpeta estándar del SO con helper propio, sin
 dependencias nuevas; informes de OOD en la carpeta de la sesión; soporte por sistema de tickets.
@@ -688,9 +688,10 @@ Cambios del 2026-10-22, tras las pruebas en `minio:test`:
 ### Para el PR 4 (anotado aquí para no perderlo)
 
 
-- `export_logs_zip` no debe incluir por defecto los informes (`reports/`): tienen nombres de ficheros y
-  valores de etiquetas. Solo los logs técnicos, pasados por el filtro de secretos, y los informes que el
-  usuario marque. Zip con permisos 0600. Avisar en el diálogo y en la doc de qué contiene.
+- ~~`export_logs_zip` no debe incluir por defecto los informes~~ **Decidido el 2026-11-03 (PR 4):** el zip
+  lleva las 5 últimas sesiones y, en transfer, los informes de copy, check y Tag Manager de esas sesiones; una
+  confirmación antes de exportar dice qué contiene (nombres de ficheros y valores de etiquetas). Zip con
+  permisos 0600.
 
 ### Pendiente de decidir
 
@@ -776,7 +777,7 @@ incorporados arriba, y la tabla de verificación los comprueba al programar.
 
 - El pendiente 4 entra en este PR.
 - Bifrost Mount sigue sin panel de log: los errores se muestran en pop-ups (`show_issue`) con la ruta del log
-  técnico de la sesión ("Details:"; el PR 4 lo sustituye por la referencia y los botones).
+  técnico de la sesión ("Details:"; el PR 4 lo quita y pone la referencia: los pop-ups no dan rutas).
 - Un único `MountError(issue)`; `WinFspMissingError` se mantiene porque abre el instalador.
 - **Errores de rclone al log técnico, sin ficheros de log por montaje (decisión del 2026-11-03, sustituye a
   la del 2026-10-23: un `--log-file` en INFO por montaje, en `rclone/`, con su ruta en el pop-up).** En las
@@ -973,65 +974,202 @@ siguen igual y las dos apps arrancan.
   catálogo.
 - Windows: `Bifrost/PENDIENTES.md`, entrada 17.
 
-## PR 4 — Diálogo de error con referencia y acceso a los logs
+## PR 4 — Referencia en cada error y exportación de los logs
 
-### Funciones que se añaden a `common/logs.py`
+> Revisado el 2026-11-03 con lo que dejó el PR 3 y las decisiones de esa fecha.
+
+**Objetivo.** Cuando algo falla, el usuario sabe qué hacer y cómo hacérselo llegar a ITS, e ITS encuentra el
+error en los logs: cada error que se muestra lleva una **referencia** (`MNT101-1103-141526`) que también está en el log
+técnico, y en escritorio un botón **"Export logs…"** junta en un zip lo que ITS necesita.
+
+### Decisiones (2026-11-03)
+
+1. **Referencia en todos los errores que ve el usuario**: en los pop-ups (`show_issue`) y, cuando una operación
+   de copy, check o Tag Manager falla, en el bloque final del panel y por tanto en su informe. Copy y check no
+   abren pop-up al fallar: sin esto, lo más usado sería lo único sin referencia.
+2. **Los pop-ups no dan rutas de logs.** Se quita el "Details: <log de la sesión>" que el PR 3 puso en los
+   pop-ups de montaje (era provisional). El log técnico sí lleva rutas (carpetas de montaje, informes). El
+   usuario llega a la carpeta de los logs con "Export logs…" o con la guía de usuario, que explica dónde está.
+3. **Pop-up = título, "Error MNT101-1103-141526" justo debajo (como en las webs), qué ha pasado, qué hacer y OK** (más los
+   botones propios de cada pantalla, como ahora). Sin "Copy details" ni "Open logs folder", que el diseño anterior ponía en cada
+   pop-up: la referencia se puede seleccionar, la hora y la versión van en el log exportado y la carpeta la abre
+   "Export logs…".
+8. **El panel de copy sigue diciendo "📄 Report saved: <ruta>"** al terminar cada operación: no es un pop-up y
+   sirve para que el usuario abra el informe.
+4. **Soporte: "contact ITS"**, sin URL ni correo.
+5. **"Export logs…" en la cabecera de todas las pantallas de escritorio** de las dos apps. En OOD no existe: la
+   pista pide el `output.log` de la carpeta de la sesión.
+6. **Contenido del zip: las 5 últimas sesiones**, para que ITS tenga contexto, y en Bifrost Transfer los
+   informes de copy, check y Tag Manager de esas sesiones. Antes de exportar, un pop-up de confirmación dice qué se exporta.
+   El log de la sesión actual no está terminado, pero se escribe línea a línea: lleva todo hasta el momento de
+   exportar (y el error ya ha ocurrido). Incluir las anteriores cubre el caso habitual de exportar después de
+   reiniciar la app.
+7. **Diálogos que hoy enseñan la excepción en bruto** pasan a `show_issue` con referencia (detalle abajo). Los
+   avisos sobre lo que escribe el usuario ("Select a bucket first", "Source and destination are required",
+   "Invalid characters in tags", "Option not allowed") no son errores del programa: se quedan como están, sin
+   referencia.
+
+### Referencia (código del error)
+
+Formato `<pantalla><tipo>-<MMDD>-<HHMMSS>`, por ejemplo **`MNT101-1103-141526`**: dónde pasó, qué pasó (siempre
+el mismo número para la misma causa) y cuándo (3 de noviembre, 14:15:26). Decidido el 2026-11-03: une el código
+del tipo de error, que se puede buscar en el código y en la guía sin abrir el log, con el momento, que distingue
+cada vez que ocurre aunque se repita (el zip lleva 5 sesiones, de días distintos).
+
+- **Pantalla:** `MNT` montar un bucket, `NET` NetApp, `CPY` copy (y "Save log"), `CHK` check, `TAG` Tag Manager,
+  `APP` actualizar BIFROST o fallo no previsto.
+- **Tipo:** un número de 3 cifras en cada `UserIssue` del catálogo (`rclone_output.py`, campo nuevo `num`); la
+  primera cifra es la familia. Reglas: un número no se reutiliza ni cambia nunca (un código de una versión
+  antigua sigue significando lo mismo); las variantes de una misma causa comparten número (`FUSE_MISSING` de
+  macOS y de Linux, los tres `SOURCE_NOT_FOUND`); cada familia deja huecos para errores nuevos.
+
+  | Familia | Número | Error |
+  |---|---|---|
+  | 1xx MinIO | 101 | `CREDENTIALS_EXPIRED` |
+  | | 102 | `PROFILE_MISSING` |
+  | | 103 | `MINIO_PERMISSION` |
+  | | 104 | `BUCKET_NOT_FOUND` |
+  | | 105 | `OBJECT_GONE` |
+  | | 106 | `WORM_PROTECTED` |
+  | | 107 | `INVALID_TAG` |
+  | | 108 | `MINIO_BUSY` |
+  | | 109 | `CLOCK_SKEW` |
+  | 2xx red y límites | 201 | `NETWORK` |
+  | | 202 | `TEMPORARY` |
+  | | 203 | `TRANSFER_LIMIT` |
+  | | 204 | `TIME_LIMIT` |
+  | 3xx ficheros de origen | 301 | `SOURCE_NOT_FOUND` |
+  | | 302 | `SOURCE_PERMISSION` |
+  | | 303 | `SOURCE_CHANGING` |
+  | | 304 | `FILE_IN_USE` |
+  | | 305 | `DISK_FULL` |
+  | 4xx montajes | 401 | `MOUNT_TIMEOUT` |
+  | | 402 | `MOUNT_BUSY` |
+  | | 403 | `MOUNT_NOT_ALLOWED` |
+  | | 404 | `UNMOUNT_FAILED` |
+  | | 405 | `FUSE_MISSING` |
+  | 5xx NetApp | 501 | `NETAPP_LOGIN` |
+  | | 502 | `NETAPP_SHARE_NOT_FOUND` |
+  | | 503 | `NETAPP_PERMISSION` |
+  | 9xx BIFROST | 901 | `RCLONE_MISSING` |
+  | | 902 | `RCLONE_OPTIONS` |
+  | | 903 | `FATAL` |
+  | | 999 | `UNEXPECTED` |
+
+- **Momento:** mes, día y hora con segundos del momento en que se muestra el error. Dos códigos iguales
+  necesitarían el mismo error en la misma pantalla en el mismo segundo.
+- `logs.new_ref(screen_prefix, issue) -> str`. Una referencia por error mostrado, no por sesión.
+- **Línea en el log técnico**, que es lo que ITS busca: `issue shown: ref=MNT101-1103-141526
+  code=CREDENTIALS_EXPIRED screen=mount`, logger `bifrost.ui`, nivel WARNING. **Sin `context`** (en el Tag
+  Manager es el nombre del fichero) ni el mensaje: el código basta y las líneas de justo encima ya cuentan el
+  detalle (`mount failed: … code=…` y los errores de rclone; `copy finished: …`).
+- **Operaciones** (copy, check, Tag Manager) que fallan: la pantalla pide la referencia al terminar, la añade a
+  su línea de resultado (`copy finished: outcome=failed … ref=CPY101-1103-141526`, `tags finished: …
+  ref=TAG…`) y a la primera línea del resumen del panel, la que dice que ha fallado ("❌ The copy could not
+  finish — MinIO access expired. (Error CPY101-1103-141526)"), que es también lo que guarda el informe. Llevan
+  referencia: copy y check con `FAILED` o `PARTIAL`; Tag Manager con `stopped` o `partial` (su pop-up muestra la
+  misma). No la llevan `OK`, `NOTHING_NEW`, `EMPTY`, `DRY_RUN`, `CANCELLED` ni `DIFFERENCES` del check (es un
+  resultado, no un fallo del programa).
+- **Documentación:** la tabla de tipos va en la de usuario y en la de desarrollo (ver "Documentación").
+
+### Pistas "contact ITS" según el modo
+
+Hoy `_CONTACT_ITS` dice "contact ITS and send them the report saved at the end of this log", y sale también en
+pop-ups de montaje (por ejemplo `MOUNT_TIMEOUT` en OOD o `UNEXPECTED`), donde no hay ni panel ni informe:
+`hint_for` solo distingue `copy` y `tags`, y los montajes usan `copy`. Pasa a depender solo del modo, con la
+referencia:
+- Escritorio: "If it keeps happening, click “Export logs…” at the top and send the file to ITS with the error
+  code."
+- OOD: "If it keeps happening, contact ITS with the error code and the output.log file of your session folder."
+Los `UserIssue` que usan `_CONTACT_ITS` reciben la versión de OOD en `web_hint`.
+
+### `common/logs.py`
 
 ```python
-def current_log_file() -> Path | None:                              # hecho en el PR 3
-    """El log técnico de esta sesión; en OOD, output.log de la carpeta de la sesión."""
+def new_ref(screen_prefix: str, issue: UserIssue) -> str:
+    """Código del error que ve el usuario y que va al log técnico: pantalla + tipo + momento (MNT101-1103-141526)."""
 
 
-def new_ref(prefix: str) -> str:
-    """Código corto que aparece en el diálogo y en la línea del log (p. ej. MNT-7F3A)."""
-    return f"{prefix}-{secrets.token_hex(2).upper()}"
-
-
-def open_in_file_browser(path: Path, select: bool = False) -> None:   # hecho en el PR 3
-    """Abre la carpeta (o la muestra con el fichero seleccionado) en Finder / Explorador / gestor Linux."""
-    system = platform.system()
-    if system == "Darwin":
-        subprocess.Popen(["open", "-R", str(path)] if select else ["open", str(path)])
-    elif system == "Windows":
-        subprocess.Popen(["explorer", f"/select,{path}"] if select else ["explorer", str(path)])
-    else:
-        subprocess.Popen(["xdg-open", str(path.parent if select else path)])
-
-
-def export_logs_zip(app: str, sessions: int = 5) -> Path:
-    """Comprime las últimas sesiones y los informes en Descargas (para el ticket)."""
-    d = log_dir(app)
-    target_dir = Path.home() / "Downloads"
-    if not target_dir.is_dir():
-        target_dir = Path.home()
-    zip_path = target_dir / f"BIFROST-{app}-logs-{datetime.now():%Y-%m-%d_%H-%M}.zip"
-    files = sorted(d.glob(f"bifrost-{app}-*.log"), key=lambda p: p.stat().st_mtime, reverse=True)[:sessions]
-    files += [p for p in (d / "reports").glob("*") if p.is_file()]   # rclone/: temporales, sus errores ya están en el log
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-        for f in files:
-            z.write(f, f.relative_to(d))
-    return zip_path
+def export_logs_zip(app: str, sessions: int = 5) -> tuple[Path, int, int]:
+    """Zip en Descargas (o en la carpeta personal) con los logs de las `sessions` últimas sesiones y, en transfer,
+    los informes de copy y check de esas sesiones. Devuelve (zip, sesiones, informes). Puede lanzar OSError."""
 ```
 
-### `shared/bifrost_frontend/components.py`
+- Sesiones: los `bifrost-<app>-<fecha>.log` más recientes (ya pasados por el filtro de secretos al escribirse).
+  Informes: `reports/copy-*.log`, `reports/check-*.log` y `reports/tags-*.log` desde el inicio de la más antigua
+  de esas sesiones (la fecha está en el nombre). No entra `rclone/` (temporales: sus errores ya están en el log).
+- Antes de comprimir escribe `logs exported: <zip> sessions=N reports=M`, para que en la sesión actual se vea
+  hasta dónde llega. Permisos 0600. Nombre `BIFROST-<app>-logs-<fecha>.zip`.
+- Hechas en el PR 3: `current_log_file()` y `open_in_file_browser()`.
 
-- `show_dialog` gana un parámetro opcional `content: ft.Control | None` (sustituye al texto si se pasa).
-  Ningún uso actual cambia.
-- `show_issue` se crea en la 2b (título, contexto, mensaje, qué hacer y botones que pase quien llama). El PR 4
-  le añade `ref`, "Copy details" y "Open logs folder", sin cambiar las llamadas. Diseño completo:
-  `show_issue(page, issue, *, ref, is_web=False)`: título del `UserIssue`, mensaje, "What you can do:
-  …" y "Reference: MNT-7F3A" seleccionable. Botones: **Copy details** (`await page.clipboard.set(...)` con
-  referencia, código, hora, app, versión y ruta del log), **Open logs folder** (solo escritorio) y **OK**. En
-  web, el texto pide adjuntar `output.log` de la carpeta de la sesión de Open OnDemand.
-- `build_header(...)`: parámetro opcional `on_export_logs` → botón "Export logs…" (solo escritorio):
-  `export_logs_zip`, `open_in_file_browser(zip, select=True)` y aviso "Saved to Downloads. Attach it to your
-  support ticket.".
-- Cada `show_issue` va acompañado de `log.error("%s ref=%s detail=%s", issue.code, ref, …)`.
+### `bifrost_frontend/components.py`
+
+- `show_issue(page, issue, *, is_web, title=None, context="", screen="copy", buttons=None, color=C_ERROR)`:
+  genera la referencia con el prefijo de `screen` (pantallas nuevas: `mount`, `netapp`, `app`), escribe la línea
+  `issue shown`, pone "Error MNT101-1103-141526" debajo del título (pequeño, gris, seleccionable) y la devuelve:
+
+  ```
+  ❌ Could not mount the bucket
+  Error MNT101-1103-141526
+  test
+  MinIO access expired: Your temporary MinIO access pass is no longer valid.
+  What you can do: Click “🔑 Renew credentials” and try again.
+  ```
+ Las llamadas
+  actuales no cambian, salvo las de montaje, que pasan `screen` y dejan de construir "Details:".
+- `build_header(subtitle, IS_WEB, no_ldap, page=None)`: con `page` y en escritorio, botón "Export logs…" a la
+  derecha. Al pulsarlo, confirmación:
+  - Título "Export logs". Texto: "BIFROST will save the logs of your last 5 sessions to your Downloads folder
+    so you can send them to ITS." En Bifrost Transfer, además: "It also includes the copy, check and Tag Manager
+    reports of those sessions, which contain file names and tag values."
+  - Botones Cancel / Export. Al exportar: `export_logs_zip`, `open_in_file_browser(zip, select=True)` y aviso
+    "Saved to Downloads. Send this file to ITS with the error code." Si falla, `show_issue` con
+    referencia `APP`.
+  - Todas las llamadas a `build_header` pasan `page`.
+
+### Diálogos con la excepción en bruto (decisión 7)
+
+| Dónde | Hoy | Con el PR 4 |
+|---|---|---|
+| `safe_thread` (fallo no previsto, las dos apps) | "Unexpected error" + `TipoError: mensaje` + "Check console or contact ITS."; la traza va al log como `print` | `show_issue(UNEXPECTED, title="Something went wrong", screen="app")`; la traza con `log.exception` y la misma referencia |
+| Actualizar la app ("Update failed", `views/update.py`) | El texto de la excepción | `show_issue(issue_for_exception(ex), title="Could not update BIFROST", screen="app")` |
+| "Save log" de copy (escritorio y web) | "Error" + `[Errno 13] Permission denied: '<ruta>'` | `show_issue(issue_for_exception(ex), title="Could not save the log", screen="copy")` |
+| NetApp con privilegios de ITS sin credenciales de administrador (`main.py` de transfer) | "Error" + "Missing admin credentials for ITS privileges." | No es un fallo del programa: `show_dialog` con título "ITS privileges", sin referencia |
+
+### Documentación (en el mismo commit, como en el PR 3)
+
+- **Tabla de códigos de error en toda la documentación**, de usuario y de desarrollo:
+  - Usuario: `docs/user/troubleshooting.md` con la tabla completa (código, qué significa y qué hacer) y cómo se
+    lee un código (`MNT101-1103-141526`: pantalla, tipo, mes y día, hora); `mount-buckets.md`,
+    `transfer-data.md`, `tag-manager.md` y `web-mode-ood.md` enlazan a ella desde sus tablas de problemas.
+  - Desarrollo: `docs/development/operations.md` y `docs/agent/backend.md` con la tabla (número, `code` del
+    catálogo y familia), las reglas de numeración (no reutilizar ni cambiar números, variantes con el mismo
+    número, huecos por familia) y dónde se define (`num` en `rclone_output.py`). `docs/development/backend.md`
+    describe `new_ref`, `export_logs_zip` y el campo `num`.
+  - La tabla se escribe una vez por idioma de la documentación y se actualiza en el mismo commit que añada o
+    cambie un error del catálogo.
+- Guías de usuario: "Export logs…" (qué contiene y que hay que enviarlo a ITS con el código del error), dónde está
+  la carpeta de los logs en cada sistema y, en OOD, el `output.log` de la carpeta de la sesión. Se quita
+  "Details: …" de las tablas de problemas.
+- `operations.md`: la línea `issue shown`, `ref=` en las líneas de resultado y `logs exported`.
+
+### Verificación del PR 4
+
+| Caso | Resultado esperado |
+|---|---|
+| Montaje con credenciales malas (Bifrost Mount) | Pop-up sin rutas, con "Error MNT101-…" bajo el título; en el log, `issue shown: ref=MNT101-… code=CREDENTIALS_EXPIRED screen=mount` después de `mount failed` |
+| Copy que falla / check con errores | Primera línea del resumen del panel e informe con "(Error CPY…-…)" / "(Error CHK…-…)"; `copy finished: … ref=…` |
+| Copy correcta, check con diferencias | Sin referencia |
+| Tag Manager parado o parcial | Pop-up y panel con la misma referencia `TAG…-…` |
+| Fallo no previsto (forzado en una prueba) | "Something went wrong" con `APP999-…`; la traza en el log con la misma referencia |
+| "Export logs…" (macOS y Windows) | Confirmación con el texto de cada app; zip en Descargas con 5 sesiones (y, en transfer, sus informes de copy, check y Tag Manager), 0600, Finder/Explorador con el zip seleccionado; `logs exported` en el log |
+| OOD | Sin botón; la pista pide `output.log`; la referencia también sale |
+| Pistas | Ningún pop-up de montaje habla de "the report saved at the end of this log" |
 
 ## PR 5 — Migración de `print` al logger y limpieza del contenido
 
 Por módulo (`log = logging.getLogger("bifrost.<área>")`), del más ruidoso al menos:
-`views/rclone_browser.py`, `views/tag_manager.py`, `mount/s3_mount.py`, `common/auth.py`, `transfer/smb.py`,
+`views/rclone_browser.py`, `views/tag_manager.py`, `common/auth.py`, `transfer/smb.py`,
 `bifrost-transfer/src/main.py`, `common/updates.py` y el resto.
 
 - El prefijo `[algo]` pasa a ser el nombre del logger; `[debug]` → `log.debug`; errores → `log.error` /
@@ -1044,21 +1182,19 @@ Por módulo (`log = logging.getLogger("bifrost.<área>")`), del más ruidoso al 
   shares have been unmounted.") y otro por share que falla. Pasar a una línea por share, como Bifrost Mount
   (`unmount <carpeta>: done` / `still mounted`). Revisar a la vez, probándolo en OOD, el `umount -f` (en Linux
   quizá no funciona sin ser root con FUSE) y el `taskkill /IM rclone.exe` de Windows.
-- De paso, avisos de pyflakes en `s3_mount.py`: `f"taskkill"` sin variables y dos `global
-  _s3_mount_processes` que sobran.
+- (`mount/s3_mount.py`, `mount/preflight.py` y `views/mount.py` ya no tienen `print` ni avisos de pyflakes:
+  se reescribieron en el PR 3.)
 - Al terminar, `_StreamToLogger` queda solo como red de seguridad.
 - Pendiente de decidir: mover el bloque de SIGTERM/SIGINT, repetido en los dos `main.py`, a una función
   compartida.
 
 ## PR 6 — Documentación (`docs-update`)
 
-- `docs/user/troubleshooting.md` y `docs/user/transfer-data.md`: dónde están los logs, "Export logs…", "Copy
-  details", qué adjuntar al ticket; en OOD, `output.log` y `reports/` de la carpeta de la sesión (sustituye a
-  "`~/bifrost-logs/`").
-- `docs/agent/*` y `docs/development/*` (`operations.md`, `frontend.md`, `architecture.md`,
-  `conventions-gotchas.md`) y `README.md`: carpetas, formato, niveles, `BIFROST_LOG_LEVEL`,
-  `BIFROST_SESSION_DIR`; quitar `session_log.py`, `write_log`, `log_event`, `~/bifrost-mount-logs/` y el tee
-  `bifrost-console-*`.
+- Las guías de usuario y `operations.md` se actualizaron con cada PR (2a, 2b, PR 3; el PR 4 lleva las suyas).
+- Queda: quitar `session_log.py` (ya no existe), `log_event`, `write_log` y `~/bifrost-mount-logs/` de
+  `README.md`, `docs/agent/architecture.md`, `docs/development/architecture.md`, `docs/agent/frontend.md`,
+  `docs/development/frontend.md` y `docs/agent/conventions-gotchas.md`, y repasar carpetas, formato, niveles,
+  `BIFROST_LOG_LEVEL` y `BIFROST_SESSION_DIR` en la documentación de desarrollo.
 - Gotchas nuevos: `flet run` necesita la línea `PAGE_URL_…` sin modificar en stdout; closures dentro de
   `except` que se ejecutan con `ui_call` deben capturar la excepción como argumento por defecto.
 
@@ -1070,4 +1206,5 @@ Por módulo (`log = logging.getLogger("bifrost.<área>")`), del más ruidoso al 
 3. Probar siempre con `flet run` real, no solo importando o llamando a `ft.run`.
 4. Cuando lleguen pytest y mypy: tests de `classify`, `explain_exit`, `RunSummary.feed`,
    el resumen del check, `issue_for_exception`, `_RedactFilter`, `_StreamToLogger` y `log_dir` (funciones
-   puras); la tabla de verificación de la fase 2 sirve de base.
+   puras); del PR 3, `error_text`/`error_key`, `_error_texts` y `drain_rclone_log`; la tabla de verificación de
+   la fase 2 sirve de base (y las pruebas del PR 3 con el S3 falso, `rclone serve s3`).
