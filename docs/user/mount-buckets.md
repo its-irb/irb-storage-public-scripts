@@ -36,13 +36,14 @@ Use something else if:
 
 1. Open **Bifrost mount** and sign in.
 2. Choose your **MinIO server**.
-3. On the mount screen, browse to the MinIO folder you want to mount.
-4. Click **Mount**.
+3. On the mount screen, select the bucket you want to mount. If the list does not load (for example, the VPN
+   was off), turn on the VPN and click **⟳** next to the list title to load it again.
+4. Click **⊞ Mount bucket** (or double-click the bucket). BIFROST checks that the folder really answers before it says **✅ Mounted!** and opens it. If the bucket is already mounted, BIFROST just opens its folder again. If macOS disconnected it (for example, after you clicked **Disconnect** when the connection was lost), BIFROST mounts it again.
 
 ## Expected result
 
-- On Windows a new **drive letter** appears; on macOS and Linux, a new folder.
-  Its contents are the contents of the MinIO folder.
+- A new folder opens: `C:\rclone-mounts\<server>\<bucket>` on Windows,
+  `~/rclone-mounts/<server>/<bucket>` on macOS and Linux. Its contents are the contents of the MinIO bucket.
 - You can open and copy files from there.
 - What you can write depends on your permissions (see
   [minio-permissions-and-folders.md](minio-permissions-and-folders.md)).
@@ -50,8 +51,10 @@ Use something else if:
 
 ## Unmount when you finish
 
-Click **Unmount** to release the drive. The app can unmount the selected drive
-or all mounted drives at once.
+Click **⊠ Unmount all** to release all the mounted folders. If a folder is
+still in use (a Finder or Explorer window, or a program with a file open), the
+app tells you which one could not be unmounted: close what is using it and
+click **⊠ Unmount all** again.
 
 ## Limits
 
@@ -63,7 +66,12 @@ or all mounted drives at once.
 
 | Problem | What to do |
 |---|---|
+| A window says **Could not mount the bucket** | Follow its "What you can do" line. The window also shows the path of BIFROST's log file (**Details: …**): send it to ITS if the problem continues. |
+| **MinIO access expired** | Click **🔑 Renew credentials** and mount again. |
+| Mac: **BIFROST cannot open the mounted folder** | In **System Settings → Privacy & Security → Files and Folders**, allow BIFROST to access network volumes, then mount again. |
+| **The folder did not respond** | MinIO did not answer in time. Check that the Nexica VPN is on and try again. |
+| **Could not unmount** | Close the windows or programs that are using the folder and click **⊠ Unmount all** again. |
 | Windows: it does not mount, or a driver error appears | Accept the automatic WinFsp installation offered by the app, or install it from `winfsp.dev`, then try again. |
-| It cannot connect | Check that the Nexica VPN is on. |
+| It cannot connect | Check that the Nexica VPN is on, then click **⟳** to reload the bucket list. |
 | You do not see the folder | You probably do not have access. Ask your group's data manager. |
 | The label at the top is red or orange (**🔑 Credentials expire in …**) | Your MinIO access pass is about to run out. Click **🔑 Renew credentials** (see [getting-started.md](getting-started.md#renew-your-minio-access-pass-by-hand)). |

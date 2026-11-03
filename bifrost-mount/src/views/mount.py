@@ -3,10 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
-import platform
-import subprocess
-import sys
 import threading
 import time
 from typing import Callable
@@ -18,6 +14,7 @@ from bifrost_backend.common.constants import NO_LDAP, STS_AUTO_RENEWAL_DAYS, STS
 from bifrost_frontend.frontend import *
 
 log = logging.getLogger("bifrost.mount")
+rclone_log = logging.getLogger("bifrost.rclone")      # el texto de rclone, aparte de lo que hace BIFROST
 
 
 # ============================================================================
@@ -33,6 +30,7 @@ def build_rclone_browser(
     perfil_rclone: str,
     on_select: Callable[[str], None],
     mounted_state: dict,
+    on_busy: Callable[[bool, str], None],
     on_double_tap_mount: Callable[[str], None] | None = None,
 ) -> tuple[ft.Column, Callable, ft.OutlinedButton]:
     """
@@ -40,6 +38,7 @@ def build_rclone_browser(
     Al seleccionar uno, llama on_select(bucket_name).
     Doble click monta directamente si on_double_tap_mount está definido.
     mounted_state: dict compartido {bucket_name: mount_point} para trackear mounts.
+    on_busy(ocupado, texto): la pantalla desactiva Mount y "Unmount all" mientras se desmonta (y al revés).
     Devuelve (widget, refresh, unmount_all_btn): el widget con la lista de buckets,
     una función que recarga la lista, y el botón "Unmount all" para colocarlo en el layout.
     """
@@ -49,6 +48,11 @@ def build_rclone_browser(
     # Subsequent refreshes (triggered after each mount) must NOT re-add buckets
     # that were just unmounted — that would create a race with _unmount_all.
     _first_load_done = {"value": False}
+
+    # Una sola carga de la lista a la vez: si se pide otra mientras tanto (⟳, recarga tras montar), se hace una más
+    # al terminar. Sin VPN cada carga espera hasta 15 s; así no se acumulan y la lista refleja la última petición.
+    _loads = {"running": False, "again": False}
+    _loads_lock = threading.Lock()
 
     bucket_col  = ft.Column(spacing=6, tight=True)
     loading_row = ft.Row(
@@ -63,7 +67,6 @@ def build_rclone_browser(
 
     def _select_bucket(bucket_name: str):
         selected_state["bucket"] = bucket_name
-        log.info(f"BUCKET selected — {bucket_name}")
         on_select(bucket_name)
         _render_buckets(selected_state.get("_all_buckets", []))
 
@@ -77,36 +80,33 @@ def build_rclone_browser(
 
 
     def _unmount_all():
+        """Desmonta todos los buckets y deja en mounted_state solo los que siguen montados de verdad."""
+        on_busy(True, "Unmounting...")
+
         def _do():
-            log.info(f"UNMOUNT ALL — {len(mounted_state)} mounts")
+            log.info("unmount all: %d mounts", len(mounted_state))
+            still_mounted = []
             for bname, mp in list(mounted_state.items()):
                 try:
-                    backend.desmontar_punto_montaje(mp)
-                except OSError as ex:
-                    log.info(f"UNMOUNT error — bucket: {bname} — {ex}")
-                    # WinError 1005: WinFSP volume already in inconsistent state
-                    # El proceso rclone probablemente ya no existe (perdido tras rebuild)
-                    # Forzar taskkill por nombre como fallback
-                    print(f"[unmount_all] OSError {bname}: {ex} — trying taskkill fallback")
-                    if sys.platform == "win32":
-                        try:
-                            subprocess.run(
-                                ["taskkill", "/F", "/IM", "rclone.exe"],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                            )
-                        except Exception:
-                            pass
-                except Exception as ex:
-                    log.info(f"UNMOUNT error — bucket: {bname} — {ex}")
-                    print(f"[unmount_all] Error {bname}: {ex}")
-                finally:
+                    unmounted = backend.desmontar_punto_montaje(mp)
+                except Exception:
+                    log.exception("unmount %s failed", bname)
+                    unmounted = False
+                if unmounted:
                     mounted_state.pop(bname, None)
-            def _refresh():
+                else:
+                    still_mounted.append(bname)
+
+            def _done():
                 selected_state["bucket"] = None
                 on_select("")
+                on_busy(False, "")
                 _render_buckets(selected_state.get("_all_buckets", []))
-            backend.ui_call(page, _refresh)
-        threading.Thread(target=_do, daemon=True).start()
+                if still_mounted:
+                    show_issue(page, backend.UNMOUNT_FAILED, is_web=False, context=", ".join(still_mounted))
+            backend.ui_call(page, _done)
+
+        backend.safe_thread(page, _do).start()
 
     unmount_all_btn.on_click = lambda e: _unmount_all()
 
@@ -191,6 +191,13 @@ def build_rclone_browser(
             page.update()
         backend.ui_call(page, _set_loading)
 
+        # Montajes que el sistema ha quitado (p. ej. macOS al cortarse la red): dejan de marcarse. Su rclone se para
+        # al volver a montar el bucket o al cerrar la app.
+        for bname, mp in list(mounted_state.items()):
+            if not backend.is_mounted(mp):
+                log.info("mount: %s is no longer mounted", bname)
+                mounted_state.pop(bname, None)
+
         try:
             buckets = backend.rclone_lsd(perfil_rclone, "", timeout=15)
             # Detectar mounts activos de sesiones anteriores — solo en la carga inicial.
@@ -199,16 +206,9 @@ def build_rclone_browser(
             if not _first_load_done["value"]:
                 for bname in buckets:
                     mp = backend.resolver_mount_point_destino(perfil_rclone, bname)
-                    if sys.platform == "win32":
-                        if os.path.isdir(mp):
-                            try:
-                                os.listdir(mp)
-                                mounted_state[bname] = mp
-                            except OSError:
-                                pass
-                    else:
-                        if os.path.ismount(mp):
-                            mounted_state[bname] = mp
+                    if backend.is_mounted(mp):
+                        mounted_state[bname] = mp
+                        log.info("mounted from a previous session: %s", mp)
                 _first_load_done["value"] = True
 
             def _show():
@@ -217,11 +217,17 @@ def build_rclone_browser(
             backend.ui_call(page, _show)
 
         except Exception as ex:
-            log.error("BUCKET list failed — profile: %s — %s", perfil_rclone, ex)
-            def _err(ex_val=ex):
+            issue = backend.issue_for_exception(ex)
+            log.error("bucket list failed: profile=%s code=%s", perfil_rclone, issue.code)
+            rclone_log.error("lsd %s: %s", perfil_rclone, ex)
+
+            def _err():
                 loading_row.visible = False
-                error_text.value    = f"Error loading buckets: {ex_val}"
+                hint = issue.hint_for(False)
+                error_text.value    = f"⚠️ {issue.title}. {hint}" if hint else f"⚠️ {issue.title}."
                 error_text.visible  = True
+                if "_all_buckets" in selected_state:
+                    _render_buckets(selected_state["_all_buckets"])   # la lista anterior, con los montajes al día
                 page.update()
             backend.ui_call(page, _err)
 
@@ -246,7 +252,27 @@ def build_rclone_browser(
         tight=True,
     )
 
-    return browser_widget, lambda: threading.Thread(target=_load, daemon=True).start(), unmount_all_btn
+    def _refresh():
+        with _loads_lock:
+            if _loads["running"]:
+                _loads["again"] = True
+                return
+            _loads["running"] = True
+        threading.Thread(target=_load_until_current, daemon=True).start()
+
+    def _load_until_current():
+        while True:
+            try:
+                _load()
+            except Exception:                  # que un fallo no deje la lista sin poder recargarse nunca más
+                log.exception("bucket list load failed")
+            with _loads_lock:
+                if not _loads["again"]:
+                    _loads["running"] = False
+                    return
+                _loads["again"] = False
+
+    return browser_widget, _refresh, unmount_all_btn
 
 
 # ============================================================================
@@ -380,33 +406,38 @@ def _build_mount_bucket(
     # ── Montar bucket ─────────────────────────────────────────────────────
     mount_btn = btn_secondary("⊞  Mount bucket")
     mount_status = ft.Text("", size=12, color=C_TEXT_DIM, visible=False)
+    reload_btn = ft.IconButton(icon=ft.Icons.REFRESH, icon_color=C_PRIMARY, icon_size=18,
+                               tooltip="Reload the bucket list")
+    busy = {"on": False}             # montando o desmontando: no se puede empezar otra operación
 
-    def _prompt_install_winfsp(on_success):
-        """Pregunta al usuario si quiere descargar e instalar WinFsp.
-        Si acepta y la instalación termina OK, ejecuta on_success() para reintentar el mount.
-        """
-        def _close(dlg):
-            dlg.open = False
-            page.update()
+    def _set_busy(on: bool, text: str = "") -> None:
+        """Mientras se monta o desmonta, Mount, "Unmount all" y recargar la lista quedan desactivados (pendiente 4:
+        un montaje que terminaba durante "Unmount all" dejaba el estado mal). Solo desde el hilo de la UI."""
+        busy["on"] = on
+        mount_btn.disabled       = on
+        unmount_all_btn.disabled = on
+        reload_btn.disabled      = on
+        mount_status.value       = text
+        mount_status.color       = C_TEXT_DIM
+        mount_status.visible     = bool(text)
+        page.update()
 
-        def _do_install(_e):
-            _close(confirm_dlg)
-
-            progress_text = ft.Text("Starting...")
-            progress_dlg = ft.AlertDialog(
+    def _prompt_install_winfsp(on_success: Callable[[], None]) -> None:
+        """Ofrece descargar e instalar WinFsp; si se instala, on_success() reintenta el montaje."""
+        def _install(_e):
+            page.pop_dialog()
+            progress_text = ft.Text("Starting...", color=C_TEXT_DIM, size=13)
+            page.show_dialog(ft.AlertDialog(
                 modal=True,
-                title=ft.Text("Installing WinFsp"),
-                content=ft.Column(
-                    [ft.ProgressRing(), progress_text],
-                    tight=True,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-            )
-            page.overlay.append(progress_dlg)
-            progress_dlg.open = True
+                title=ft.Text("Installing WinFsp", color=C_TEXT, size=15, weight=ft.FontWeight.W_600),
+                content=ft.Column([ft.ProgressRing(), progress_text], tight=True,
+                                  horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                bgcolor=C_OVERLAY,
+                shape=ft.RoundedRectangleBorder(radius=10),
+            ))
             page.update()
 
-            def _on_progress(msg):
+            def _on_progress(msg: str) -> None:
                 def _upd():
                     progress_text.value = msg
                     page.update()
@@ -414,163 +445,128 @@ def _build_mount_bucket(
 
             def _worker():
                 try:
-                    ok = backend.install_winfsp_windows(on_progress=_on_progress)
+                    installed, error = backend.install_winfsp_windows(on_progress=_on_progress), None
                 except Exception as ex:
-                    err = str(ex)
-                    log.info(f"WINFSP install error — {err}")
-                    def _err():
-                        _close(progress_dlg)
-                        show_dialog(
-                            page,
-                            "Error installing WinFsp",
-                            f"{err}\n\nYou can install it manually from https://winfsp.dev",
-                            C_ERROR,
-                        )
-                    backend.ui_call(page, _err)
-                    return
+                    log.warning("WinFsp install failed: %s", ex)
+                    installed, error = False, ex
 
                 def _done():
-                    _close(progress_dlg)
-                    if ok:
-                        log.info("WINFSP install success")
+                    page.pop_dialog()
+                    if error is not None:
+                        show_dialog(page, "Error installing WinFsp",
+                                    f"{error}\n\nYou can install it manually from https://winfsp.dev", C_ERROR)
+                    elif installed:
+                        log.info("WinFsp installed")
                         on_success()
                     else:
-                        log.info("WINFSP install cancelled")
-                        show_dialog(
-                            page,
-                            "Installation cancelled",
-                            "The WinFsp installation was cancelled. You can retry the mount whenever you want.",
-                            C_ERROR,
-                        )
+                        log.info("WinFsp install cancelled")
+                        show_dialog(page, "Installation cancelled",
+                                    "The WinFsp installation was cancelled. You can retry the mount whenever "
+                                    "you want.", C_WARNING)
                 backend.ui_call(page, _done)
 
             backend.safe_thread(page, _worker).start()
 
-        def _do_cancel(_e):
-            _close(confirm_dlg)
-            show_dialog(
-                page,
-                "WinFsp not detected",
-                "WinFsp is required to mount S3 folders on Windows. Download it from https://winfsp.dev",
-                C_ERROR,
-            )
+        def _cancel(_e):
+            page.pop_dialog()
+            show_dialog(page, "WinFsp not detected",
+                        "WinFsp is required to mount MinIO folders on Windows. Download it from https://winfsp.dev",
+                        C_ERROR)
 
-        confirm_dlg = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("WinFsp is not installed"),
-            content=ft.Text(
-                "WinFsp is required to mount S3 folders on Windows.\n\n"
-                "Do you want to download and install the latest version now? "
-                "Administrator permissions will be required."
-            ),
-            actions=[
-                ft.TextButton("Install", on_click=_do_install),
-                ft.TextButton("Cancel", on_click=_do_cancel),
-            ],
-        )
-        page.overlay.append(confirm_dlg)
-        confirm_dlg.open = True
-        page.update()
+        show_dialog(page, "WinFsp is not installed",
+                    "WinFsp is required to mount MinIO folders on Windows.\n\n"
+                    "Do you want to download and install the latest version now? "
+                    "Administrator permissions will be required.",
+                    C_WARNING,
+                    actions=[btn_secondary("Cancel", on_click=_cancel), btn_primary("Install", on_click=_install)])
 
     def do_mount(e, ruta: str | None = None):
-        ruta = ruta or _dest_path["value"].strip()
+        ruta = (ruta or _dest_path["value"]).strip()
         if not ruta:
             show_dialog(page, "Error", "Select a bucket first.", C_ERROR)
             return
-
-        mount_btn.disabled   = True
-        mount_status.value   = "Mounting..."
-        mount_status.color   = C_TEXT_DIM
-        mount_status.visible = True
-        page.update()
+        if busy["on"]:
+            return
+        if ruta in mounted_state and backend.is_mounted(mounted_state[ruta]):
+            log.info("mount: %s is already mounted, opening the folder", ruta)
+            backend.open_in_file_browser(mounted_state[ruta])
+            return
+        _set_busy(True, "Mounting...")
 
         def _do():
-            log.info(f"MOUNT start — bucket: {ruta}, profile: {perfil_rclone}")
+            # Montaje perdido (p. ej. macOS lo desconecta al cortarse la red): el backend para su rclone antes de montar
+            lost = mounted_state.pop(ruta, None)
+            if lost:
+                log.info("mount: %s is no longer mounted, mounting again", ruta)
+            log.info("mount: bucket=%s profile=%s", ruta, perfil_rclone)
             try:
-                backend.mount_rclone_S3_prefix_to_folder(perfil_rclone, ruta)
-                mp = backend.resolver_mount_point_destino(perfil_rclone, ruta)
-
-                # Esperar a que el mount esté listo (máx 30s: 150 × 0.2s)
-                sistema = platform.system()
-                for _ in range(150):
-                    time.sleep(0.2)
-                    try:
-                        os.listdir(mp)
-                        break
-                    except OSError:
-                        pass
-
-                time.sleep(2)  # espera extra antes de abrir el explorador
-
-                mounted_state[ruta] = mp
-                log.info(f"MOUNT success — bucket: {ruta}, path: {mp}")
-
-                # Abrir explorador
-                try:
-                    if sistema == "Windows":
-                        os.startfile(mp)
-                    else:
-                        subprocess.Popen({"Darwin": ["open"], "Linux": ["xdg-open"]}[sistema] + [mp])
-                except Exception as ex:
-                    print(f"[mount] Could not open explorer: {ex}")
-
-                def _ok():
-                    mount_btn.disabled   = False
-                    mount_status.value   = "✅ Mounted!"
-                    mount_status.color   = C_ACCENT
-                    def _clear_status():
-                        time.sleep(3)
-                        def _hide():
-                            mount_status.value   = ""
-                            mount_status.visible = False
-                            page.update()
-                        backend.ui_call(page, _hide)
-                    threading.Thread(target=_clear_status, daemon=True).start()
-                    threading.Timer(0.2, dest_browser_refresh).start()
-                    page.update()
-                backend.ui_call(page, _ok)
+                mp = backend.mount_rclone_S3_prefix_to_folder(perfil_rclone, ruta)
             except backend.WinFspMissingError:
-                log.info(f"MOUNT error (WinFsp missing) — bucket: {ruta}")
+                log.info("mount: WinFsp missing")
                 def _ask():
-                    mount_btn.disabled   = False
-                    mount_status.value   = ""
-                    mount_status.visible = False
-                    page.update()
-                    _prompt_install_winfsp(on_success=lambda: do_mount(e, ruta))
+                    _set_busy(False)
+                    _prompt_install_winfsp(on_success=lambda: do_mount(None, ruta))
                 backend.ui_call(page, _ask)
-            except EnvironmentError as ex:
-                err_str = str(ex)
-                log.info(f"MOUNT error (FUSE/WinFSP) — bucket: {ruta} — {err_str}")
-                def _err():
-                    mount_btn.disabled   = False
-                    mount_status.value   = ""
-                    mount_status.visible = False
-                    page.update()
-                    show_dialog(page, "FUSE / WinFSP not detected", err_str, C_ERROR)
-                backend.ui_call(page, _err)
+                return
+            except backend.MountError as ex:
+                error = ex
             except Exception as ex:
-                err_str = str(ex)
-                log.info(f"MOUNT error — bucket: {ruta} — {err_str}")
-                def _err():
-                    mount_btn.disabled   = False
-                    mount_status.value   = ""
-                    mount_status.visible = False
-                    page.update()
-                    show_dialog(page, "Mount error", err_str, C_ERROR)
-                backend.ui_call(page, _err)
+                log.exception("mount %s failed", ruta)
+                error = backend.MountError(backend.issue_for_exception(ex))
+            else:
+                # Solo ahora: el montaje se ha comprobado listando la carpeta.
+                mounted_state[ruta] = mp
+                backend.open_in_file_browser(mp)
+                error = None
+            backend.ui_call(page, lambda: _after_mount(ruta, error, was_mounted=bool(lost)))
 
         backend.safe_thread(page, _do).start()
 
+    def _after_mount(ruta: str, error, *, was_mounted: bool) -> None:
+        if error is not None:
+            _set_busy(False)
+            log_file = backend.current_log_file()
+            context = ruta + (f"\nDetails: {log_file}" if log_file else "")
+            show_issue(page, error.issue, is_web=False, title="Could not mount the bucket", context=context)
+            if was_mounted:
+                dest_browser_refresh()       # la lista aún lo marcaba como montado
+            return
+        _set_busy(False, "✅ Mounted!")
+        mount_status.color = C_ACCENT
+        page.update()
+
+        def _clear_status():
+            time.sleep(3)
+            def _hide():
+                if not busy["on"]:
+                    mount_status.visible = False
+                    page.update()
+            backend.ui_call(page, _hide)
+        threading.Thread(target=_clear_status, daemon=True).start()
+        dest_browser_refresh()
+
     mount_btn.on_click = do_mount
 
-    dest_browser, dest_browser_refresh, unmount_all_btn  = build_rclone_browser(
+    dest_browser, dest_browser_refresh, unmount_all_btn = build_rclone_browser(
         page, perfil_rclone,
         on_select=on_browser_select,
+        mounted_state=mounted_state,
+        on_busy=_set_busy,
         on_double_tap_mount=lambda path: do_mount(None, path),
-        mounted_state=mounted_state
     )
+
+    def _reload(_e):
+        log.info("bucket list: reload")
+        dest_browser_refresh()
+    reload_btn.on_click = _reload
+
     dest_browser_col = ft.Column(
-        [field_label(f"Bucket in {perfil_rclone}"), dest_browser],
+        [
+            ft.Row([field_label(f"Bucket in {perfil_rclone}"), reload_btn],
+                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                   vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            dest_browser,
+        ],
         spacing=4,
         tight=True,
     )

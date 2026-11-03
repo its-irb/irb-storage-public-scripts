@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes, ctypes.util
+import logging
 import os
 import platform
 import re
@@ -11,6 +12,8 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+
+log = logging.getLogger("bifrost.mount")
 
 
 class WinFspMissingError(EnvironmentError):
@@ -22,7 +25,6 @@ class WinFspMissingError(EnvironmentError):
 
 def _check_winfsp_windows() -> bool:
     """Detecta WinFSP en Windows por múltiples métodos."""
-    import shutil
     import winreg
 
     # 1. En el PATH
@@ -170,11 +172,11 @@ def _macos_app_bundle_frameworks() -> Path | None:
         utf8 = objc.objc_msgSend(path_nsstr, objc.sel_registerName(b'UTF8String'))
         if utf8:
             p = Path(utf8.decode()) / 'Contents' / 'Frameworks'
-            print(f"[debug] NSBundle.mainBundle path: {p}")
+            log.debug("NSBundle.mainBundle path: %s", p)
             if p.is_dir():
                 return p
     except Exception as e:
-        print(f"[debug] _macos_app_bundle_frameworks failed: {e}")
+        log.debug("_macos_app_bundle_frameworks failed: %s", e)
     return None
 
 
@@ -194,16 +196,14 @@ def _get_fuse_macos() -> Path | None:
             fuse_t_path = Path(flet_assets).parent.parent / "frameworks" / "fuse_t.framework" / "Versions" / "Current" / "fuse_t"
             
     if fuse_t_path is not None and fuse_t_path.exists():
-        print("[debug] path fuse-t:" + str(fuse_t_path))
+        log.debug("fuse-t: %s", fuse_t_path)
         return fuse_t_path
-    else:
-        print("[debug] path fuse-t not found:" + str(fuse_t_path))
-        return None
+    log.warning("fuse-t not found (looked for %s)", fuse_t_path)
+    return None
 
 
 def _check_fuse_linux() -> bool:
     """Detecta FUSE en Linux."""
-    import shutil
     if shutil.which("fusermount") or shutil.which("fusermount3"):
         return True
     try:

@@ -121,7 +121,7 @@ docs/superpowers/         # Historical feature specs and plans
 - **`IS_WEB` (transfer)**: computed only in `src/main.py`, because it depends on
   `__name__ != "__main__"`; `main()` also sets `IS_WEB = IS_WEB or page.web`.
   Modules moved out of `main.py` that read it (`web_session`, `views.shares`,
-  `views.copy`, `views.tag_manager`) declare `IS_WEB = False`, and
+  `views.copy`, `views.tag_manager`, `views.rclone_browser`) declare `IS_WEB = False`, and
   `_propagar_is_web()` in `main.py` copies the real value into them at import
   and whenever `main()` updates it. A new module that reads `IS_WEB` must be
   added to `_propagar_is_web()`.

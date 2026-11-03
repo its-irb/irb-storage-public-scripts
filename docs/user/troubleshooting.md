@@ -50,6 +50,13 @@ Find the message you see in red under the password field:
   give you permission.
 - Check that you signed in with the **right username**.
 
+## A folder does not mount, or does not unmount (Bifrost mount)
+
+When mounting fails, a window says why and **what you can do** (for example,
+renew your MinIO access or turn on the VPN), and gives the path of BIFROST's
+log file (**Details: …**). If it keeps happening, send that file to ITS. See the
+table in [mount-buckets.md](mount-buckets.md#if-something-goes-wrong).
+
 ## Bifrost mount does not work on Windows
 
 **Symptom**: when you mount, an error appears or the drive does not show up.
@@ -73,11 +80,16 @@ another node (for example `sphr`).
   - for large volumes, copy with Bifrost transfer.
 - The copy itself is usually faster than the listing; wait for it to finish.
 
-## I lost the log of a copy (cluster)
+## I need the full log of a copy or check
 
-- In the browser you only see the **last lines**. The **full log** is saved on
-  the cluster server, in `~/bifrost-logs/`, when each copy or check ends.
-- If you were disconnected, the log is still there.
+- The log panel only shows a summary. When each copy or check ends, BIFROST
+  saves a **report** with everything that happened; the last line of the log
+  says where (**📄 Report saved: …**).
+- On your computer, see
+  [transfer-data.md](transfer-data.md#where-the-full-report-is-saved).
+- On the cluster, the report is in the folder of your Open OnDemand session,
+  even if you were disconnected: see
+  [web-mode-ood.md](web-mode-ood.md#logs-and-reports).
 
 ## The app asks about an update
 
@@ -92,10 +104,14 @@ and install it; from then on the app will update itself.
 
 ## Errors when applying labels (Tag Manager)
 
-1. Read the **log** on screen: it usually shows permission or access errors.
-2. The app renews its MinIO access by itself; start the operation again.
-3. If it persists, ask your group's data manager to check your permissions on
-   that folder.
+1. Read the window that appears and the **LOGS** panel: they say what happened
+   and what you can do.
+2. If it says **MinIO access expired**, go **← Back**, click **🔑 Renew
+   credentials** and open the Tag Manager again. The app only renews the access
+   when you sign in.
+3. Click **Try again**. For a folder, only the files that failed are retried.
+4. If it persists, ask your group's data manager to check your permissions on
+   that folder, or contact ITS with the report whose path is in the LOGS panel.
 
 ## It is still not solved
 
@@ -103,4 +119,5 @@ Contact the team that maintains BIFROST at the IRB and send:
 
 - the **app** (Bifrost transfer or Bifrost mount) and its **version**;
 - your **operating system**;
-- the exact **error message** and, if you can, a piece of the **log**.
+- the exact **error message** and, if it happened during a copy or a check, its
+  **report** (see [I need the full log of a copy or check](#i-need-the-full-log-of-a-copy-or-check)).

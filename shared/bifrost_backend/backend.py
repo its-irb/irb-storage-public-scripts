@@ -41,16 +41,23 @@ from .common.logs import (
     setup_logging,
     report_path,
     write_report,
+    open_in_file_browser,
+    current_log_file,
 )
 from .common.rclone_output import (
     MAX_CURRENT,
     short_name,
     human_size,
     issue_for_exception,
+    UNMOUNT_FAILED,
 )
 from .common.shutdown import (
     register_shutdown,
     install_signal_handlers,
+)
+from .common.rclone_mount import (
+    MountError,
+    is_mounted,
 )
 from .mount.s3_mount import (
     mount_rclone_S3_prefix_to_folder,

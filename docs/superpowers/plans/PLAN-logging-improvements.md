@@ -1,13 +1,13 @@
 # Plan: sistema de logs unificado (log técnico + mensajes al usuario + salida de rclone)
 
-Rama: `refactor/unified-logging`. Última actualización: 2026-10-23.
+Rama: `refactor/unified-logging`. Última actualización: 2026-11-03.
 
 | Fase | Contenido | Estado |
 |---|---|---|
 | 0 | Verificación de formatos de rclone 1.72.1 y de Hypercorn 0.18 | Hecha (falta el punto 4: errores reales de MinIO) |
 | PR 1 | Log técnico común (`common/logs.py`) en las dos apps + OOD | **Hecho** |
 | PR 2 | Salida de rclone para el usuario: 2a copy / check · 2b Tag Manager | **2a hecho** (`cc17aa7`, `5d11c22`); **2b implementado** (pendiente de commit y de la prueba manual) |
-| PR 3 | Montajes con rclone (MinIO y NetApp): `--log-file` y verificación real | Revisado (2026-10-23), pendiente |
+| PR 3 | Montajes con rclone (MinIO y NetApp): verificación real y errores de rclone al log técnico | **Implementado** (pendiente de commit, de la prueba manual y de Windows) |
 | PR 4 | Diálogo de error con referencia y acceso a los logs | Pendiente |
 | PR 5 | Migración de `print` al logger y limpieza del contenido | Pendiente |
 | PR 6 | Documentación (`docs-update`) | Pendiente |
@@ -40,15 +40,21 @@ rclone (crudo) ──┤                                                        
 rclone (JSON) ──► rclone_output.RunSummary ──► líneas para el usuario ──► panel UI + informe de operación
                                 │
                                 └─► UserIssue (catálogo) ──► diálogo con referencia + botones
-rclone mount ──► --log-file <carpeta>/rclone/mount-<bucket>-<fecha>.log ──► si falla: últimas líneas → UserIssue
+rclone mount ──► fichero temporal rclone/<tipo>-<nombre>.log (JSON, solo errores) ──► si falla: causa → UserIssue
+                                │
+                                └─► al desmontar o si falla: errores sin nombres ──► log técnico [bifrost.rclone],
+                                    y se borra el fichero
 ```
 
-| Sistema | Log técnico | Informes (PR 2) | Logs de rclone (PR 3) |
+| Sistema | Log técnico | Informes (PR 2) | Ficheros temporales de los montajes (PR 3) |
 |---|---|---|---|
 | macOS | `~/Library/Logs/BIFROST/<app>/` | `…/<app>/reports/` | `…/<app>/rclone/` |
 | Windows | `%LOCALAPPDATA%\IRB\BIFROST\<app>\` | `…\reports\` | `…\rclone\` |
 | Linux escritorio | `$XDG_STATE_HOME/bifrost/<app>/` (por defecto `~/.local/state/…`) | `…/reports/` | `…/rclone/` |
 | OOD (web) | stdout → `./output.log` | `$BIFROST_SESSION_DIR/reports/` | `$BIFROST_SESSION_DIR/rclone/` |
+
+Los ficheros de `rclone/` solo existen mientras el montaje está activo: al desmontar, sus errores pasan al log
+técnico y se borran (ver PR 3, decisión del 2026-11-03).
 
 Si `BIFROST_SESSION_DIR` no está definida (web en local), se usa la carpeta del SO. Los logs antiguos
 (`~/bifrost-mount-logs/`, `~/bifrost-logs/`) no se borran.
@@ -57,13 +63,13 @@ Dónde va la información útil de rclone:
 
 | Información | Dónde la ve el usuario | Dónde queda guardada |
 |---|---|---|
-| Carpeta montada o no, y por qué | estado del botón + diálogo con referencia | log técnico + `rclone/mount-*.log` |
+| Carpeta montada o no, y por qué | estado del botón + diálogo con referencia | log técnico (causa y errores de rclone, sin nombres) |
 | Progreso de la copia (comparando / copiando, ficheros, tamaño, velocidad, tiempo restante) | bloque de progreso encima del log, una vez por segundo | log técnico (una línea de stats cada 60 s) |
 | Fichero o carpeta que no se pudo copiar y por qué | al final, en el panel: **solo el número por causa**, sin nombres | informe: lo que mostró el panel + lista de ficheros con su causa (máx. 100) |
 | Ficheros ya idénticos en MinIO (no copiados, sus etiquetas no cambian) | al final, en el panel: el número | informe (lo mismo que el panel) |
 | Resumen final (copiados, fallidos, qué hacer) | bloque final del panel | informe |
 | Check: idénticos / faltan en MinIO / distintos / no comparados / con error | resumen en el panel, solo números | informe: lo que mostró el panel + distintos e ilegibles con su causa (máx. 100) |
-| NetApp (Z) montado o no, y por qué | estado de la fila + diálogo al pulsar "Error" | log técnico + `rclone/netapp-*.log` |
+| NetApp (Z) montado o no, y por qué | estado de la fila + diálogo al pulsar "Error" | log técnico (causa y errores de rclone, sin nombres) |
 | Error al listar carpetas | texto de error del navegador, traducido | log técnico |
 | Etiquetas aplicadas o error de MinIO | panel LOGS del Tag Manager (recuentos) + pop-up si falla | informe `tags-<fecha>.log` (máx. 100 ficheros con problemas) |
 
@@ -770,16 +776,30 @@ incorporados arriba, y la tabla de verificación los comprueba al programar.
 
 - El pendiente 4 entra en este PR.
 - Bifrost Mount sigue sin panel de log: los errores se muestran en pop-ups (`show_issue`) con la ruta del log
-  de rclone del montaje.
-- Un único `MountError(issue, log_path)`; `WinFspMissingError` se mantiene porque abre el instalador.
-- `rclone mount` con `--log-file <ruta> --log-level INFO --log-file-max-size 10M --log-file-max-backups 1`
-  (opciones comprobadas en rclone 1.72.1). Medido el 2026-10-23 montando un bucket del MinIO simulado con
-  fuse-t: montar y desmontar deja 5 líneas (425 bytes) en INFO y 2 (241 bytes) en NOTICE, sin nombres de
-  ficheros; la diferencia no compensa perder contexto. Las operaciones de cada fichero van a DEBUG en
-  `rclone mount` (a confirmar en la fase 0 leyendo a través del montaje: macOS no dejó leer el volumen desde la
-  terminal de las pruebas). Lo que puede hacer crecer el fichero son los errores (una línea por fichero que
-  falla, con su nombre) o `--vfs-cache-mode` (una línea de limpieza por minuto, ~150 KB/día): el tope de
-  10 MB más uno anterior lo limita a ~20 MB por montaje.
+  técnico de la sesión ("Details:"; el PR 4 lo sustituye por la referencia y los botones).
+- Un único `MountError(issue)`; `WinFspMissingError` se mantiene porque abre el instalador.
+- **Errores de rclone al log técnico, sin ficheros de log por montaje (decisión del 2026-11-03, sustituye a
+  la del 2026-10-23: un `--log-file` en INFO por montaje, en `rclone/`, con su ruta en el pop-up).** En las
+  pruebas manuales ese fichero no aportó nada: un montaje normal deja siempre las mismas 5 líneas, que el log
+  técnico ya cuenta con más datos (PID, tiempos); en un corte de VPN rclone reintenta en silencio y tras 9
+  minutos no había escrito nada; un fallo de credenciales repite el mismo error 9 veces (17 al abrir un
+  fichero) y las líneas nombran carpetas y ficheros. Ahora:
+  - rclone sigue escribiendo en un fichero mientras monta: es otro proceso, que puede sobrevivir a la app (si
+    escribiera a BIFROST por una tubería, al morir la app rclone moriría o se bloquearía). Pero es temporal y
+    solo con errores: `--use-json-log --log-level ERROR --log-file-max-size 10M --log-file-max-backups 1`. En
+    JSON el nombre del fichero o carpeta llega en un campo aparte (`object`) y se quita entero, como en copy
+    (con el texto de antes, `error_text` dejaba pasar la primera carpeta: `informes<path>`).
+  - BIFROST lo sigue leyendo para elegir el pop-up (credenciales, permiso…).
+  - Si el montaje falla, y al desmontar (también un resto de una sesión anterior, un montaje perdido o al
+    cerrar la app), sus errores pasan al log técnico con el logger `bifrost.rclone` (el de copy): cada texto
+    distinto una vez, sin nombres, hasta 100 (`MAX_LOGGED_ERRORS`); después se borra.
+  - Nombre fijo por bucket o share (`mount-<perfil>-<bucket>.log`, `netapp-<share>.log`): así se encuentra el
+    de un resto de una sesión anterior. Si queda uno de un montaje que murió sin desmontar, se borra antes de
+    volver a montar (si no, su causa se confundiría con la del montaje nuevo).
+  - INFO y NOTICE no se guardan: son las 5 líneas de siempre (`poll-interval…`, `Symlinks…`, `Signal
+    received`, `Unmounted`, `Exiting`).
+  - Se pierde: los nombres de ficheros en los errores (para desarrollo basta la causa; son datos del usuario)
+    y el texto de más de 100 errores distintos.
 - Una sola espera de montaje para MinIO y NetApp. A cambio, cada cambio en ella se prueba en las dos apps y
   en los tres sistemas (la tabla de verificación lo cubre); el margen de 30 s es un parámetro por si algún
   montaje necesita más.
@@ -789,22 +809,24 @@ incorporados arriba, y la tabla de verificación los comprueba al programar.
 
 **`common/logs.py`**
 
-- `rclone_log_path(kind, name)`: ruta nueva para el `--log-file` de un montaje (`mount-<perfil>-<bucket>-<fecha>.log`,
-  `netapp-<share>-<fecha>.log`), en `rclone/` junto a `reports/` (en OOD, la carpeta de la sesión). Se
-  conservan 30 por tipo. `report_path` y `rclone_log_path` comparten la elección de carpeta base.
-- Estos logs pueden contener nombres de ficheros (errores al leer uno concreto): se tratan como los informes
-  (el PR 4 no los mete por defecto en el zip de exportación).
+- `rclone_log_path(kind, name)`: el fichero temporal de un montaje (`mount-<perfil>-<bucket>.log`,
+  `netapp-<share>.log`), siempre el mismo para el mismo bucket o share, en `rclone/` junto a `reports/` (en OOD,
+  la carpeta de la sesión). `report_path` y `rclone_log_path` comparten la elección de carpeta base.
+- `current_log_file()` (se adelanta del PR 4): el log técnico de la sesión; en OOD, `output.log` de la
+  carpeta de la sesión. Es la ruta que dan los pop-ups de montaje.
 
 **`common/rclone_mount.py` (nuevo, lo usan `mount/s3_mount.py` y `transfer/smb.py`)**
 
-- `MountError(Exception)` con `.issue: UserIssue` y `.log_path: Path | None`.
+- `MountError(Exception)` con `.issue: UserIssue`.
+- `drain_rclone_log(log_path, label)`: pasa los errores del fichero al log técnico (`bifrost.rclone`, sin
+  nombres, cada texto una vez) y lo borra. La usan el fallo de un montaje y todos los desmontajes.
 - `mount_and_wait(comando, mount_point, log_path, *, env=None, timeout=30) -> Popen`: añade las opciones de
   log, lanza rclone y cada 0,2 s comprueba:
-  - si rclone ha terminado → `MountError` con `classify(últimas 20 líneas del log)` o `UNEXPECTED`;
+  - si rclone ha terminado → `MountError` con `classify(últimos errores del fichero de rclone)` o `UNEXPECTED`;
   - si la carpeta está montada de verdad (macOS/Linux: `os.path.ismount` + `os.listdir`; Windows, donde la
     carpeta no existe hasta que monta: existe + `os.listdir`) → devuelve el proceso;
   - si pasan 30 s → termina rclone y `MountError(MOUNT_TIMEOUT)`.
-- Log técnico: una línea por montaje (`mount ok: … seconds=…` / `mount failed: code=… log=…`), sin nombres
+- Log técnico: una línea por montaje (`mount ok: … (rclone pid N, N s)` / `mount failed: … code=…`) y, debajo, los errores de rclone; sin nombres
   de ficheros.
 
 **Catálogo (`rclone_output.py`)**: `FUSE_MISSING` (pista por sistema), `MOUNT_TIMEOUT` ("The folder did not
@@ -827,7 +849,7 @@ comprobarlos antes** (fase 0 del PR 3): los de MinIO en local, los de la NetApp 
 
 - `do_mount`: "✅ Mounted!" y abrir el explorador solo si `mount_and_wait` monta; `mounted_state` se actualiza
   solo entonces. Errores: `WinFspMissingError` → instalador (como ahora); `MountError` → `show_issue` con el
-  bucket y la ruta del log de rclone; otro error → `issue_for_exception`.
+  bucket y la ruta del log técnico; otro error → `issue_for_exception`.
 - **Pendiente 4**: mientras un bucket se está montando, "Unmount all" y "Mount" quedan desactivados; al
   terminar "Unmount all" se vuelve a comprobar qué sigue montado de verdad, y los que no se pudieron desmontar
   se avisan con un pop-up en lugar de darlos por desmontados.
@@ -840,7 +862,7 @@ comprobarlos antes** (fase 0 del PR 3): los de MinIO en local, los de la NetApp 
 - `montar_share_rclone` usa `mount_and_wait` con `rclone_log_path("netapp", share)` en lugar de `DEVNULL`;
   añade a `mounts_activos` **solo si monta**; devuelve el `MountError` o `None`.
 - `montar_shares_seleccionados` devuelve `dict[nombre, MountError]`; la fila dice "Error" y al pulsarla abre
-  `show_issue` con qué pasó, qué hacer y la ruta del log.
+  `show_issue` con qué pasó, qué hacer y la ruta del log técnico (`output.log` de la sesión).
 
 **`views/rclone_browser.py`**: error traducido (`issue_for_exception` + pista), como en el Tag Manager; el
 texto original, al log técnico.
@@ -850,20 +872,114 @@ texto original, al log técnico.
 | Dónde | Caso | Resultado esperado |
 |---|---|---|
 | Local (macOS + fuse-t + `rclone serve s3`, sin MinIO real) | Montaje correcto | "✅ Mounted!" cuando la carpeta responde, no antes |
-| Local | Claves no válidas / bucket inexistente | Pop-up traducido en segundos, con la ruta del log; no "Mounted!" |
+| Local | Claves no válidas / bucket inexistente | Pop-up traducido en segundos, con la ruta del log técnico; no "Mounted!"; los errores de rclone, en el log técnico |
 | Local | Carpeta ocupada / rclone muere a mitad | `MOUNT_BUSY` / estado correcto tras "Unmount all" |
 | Local | "Unmount all" con un montaje en curso | Botones desactivados; el estado final es el real (pendiente 4) |
 | OOD | Share correcto / contraseña mal / share inexistente | Montado / pop-up con la causa en 1-2 s, sin esperar 30 s |
 | OOD | Share que falla | No aparece en `mounts_activos`; copy no traduce rutas a él |
 | Windows (se implementa en el PR 3; la prueba queda en `PENDIENTES.md`, entrada 17) | Resto de una sesión anterior + "Unmount all" | Se desmonta; ningún otro `rclone.exe` se cierra |
 
+### Estado del PR 3 (2026-10-23)
+
+**Fase 0 (rclone 1.72.1, fuse-t, MinIO simulado con `rclone serve s3`):**
+- `rclone mount` monta en 0,3 s **aunque** las claves no valgan, el bucket no exista o el servidor no responda;
+  solo termina enseguida si el perfil no existe (`CRITICAL … didn't find section`) o la carpeta ya está
+  montada (`fuse: mount failed`, `ERROR : … Mount failed`). Por eso el montaje se comprueba listando la
+  carpeta, y la causa sale del log de rclone (`InvalidAccessKeyId` aparece en cuanto el sistema lee la
+  carpeta).
+- Con un servidor que no responde, rclone tarda ~4 minutos en rendirse (10 intentos): la lectura de prueba
+  va en un hilo para no bloquear la espera de 30 s.
+- En macOS, si rclone muere, fuse-t desmonta la carpeta solo. Un resto de una sesión anterior (la app murió y
+  rclone siguió vivo) se desmonta con `umount`. (2026-10-27: ahora se para su rclone, como en Windows; ver
+  abajo.)
+- Desde la terminal de las pruebas, macOS no deja leer un volumen de red ("Operation not permitted"): ese
+  caso es `MOUNT_NOT_ALLOWED` (con la pista de dar permiso en Privacidad y seguridad). Por eso el montaje
+  correcto completo no se pudo probar aquí. (2026-10-26: con acceso total al disco para VS Code sí se pudo,
+  contra un S3 falso local: montaje, segundo montaje del mismo bucket, desmontaje y resto de una sesión
+  anterior.)
+
+**Implementado según la sección anterior, con estos detalles:**
+- `common/rclone_mount.py`: `mount_and_wait`, `MountError`, `is_mounted`, `stop_process`.
+- Catálogo: `MOUNT_BUSY`, `RCLONE_MISSING`, `NETAPP_LOGIN`, `NETAPP_SHARE_NOT_FOUND`, `NETAPP_PERMISSION` (por
+  patrón) y `FUSE_MISSING_MACOS/LINUX`, `MOUNT_TIMEOUT`, `MOUNT_NOT_ALLOWED`, `UNMOUNT_FAILED` (constantes).
+  `ISSUES_BY_CODE` para usar los del catálogo por código.
+- `logs.rclone_log_path()` comparte con `report_path()` la elección de carpeta (`_new_file`).
+  `logs.open_in_file_browser()` se adelanta del PR 4: Bifrost Mount la usa para abrir la carpeta montada.
+- macOS/Linux: si la carpeta de montaje ya existe con contenido, se monta encima (`--allow-non-empty`) en
+  lugar de fallar.
+- `views/rclone_browser.py` recibe `IS_WEB` de `main.py` como las demás vistas (la pista de OOD es otra).
+- Limpieza: `print`/f-strings del logger en `s3_mount.py`, `preflight.py` y `mount.py`; imports sin usar en
+  `smb.py` y `preflight.py`; el `taskkill /IM rclone.exe` de "Unmount all".
+- Un bucket ya montado no se vuelve a montar (encontrado en la prueba manual del 2026-10-26; ya pasaba antes
+  del PR 3, pero no se veía porque el segundo rclone no tenía log). El segundo `rclone mount` se quedaba
+  esperando a que la carpeta quedara libre, la comprobación veía el montaje del primero ("mount ok" falso) y,
+  al desmontar, solo se paraba el primero. Ahora la pantalla abre la carpeta si el bucket está montado y el
+  backend devuelve la carpeta sin lanzar rclone si ya está montada y responde (como ya hacía la NetApp);
+  `mount_and_wait` da `MOUNT_BUSY` sin lanzar rclone si la carpeta ya está montada.
+  Logs: PID de rclone al montar y al desmontar, "forcing" antes de forzar un desmontaje y la duración al
+  terminar; sin `bucket selected` en cada clic.
+- Restos de una sesión anterior (prueba manual del 2026-10-27): en macOS/Linux se esperaban 3 s inútiles por
+  bucket y luego `umount -f` quitaba la carpeta por debajo de rclone, que acababa con `ERROR : Mount failed` /
+  `CRITICAL` en su log. Ahora, en todos los sistemas, se busca el `rclone mount` cuya línea de comandos tiene
+  exactamente esa carpeta (`ps` en macOS/Linux, PowerShell en Windows) y se para (SIGTERM / taskkill): rclone
+  desmonta y sale limpio en ~0,2 s. Solo se fuerza si la carpeta sigue montada (sin esperar si no se encontró
+  rclone). La búsqueda ignora los rclone que no son `mount`: una copia que lea de la carpeta montada no se
+  para (en Windows también podía pasar antes). La pantalla ya marcaba como montados los restos al cargar los
+  buckets, pero sin dejarlo en el log: ahora escribe `mounted from a previous session: <carpeta>` por cada uno.
+- Montaje perdido (prueba manual del 2026-11-03): sin VPN, macOS acaba mostrando "Se han interrumpido las
+  conexiones con el servidor" y, al pulsar "Desconectar", quita el montaje; su rclone sigue vivo y la pantalla lo
+  seguía dando por montado (abría una carpeta vacía). Ahora, al pulsar un bucket marcado como montado, se
+  comprueba que lo siga estando; si no, se monta de nuevo (`no longer mounted, mounting again`) y el backend
+  para antes el rclone huérfano de esa carpeta (`stopping rclone pid N of the lost mount`; si no, al desmontar
+  pararía el viejo y tendría que forzar el nuevo). Cada recarga de la lista también deja de marcar los que el
+  sistema ha quitado (`mount: <bucket> is no longer mounted`): con dos buckets montados al cortar la VPN, el
+  otro seguía marcado. Su rclone se para al volver a montarlo o al cerrar la app. Si falla, la lista deja de marcarlo aunque no se pueda recargar (sin VPN, la lista anterior se
+  vuelve a pintar con los montajes al día, junto al aviso de error). Probado con rclone y fuse-t reales contra
+  el S3 falso.
+- Botón ⟳ junto al título de la lista para recargarla (siempre visible; desactivado mientras se monta o
+  desmonta; log `bucket list: reload`): sin VPN la lista decía "try again" pero no había cómo recargarla.
+  Las cargas de la lista no se solapan: si se pide otra durante una (⟳, recarga tras montar), se hace una más
+  al terminar (seis clics seguidos = dos cargas; conectar la VPN y pulsar ⟳ mientras carga acaba bien).
+
+- Logs de rclone de los montajes (2026-11-03, ver la decisión en "Decisiones"): fichero temporal de solo
+  errores en JSON, con nombre fijo por bucket o share; `drain_rclone_log` pasa sus errores al log técnico
+  (`[bifrost.rclone]`, sin nombres, cada texto una vez) al fallar el montaje y en todos los desmontajes, y lo
+  borra; antes de montar se borra el que quedara de un montaje muerto. `MountError` ya no lleva ruta; los pop-ups
+  dan la del log técnico (`logs.current_log_file()`, adelantada del PR 4). La lista de buckets separa
+  `bucket list failed: … code=…` del texto de rclone (`[bifrost.rclone] lsd …`). Probado con rclone y fuse-t
+  reales contra el S3 falso (19 casos): credenciales malas (2 líneas en vez de 9, fichero borrado), montaje
+  normal (ninguna línea), errores con el bucket montado (sin nombres al desmontar), resto de una sesión
+  anterior, fichero de un montaje muerto, perfil inexistente (CRITICAL), fichero rotado por rclone
+  (`<nombre>-2026-11-03T13-44-04.778.log`, comprobado) sin tocar el de otro bucket, límite de 100, NetApp y
+  `current_log_file` en escritorio y OOD. La pantalla (19 casos) da "Details:" con el log de la sesión.
+  Prueba manual con MinIO de verdad: salían las 17 líneas porque cada respuesta trae otro `RequestID` y
+  `HostID`. Se agrupa por `error_key` (el texto sin esos identificadores) y se escribe la primera vez con los
+  suyos, para poder buscar esa petición en el log de MinIO. Arregla también la agrupación de errores de copy,
+  que tenía el mismo fallo (el S3 falso los deja vacíos y no se veía).
+
+**Probado:** `mount_and_wait` con rclone real (perfil inexistente, carpeta ocupada, lectura bloqueada) y
+simulado (credenciales, bucket, servidor colgado, permiso, error desconocido): 13 casos. Backend de montaje y
+NetApp: 14 (desmontar de esta sesión y restos sin tocar otro rclone, cierre de la app, búsqueda de Windows con
+salida de PowerShell simulada, `mounts_activos` solo si monta). Pantallas: 15 en Bifrost Mount (botones
+ocupados, pop-ups, WinFsp, "Unmount all" parcial, error de lista, bucket ya montado, restos de una sesión
+anterior) y 4 en la NetApp. Copy, check y Tag Manager
+siguen igual y las dos apps arrancan.
+
+**Falta:**
+- Prueba manual en Bifrost Mount con un bucket real: montaje correcto y "Unmount all" hechos el 2026-10-26;
+  doble clic sobre un bucket ya montado y restos de una sesión anterior repetidos el 2026-10-27 tras los
+  arreglos (PIDs correctos, ~0,1 s, logs de rclone limpios).
+- Los textos reales de la NetApp en OOD (contraseña mal, share inexistente, sin permiso) para confirmar el
+  catálogo.
+- Windows: `Bifrost/PENDIENTES.md`, entrada 17.
+
 ## PR 4 — Diálogo de error con referencia y acceso a los logs
 
 ### Funciones que se añaden a `common/logs.py`
 
 ```python
-def current_log_file() -> Path | None:
-    return _state["file"]
+def current_log_file() -> Path | None:                              # hecho en el PR 3
+    """El log técnico de esta sesión; en OOD, output.log de la carpeta de la sesión."""
 
 
 def new_ref(prefix: str) -> str:
@@ -871,7 +987,7 @@ def new_ref(prefix: str) -> str:
     return f"{prefix}-{secrets.token_hex(2).upper()}"
 
 
-def open_in_file_browser(path: Path, select: bool = False) -> None:
+def open_in_file_browser(path: Path, select: bool = False) -> None:   # hecho en el PR 3
     """Abre la carpeta (o la muestra con el fichero seleccionado) en Finder / Explorador / gestor Linux."""
     system = platform.system()
     if system == "Darwin":
@@ -883,14 +999,14 @@ def open_in_file_browser(path: Path, select: bool = False) -> None:
 
 
 def export_logs_zip(app: str, sessions: int = 5) -> Path:
-    """Comprime las últimas sesiones, los logs de rclone y los informes en Descargas (para el ticket)."""
+    """Comprime las últimas sesiones y los informes en Descargas (para el ticket)."""
     d = log_dir(app)
     target_dir = Path.home() / "Downloads"
     if not target_dir.is_dir():
         target_dir = Path.home()
     zip_path = target_dir / f"BIFROST-{app}-logs-{datetime.now():%Y-%m-%d_%H-%M}.zip"
     files = sorted(d.glob(f"bifrost-{app}-*.log"), key=lambda p: p.stat().st_mtime, reverse=True)[:sessions]
-    files += [p for sub in ("rclone", "reports") for p in (d / sub).glob("*") if p.is_file()]
+    files += [p for p in (d / "reports").glob("*") if p.is_file()]   # rclone/: temporales, sus errores ya están en el log
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
         for f in files:
             z.write(f, f.relative_to(d))
@@ -924,6 +1040,10 @@ Por módulo (`log = logging.getLogger("bifrost.<área>")`), del más ruidoso al 
   f-strings en las llamadas al logger.
 - Volcados grandes a DEBUG y resumidos: lista de buckets → `folders=28`; conexión LDAP → solo el DN;
   `[debug matching]` → una línea por proceso.
+- `transfer/smb.py`, `desmontar_todos_los_shares` (cierre de la NetApp): hoy solo deja un `print` al final ("All SMB
+  shares have been unmounted.") y otro por share que falla. Pasar a una línea por share, como Bifrost Mount
+  (`unmount <carpeta>: done` / `still mounted`). Revisar a la vez, probándolo en OOD, el `umount -f` (en Linux
+  quizá no funciona sin ser root con FUSE) y el `taskkill /IM rclone.exe` de Windows.
 - De paso, avisos de pyflakes en `s3_mount.py`: `f"taskkill"` sin variables y dos `global
   _s3_mount_processes` que sobran.
 - Al terminar, `_StreamToLogger` queda solo como red de seguridad.

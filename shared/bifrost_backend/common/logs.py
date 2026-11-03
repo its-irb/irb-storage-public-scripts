@@ -11,6 +11,7 @@ import logging
 import os
 import platform
 import re
+import subprocess
 import sys
 import threading
 from datetime import datetime
@@ -26,7 +27,7 @@ _PASSTHROUGH_PREFIX = os.environ.get("FLET_DISPLAY_URL_PREFIX")
 # un console.log propio, que se vacía en cada arranque y que su sys.exit cierra. Flet solo lo usa para mostrar
 # la pantalla "Error running app" si la app falla al arrancar, así que ahí solo hacen falta avisos y errores.
 _PACKAGED = "FLET_PYTHON_CALLBACK_SOCKET_ADDR" in os.environ
-_state: dict = {"app": None, "is_web": False}   # lo rellena setup_logging
+_state: dict = {"app": None, "is_web": False, "file": None}   # lo rellena setup_logging
 
 
 def log_dir(app: str) -> Path:
@@ -54,22 +55,47 @@ def _prune(folder: Path, pattern: str, keep: int) -> None:
             pass
 
 
-def report_path(kind: str, ext: str = "log") -> Path:
-    """Ruta nueva para el informe de una operación ('copy', 'check', 'tags'…). Conserva 30 por tipo.
-
-    En Open OnDemand va a la carpeta de la sesión ($BIFROST_SESSION_DIR/reports/, junto a output.log); en
-    escritorio, o en web sin esa variable, a <carpeta de logs de la app>/reports/. Puede lanzar OSError.
-    """
+def _folder(name: str) -> Path:
+    """<base>/<name>, creada. La base es la carpeta de la sesión en Open OnDemand ($BIFROST_SESSION_DIR, junto a
+    output.log) y, en escritorio o en web sin esa variable, la carpeta de logs de la app. Puede lanzar OSError."""
     session_dir = os.environ.get("BIFROST_SESSION_DIR")
     base = Path(session_dir) if (_state["is_web"] and session_dir) else log_dir(_state["app"] or "bifrost")
-    folder = base / "reports"
+    folder = base / name
     folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def _new_file(folder_name: str, kind: str, ext: str) -> Path:
+    """Ruta nueva <base>/<folder_name>/<kind>-<fecha>.<ext>, sin pisar ninguna. Conserva 30 por tipo."""
+    folder = _folder(folder_name)
     _prune(folder, f"{kind}-*.{ext}", KEEP_SESSIONS - 1)
     stem = f"{kind}-{datetime.now():%Y-%m-%d_%H-%M-%S}"
     path, n = folder / f"{stem}.{ext}", 2
-    while path.exists():                     # dos informes del mismo tipo en el mismo segundo
+    while path.exists():                     # dos ficheros del mismo tipo en el mismo segundo
         path, n = folder / f"{stem}-{n}.{ext}", n + 1
     return path
+
+
+def report_path(kind: str, ext: str = "log") -> Path:
+    """Ruta nueva para el informe de una operación ('copy', 'check', 'tags'…), en reports/."""
+    return _new_file("reports", kind, ext)
+
+
+def rclone_log_path(kind: str, name: str) -> Path:
+    """Fichero temporal para el --log-file de un montaje ('mount', 'netapp'), en rclone/. Siempre el mismo para el
+    mismo `name` (bucket o share): así se encuentra el de un montaje que quedó de una sesión anterior. Sus errores
+    pasan al log técnico y se borra al desmontar (rclone_mount.drain_rclone_log)."""
+    label = re.sub(r"[^\w.-]+", "_", name).strip("_")[:60] or "x"
+    return _folder("rclone") / f"{kind}-{label}.log"
+
+
+def current_log_file() -> Path | None:
+    """El log técnico de esta sesión: el fichero de escritorio o, en Open OnDemand, output.log de la carpeta de
+    la sesión. None si no hay ninguno (web en local)."""
+    session_dir = os.environ.get("BIFROST_SESSION_DIR")
+    if _state["is_web"] and session_dir:
+        return Path(session_dir) / "output.log"
+    return _state["file"]
 
 
 def write_report(kind: str, lines: list[str], problems: list[str] | None = None) -> Path:
@@ -82,6 +108,25 @@ def write_report(kind: str, lines: list[str], problems: list[str] | None = None)
             fh.write("\n--- Files with problems ---\n")
             fh.writelines(line + "\n" for line in problems)
     return path
+
+
+def open_in_file_browser(path: str | Path, select: bool = False) -> None:
+    """Abre la carpeta en Finder / Explorador / gestor de archivos de Linux; con `select`, muestra el fichero
+    seleccionado dentro de su carpeta. No lanza excepciones: si no se puede, lo deja en el log técnico."""
+    path = Path(path)
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            subprocess.Popen(["open", "-R", str(path)] if select else ["open", str(path)])
+        elif system == "Windows":
+            if select:
+                subprocess.Popen(["explorer", f"/select,{path}"])
+            else:
+                os.startfile(path)
+        else:
+            subprocess.Popen(["xdg-open", str(path.parent if select else path)])
+    except Exception as ex:
+        logging.getLogger("bifrost").warning("could not open %s in the file browser: %s", path, ex)
 
 
 class _RedactFilter(logging.Filter):
@@ -199,6 +244,7 @@ def setup_logging(app: str, *, is_web: bool, version: str) -> Path | None:
             _prune(d, f"bifrost-{app}-*.log", KEEP_SESSIONS - 1)
             log_file = d / f"bifrost-{app}-{datetime.now():%Y-%m-%d_%H-%M-%S}.log"
             _add_handler(logging.FileHandler(log_file, encoding="utf-8"), logging.DEBUG)
+            _state["file"] = log_file
         except OSError as ex:
             log_file, file_error = None, f"Cannot create log file in {d}: {ex}"
 

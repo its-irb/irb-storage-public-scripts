@@ -13,6 +13,10 @@ from bifrost_frontend.frontend import *
 
 from meta_fields import WORM_BUCKET_SUFFIX, WORM_FACILITY_DATA_SUBFOLDERS, WORM_ROOT_PREFIXES, build_lab_filter_widget
 
+# main.py fija el valor real al arrancar: IS_WEB solo puede calcularse en main.py
+# (depende de __name__), y las funciones de este módulo lo leen al ejecutarse.
+IS_WEB = False
+
 
 # ============================================================================
 # COMPONENTE: NAVEGADOR DE BUCKETS/CARPETAS RCLONE
@@ -400,10 +404,13 @@ def build_rclone_browser(
 
                 backend.ui_call(page, _timeout_ui)
             except Exception as ex:
-                print(f"[browser] ERROR path={path!r}: {ex}")
-                def _err(ex_val=ex):
+                print(f"[browser] ERROR path={path!r}: {ex}")     # el texto original, al log técnico
+                issue = backend.issue_for_exception(ex)
+
+                def _err():
                     loading_row.visible = False
-                    error_text.value    = f"Error: {ex_val}"
+                    hint = issue.hint_for(IS_WEB)
+                    error_text.value    = f"⚠️ {issue.title}. {hint}" if hint else f"⚠️ {issue.title}."
                     error_text.visible  = True
                     page.update()
                 backend.ui_call(page, _err)

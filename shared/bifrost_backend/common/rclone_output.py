@@ -87,6 +87,28 @@ _CATALOG: list[tuple[re.Pattern, UserIssue]] = [
                "MinIO did not accept one of the tags (a value may be too long or contain characters it does not "
                "allow).",
                "Shorten the value or remove unusual characters, and try again.")),
+    # Montajes. fuse-t (macOS) escribe "mount failed" si la carpeta ya está montada (comprobado, fase 0 del PR 3).
+    (re.compile(r"\bmount failed\b|Resource busy|mountpoint is not empty", re.I),
+     UserIssue("MOUNT_BUSY", "Mount folder in use",
+               "The local folder for this mount is in use (it may already be mounted).",
+               "Click “Unmount all” and mount again. If it keeps happening, restart the computer.")),
+    (re.compile(r"rclone not found"),
+     UserIssue("RCLONE_MISSING", "BIFROST is incomplete",
+               "A component BIFROST needs (rclone) is missing.",
+               "Reinstall BIFROST.")),
+    # NetApp (SMB). Textos de los códigos de Windows; los mensajes reales de rclone están por confirmar en OOD.
+    (re.compile(r"STATUS_LOGON_FAILURE|logon failure|attempted logon is invalid", re.I),
+     UserIssue("NETAPP_LOGIN", "NetApp did not accept your password",
+               "The NetApp rejected your user name or password.",
+               "Sign out and sign in again with your current IRB password.")),
+    (re.compile(r"STATUS_BAD_NETWORK_NAME|network name cannot be found", re.I),
+     UserIssue("NETAPP_SHARE_NOT_FOUND", "NetApp share not found",
+               "The NetApp share does not exist or you cannot see it.",
+               "Contact ITS.")),
+    (re.compile(r"STATUS_ACCESS_DENIED"),
+     UserIssue("NETAPP_PERMISSION", "No permission on the NetApp share",
+               "You do not have permission to open this NetApp share.",
+               "If you need access, ask your group's data manager.")),
     (re.compile(r"no such host|dial tcp|connection refused|connection reset|i/o timeout|timed out|"
                 r"TLS handshake timeout|network is unreachable|Could not connect to the endpoint|"
                 r"Connect timeout|Read timeout|context deadline exceeded", re.I),
@@ -131,6 +153,25 @@ UNEXPECTED = UserIssue("UNEXPECTED", "Something went wrong",
                        "BIFROST could not finish the operation.",
                        "Try again. " + _CONTACT_ITS)
 
+# Montajes: problemas que BIFROST detecta por sí mismo (no salen de un texto de rclone).
+FUSE_MISSING_MACOS = UserIssue("FUSE_MISSING", "Folder driver missing",
+                               "BIFROST cannot mount folders on this Mac: the driver it needs (fuse-t) is missing.",
+                               "Reinstall BIFROST.")
+FUSE_MISSING_LINUX = UserIssue("FUSE_MISSING", "FUSE is not installed",
+                               "BIFROST needs FUSE to mount folders on this computer.",
+                               "Install it (sudo apt install fuse3, or sudo dnf install fuse3), or ask ITS.")
+MOUNT_TIMEOUT = UserIssue("MOUNT_TIMEOUT", "The folder did not respond",
+                          "The folder was mounted, but MinIO or the NetApp did not answer in time.",
+                          "Check that the Nexica VPN is on and try again.",
+                          web_hint="Try again in a few minutes. " + _CONTACT_ITS)
+MOUNT_NOT_ALLOWED = UserIssue("MOUNT_NOT_ALLOWED", "BIFROST cannot open the mounted folder",
+                              "The system did not let BIFROST open the folder it mounted.",
+                              "On a Mac: System Settings → Privacy & Security → Files and Folders → allow BIFROST "
+                              "to access network volumes, then mount again.")
+UNMOUNT_FAILED = UserIssue("UNMOUNT_FAILED", "Could not unmount",
+                           "A mounted folder is still in use, so it could not be unmounted.",
+                           "Close the windows or programs that are using it and click “Unmount all” again.")
+
 # https://rclone.org/docs/#exit-code
 _EXIT = {
     2: UserIssue("RCLONE_OPTIONS", "Options not valid",
@@ -161,12 +202,20 @@ _EXIT = {
 # Rutas y textos entre comillas: se quitan antes de clasificar para que el nombre de una carpeta
 # ("worm_project", "refused_cells"…) no se confunda con un error.
 _PATHLIKE = re.compile(r'"[^"]*"|(?:[A-Za-z]:\\|/)[^\s"]*')
+# Identificadores que MinIO pone en cada respuesta: cambian en cada petición y harían distinto el mismo error.
+_REQUEST_IDS = re.compile(r"\b(RequestID|HostID): [^,\s]+")
 
 
 def error_text(msg: str, obj: str = "") -> str:
-    """Texto del error sin el nombre del elemento ni rutas, para clasificarlo."""
+    """Texto del error sin el nombre del elemento ni rutas, para clasificarlo y escribirlo en el log técnico."""
     text = msg.replace(obj, "<item>") if obj else msg
     return _PATHLIKE.sub("<path>", text)
+
+
+def error_key(text: str) -> str:
+    """Un error_text sin los identificadores de petición: el mismo error da la misma clave en cada respuesta. Se
+    escribe una vez por clave, con los identificadores de la primera (para buscarla en el log de MinIO)."""
+    return _REQUEST_IDS.sub(r"\1: <id>", text)
 
 
 def classify(text: str) -> UserIssue | None:
@@ -180,14 +229,15 @@ def classify(text: str) -> UserIssue | None:
 # importar botocore aquí (la app de montaje no lo necesita).
 _CONNECTION_ERRORS = {"EndpointConnectionError", "ConnectTimeoutError", "ReadTimeoutError",
                       "ConnectionClosedError", "SSLError", "ConnectionError"}
-_NETWORK = next(issue for _, issue in _CATALOG if issue.code == "NETWORK")
+# Los del catálogo por código, para errores que BIFROST detecta sin un texto de rclone (p. ej. MOUNT_BUSY).
+ISSUES_BY_CODE = {issue.code: issue for _, issue in _CATALOG}
 
 
 def issue_for_exception(ex: BaseException) -> UserIssue:
     """Traduce una excepción de boto3 (Tag Manager) al catálogo. Nunca lanza."""
     try:
         if {c.__name__ for c in type(ex).__mro__} & _CONNECTION_ERRORS:
-            return _NETWORK
+            return ISSUES_BY_CODE["NETWORK"]
         response = getattr(ex, "response", None)
         code = response.get("Error", {}).get("Code", "") if isinstance(response, dict) else ""
         return classify(code) or classify(error_text(str(ex))) or UNEXPECTED
@@ -211,7 +261,7 @@ class Problem:
     detail: str        # mensaje original de rclone
 
 
-_ERROR_LEVELS = ("error", "critical", "fatal", "emergency")
+ERROR_LEVELS = ("error", "critical", "fatal", "emergency")
 _ATTEMPT = re.compile(r"^Attempt (\d+)/(\d+) failed")
 _CHECK_TOTAL = re.compile(r"^(\d+) (files missing|differences found|errors while checking|matching files|"
                           r"hashes could not be checked)$")
@@ -281,7 +331,7 @@ class RunSummary:
         self._copying = False
         self._events = 0                                   # líneas JSON recibidas
         self._last_stats_log = 0.0
-        self._logged_errors: set[str] = set()              # textos de error ya escritos en el log técnico
+        self._logged_errors: set[str] = set()              # error_key de los errores ya escritos en el log técnico
         self._unlogged_errors = 0                          # errores no escritos por el límite
 
     # ── lectura ──────────────────────────────────────────────────────────
@@ -317,7 +367,7 @@ class RunSummary:
         obj_type = str(ev.get("objectType") or "")
         is_object = obj_type.endswith("Object")
 
-        if level in _ERROR_LEVELS:
+        if level in ERROR_LEVELS:
             if obj:
                 self._log_file_error(obj, msg)
             else:
@@ -350,17 +400,18 @@ class RunSummary:
         return []
 
     def _log_file_error(self, obj: str, msg: str) -> None:
-        """Al log técnico, el error de un fichero sin su nombre ni rutas, una vez por texto distinto.
+        """Al log técnico, el error de un fichero sin su nombre ni rutas, una vez por error distinto (error_key).
 
         Los nombres van al informe (problem_lines). Los que faltan en MinIO no se registran: pueden ser todos.
         """
         if msg.startswith("file not in"):
             return
         text = error_text(msg, obj)
-        if text in self._logged_errors:
+        key = error_key(text)
+        if key in self._logged_errors:
             return
         if len(self._logged_errors) < MAX_LOGGED_ERRORS:
-            self._logged_errors.add(text)
+            self._logged_errors.add(key)
             log.warning("%s: %s", self.operation, text)
         else:
             self._unlogged_errors += 1

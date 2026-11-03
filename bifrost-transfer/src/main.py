@@ -63,7 +63,8 @@ from bifrost_frontend.frontend import *
 
 import web_session
 from web_session import _LAST_WEB_USER, _ws_clear, _ws_load, _ws_save
-from views import copy as _views_copy, shares as _views_shares, tag_manager as _views_tag_manager
+from views import copy as _views_copy, rclone_browser as _views_rclone_browser, shares as _views_shares, \
+    tag_manager as _views_tag_manager
 from views.copy import _build_copy_content
 from views.shares import _build_shares_content
 from views.tag_manager import _build_tag_manager_content
@@ -86,7 +87,7 @@ def _propagar_is_web() -> None:
     IS_WEB solo puede calcularse aquí (depende de __name__) y main() puede cambiarlo
     (page.web), así que hay que llamar a esta función cada vez que cambie.
     """
-    for _m in (web_session, _views_shares, _views_copy, _views_tag_manager):
+    for _m in (web_session, _views_shares, _views_copy, _views_tag_manager, _views_rclone_browser):
         _m.IS_WEB = IS_WEB
 
 

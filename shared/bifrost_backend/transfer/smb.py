@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import configparser
-import ctypes, ctypes.util
 import json
+import logging
 import os
 import platform
 import requests
 import subprocess
-import time
 from pathlib import Path
 
+from ..common.logs import rclone_log_path
 from ..common.rclone import _subprocess_kwargs, get_rclone_executable, obtener_ruta_rclone_conf
+from ..common.rclone_mount import MountError, drain_rclone_log, is_mounted, mount_and_wait
+
+log = logging.getLogger("bifrost.netapp")
 
 
 EXCEPCION_FILERS = ["filer12-svm-vm"]
@@ -213,41 +216,33 @@ def montar_share_rclone(
     share_path: str,
     punto_montaje: str,
     mounts_activos: list,
-) -> bool:
-    """Monta un share SMB con rclone."""
-    rclone = get_rclone_executable()
-    rclone_config_path = obtener_ruta_rclone_conf()
-    sistema = platform.system()
-    if sistema != "Windows":
+) -> None:
+    """Monta un share de la NetApp en solo lectura y lo apunta en `mounts_activos` solo si funciona (copy y check
+    traducen rutas con esa lista).
+
+    Raises:
+        MountError: el share no se pudo montar; trae la causa traducida.
+    """
+    if is_mounted(punto_montaje):
+        return
+    if platform.system() != "Windows":
         os.makedirs(punto_montaje, exist_ok=True)
-    if os.path.ismount(punto_montaje):
-        return True
     comando = [
-        rclone, "mount",
+        get_rclone_executable(), "mount",
         f"{nombre_perfil}:/{share_path}", str(punto_montaje),
         "--vfs-cache-mode", "off",
         "--read-only",
-        "--config", str(rclone_config_path),
+        "--config", str(obtener_ruta_rclone_conf()),
     ]
-    if sistema == "Windows":
+    if platform.system() == "Windows":
         comando.extend(["--volname", nombre_perfil])
+    log.info("mounting NetApp share %s at %s", share_path, punto_montaje)
+    mount_and_wait(comando, Path(punto_montaje), rclone_log_path("netapp", share_path))
     mounts_activos.append({
         "mount_path":     str(punto_montaje),
         "remote_name":    nombre_perfil,
         "remote_subpath": share_path,
     })
-    print(f"Montando {comando}...")
-    try:
-        proceso = subprocess.Popen(comando, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **_subprocess_kwargs())
-        for _ in range(30):
-            time.sleep(1)
-            if os.path.ismount(punto_montaje):
-                return True
-        proceso.terminate()
-        return False
-    except Exception as e:
-        print(f"Exception mounting share: {e}")
-        return False
 
 
 def desmontar_todos_los_shares(usuario_actual: str) -> None:
@@ -268,11 +263,15 @@ def desmontar_todos_los_shares(usuario_actual: str) -> None:
         if not base_dir.exists():
             return
         for subdir in base_dir.iterdir():
-            if subdir.is_dir() and os.path.ismount(subdir):
+            if not subdir.is_dir():
+                continue
+            if os.path.ismount(subdir):
                 try:
                     subprocess.run(["umount", "-f", str(subdir)], check=True)
                 except subprocess.CalledProcessError as e:
                     print(f"Error unmounting {subdir}: {e}")
+            # La carpeta lleva el nombre del share (generar_punto_montaje), como su log temporal de rclone
+            drain_rclone_log(rclone_log_path("netapp", subdir.name), f"mount {subdir}")
         print("All SMB shares have been unmounted.")
 
 
@@ -306,24 +305,16 @@ def montar_shares_seleccionados(
     recursos_seleccionados: list[str],
     recursos_cifs_dict: dict,
     mounts_activos: list,
-) -> list[str]:
-    """Monta los shares seleccionados y devuelve lista de los que fallaron."""
-    fallidos = []
+) -> dict[str, MountError]:
+    """Monta los shares seleccionados y devuelve los que fallaron, con su error."""
+    errores: dict[str, MountError] = {}
     for recurso in recursos_seleccionados:
         datos = recursos_cifs_dict[recurso]
-        punto_montaje = datos["punto_montaje"]
-        if not os.path.ismount(punto_montaje):
-            if platform.system() != "Windows":
-                os.makedirs(punto_montaje, exist_ok=True)
-            exito = montar_share_rclone(
-                datos["nombre_perfil"],
-                datos["remote_path"],
-                punto_montaje,
-                mounts_activos,
-            )
-            if not exito:
-                fallidos.append(recurso)
-    return fallidos
+        try:
+            montar_share_rclone(datos["nombre_perfil"], datos["remote_path"], datos["punto_montaje"], mounts_activos)
+        except MountError as ex:
+            errores[recurso] = ex
+    return errores
 
 
 def construir_recursos_cifs_dict(shares: list, usuario_actual: str) -> dict:
