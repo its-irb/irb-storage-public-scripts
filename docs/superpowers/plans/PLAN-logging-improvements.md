@@ -9,7 +9,7 @@ Rama: `refactor/unified-logging`. Última actualización: 2026-11-03.
 | PR 2 | Salida de rclone para el usuario: 2a copy / check · 2b Tag Manager | **2a hecho** (`cc17aa7`, `5d11c22`); **2b implementado** (pendiente de commit y de la prueba manual) |
 | PR 3 | Montajes con rclone (MinIO y NetApp): verificación real y errores de rclone al log técnico | **Implementado** (pendiente de commit, de la prueba manual y de Windows) |
 | PR 4 | Referencia en cada error y exportación de los logs | **Implementado** (probado en macOS; pendiente de commit, Windows y OOD) |
-| PR 5 | Migración de `print` al logger y limpieza del contenido | Pendiente |
+| PR 5 | Migración de `print` al logger y limpieza del contenido | Pendiente (plan revisado el 2026-11-04) |
 | PR 6 | Documentación (`docs-update`) | Pendiente |
 
 ## Objetivo
@@ -1213,29 +1213,114 @@ con clave mala y error del navegador del Tag Manager.
 
 ## PR 5 — Migración de `print` al logger y limpieza del contenido
 
-Por módulo (`log = logging.getLogger("bifrost.<área>")`), del más ruidoso al menos:
-`views/rclone_browser.py`, `views/tag_manager.py`, `common/auth.py`, `transfer/smb.py`,
-`bifrost-transfer/src/main.py`, `common/updates.py` y el resto.
+> Revisado el 2026-11-04 con lo que dejaron los PR 1 a 4 y las decisiones de esa fecha.
 
-- El prefijo `[algo]` pasa a ser el nombre del logger; `[debug]` → `log.debug`; errores → `log.error` /
-  `log.exception`.
-- Sin emojis ni mezcla de idiomas (inglés); una línea por evento con `clave=valor`; `%s` en lugar de
-  f-strings en las llamadas al logger.
-- Volcados grandes a DEBUG y resumidos: lista de buckets → `folders=28`; conexión LDAP → solo el DN;
-  `[debug matching]` → una línea por proceso.
-- `transfer/smb.py`, `desmontar_todos_los_shares` (cierre de la NetApp): hoy solo deja un `print` al final ("All SMB
-  shares have been unmounted.") y otro por share que falla. Pasar a una línea por share, como Bifrost Mount
-  (`unmount <carpeta>: done` / `still mounted`). Revisar a la vez, probándolo en OOD, el `umount -f` (en Linux
-  quizá no funciona sin ser root con FUSE) y el `taskkill /IM rclone.exe` de Windows.
-- (`mount/s3_mount.py`, `mount/preflight.py` y `views/mount.py` ya no tienen `print` ni avisos de pyflakes:
-  se reescribieron en el PR 3.)
-- Al terminar, `_StreamToLogger` queda solo como red de seguridad.
-- Pendiente de decidir: mover el bloque de SIGTERM/SIGINT, repetido en los dos `main.py`, a una función
-  compartida.
+**Objetivo.** Que el log técnico solo tenga líneas útiles y legibles: hoy los `print` son la mitad del log de
+Bifrost Mount (17 de 32 líneas en una sesión de prueba) y un tercio del de Bifrost Transfer (24 de 74), salen todos
+como `[bifrost.print]`, con emojis, en dos idiomas y algunos partidos en varias líneas. Además, los errores que
+aún se muestran sin código (login, pantalla de credenciales, navegador local) pasan a llevarlo, como en el PR 4.
+
+**Ya resuelto en PR anteriores (se quita del plan):** `views/tag_manager.py` ya no tiene `print` (PR 2b);
+`mount/s3_mount.py`, `mount/preflight.py` y `views/mount.py` tampoco, ni avisos de pyflakes (PR 3); el ruido de
+`[debug matching]` y de las listas de `Popen` desapareció con el PR 3; el manejo de SIGTERM/SIGINT ya es
+compartido (`common/shutdown.py`).
+
+### Decisiones (2026-11-04)
+
+1. **Un logger por área**, los que ya existen (`bifrost.login`, `bifrost.mount`, `bifrost.netapp`, `bifrost.copy`,
+   `bifrost.tags`, `bifrost.update`, `bifrost.transfer`, `bifrost.ui`, `bifrost.shutdown`…) y dos nuevos:
+   `bifrost.auth` (`common/auth.py` y la pantalla de credenciales) y `bifrost.session` (`web_session.py`).
+   `bifrost.copy` pasa a cubrir también los navegadores de la pantalla de copy (`views/rclone_browser.py`,
+   `views/local_fs.py`).
+2. **Contenido:** en inglés, sin emojis, una línea por evento, `clave=valor`, `%s` en lugar de f-strings (también en
+   las 5 llamadas que hoy los usan: `login.py` y el `main.py` de Mount). INFO: lo que el usuario pone en marcha
+   (iniciar sesión, elegir el servidor, montar, copiar, filtrar por laboratorio…) y su resultado; DEBUG: la
+   navegación y lo que se va seleccionando por el camino (el origen y el destino quedan en la línea del comando
+   al empezar la copia o el check), recuentos de listados y decisiones internas; WARNING: un fallo que la app
+   controla; `log.exception` cuando la traza ayuda. Nunca contraseñas, listados de ficheros ni valores de
+   etiquetas; sí las rutas o buckets que elige el usuario y su nombre de usuario. Sin volcados de varias líneas:
+   un cuerpo de respuesta va en una línea y como mucho 300 caracteres.
+3. **DEBUG sigue yendo al fichero de escritorio** (el fichero guarda desde DEBUG): pasar algo a DEBUG no lo quita,
+   lo marca como detalle. La ganancia viene de juntar líneas y quitar las repetidas. A soporte le sirve.
+4. **Se quitan tres duplicaciones** que llevan `print` (el comportamiento no cambia):
+   - El cierre de la ventana, idéntico en los dos `main.py`: una función de `bifrost_frontend` que instala el
+     manejador (limpiar, destruir la ventana y salir) y que llaman las dos apps. La limpieza entra por la misma
+     función de `common/shutdown.py` que las señales, que anota el motivo: `APP shutdown requested
+     (reason=window)`. Las tres líneas `[close]` repetían lo que ya escribe `shutdown.py` y desaparecen.
+   - La decisión de renovar las credenciales y su línea, idénticas en los dos `main.py`: una función del backend
+     (`auth.py`) que las dos apps llaman y que escribe `credentials: profile=minio token_user=… login_user=…
+     expiry=6d 20h → valid` (o `→ renewal needed`).
+   - El barrido de perfiles SFTP huérfanos, escrito dos veces en el `main.py` de Transfer (login normal y
+     recuperación de la sesión web): una sola función, llamada en los mismos dos momentos. Revisado: las dos
+     copias son iguales (hilo aparte, `limpiar_perfiles_rclone_con_prefijo("sftp-src-")`). Ver `PENDIENTES.md`,
+     entrada 24, para un problema de ese barrido que ya existe y no es de este PR.
+5. **Códigos de error que faltaban** (mismo formato que el PR 4):
+   - Pantallas nuevas en el código: `LGN` (login) y `CRD` (pantalla de credenciales).
+   - Tipo nuevo **601 "Wrong username or password"** (`WRONG_PASSWORD`), en una familia nueva **6xx "inicio de
+     sesión"**. No se reutiliza ni cambia, como los demás. Es una constante de `common/rclone_output.py`, como
+     `MOUNT_TIMEOUT`: no sale de un texto de rclone, la detecta el flujo del login. `_SCREEN_CODES` gana
+     `"login": "LGN"` y `"credentials": "CRD"`.
+   - **Login:** los textos actuales se mantienen (están pensados para esa pantalla y la guía de usuario los
+     explica) y se les añade el código al final: usuario o contraseña incorrectos → `LGN601`; sin VPN o el
+     servidor LDAP no responde → `LGN201`; error no previsto → `LGN999`. Los campos vacíos no llevan código (son
+     avisos sobre lo que escribe el usuario).
+   - **Pantalla de credenciales:** se mantiene la distinción que ya hace hoy. Si MinIO no da credenciales y se
+     entró sin LDAP (`BIFROST_NO_LDAP=1`, cuando hoy dice "Wrong username or password"), es la contraseña →
+     `CRD601`. Con LDAP, el login ya comprobó la contraseña, así que es otra cosa ("Failed to obtain
+     credentials") → `CRD999`; la causa queda en la línea `sts: request failed …` del log. Si ni siquiera se
+     conecta (excepción) → `issue_for_exception` (normalmente `CRD201`), con el mensaje del catálogo en lugar de la
+     excepción.
+   - **Navegador local en OOD** (`views/local_fs.py`): hoy muestra `Permission denied: <ruta>` o `Error:
+     <excepción>`; pasa a `issue_line(..., screen="copy")` como las otras listas (`CPY302`, `CPY301`…).
+   - Para el login y las credenciales, `components.py` pasa a público lo que hoy es `_log_shown`, con el nombre
+     `issue_reference(issue, screen, ref=None) -> str` (crea el código y escribe `issue shown`): esos mensajes no
+     son un pop-up ni una línea de `issue_line`.
+6. **`_StreamToLogger` queda como red de seguridad** (para `print` de librerías). Regla nueva en la documentación de
+   convenciones: no usar `print`; cada módulo, su logger. La verificación lo comprueba.
+7. **Fuera de este PR:** el ruido de otros programas (Hypercorn escribe `[INFO] Running on …` en stderr y sale como
+   WARNING en OOD; al parar `flet run` con Ctrl+C, asyncio deja avisos partidos en un WARNING por línea). No sale
+   de nuestros `print`; se deja como está.
+
+### Por módulo
+
+| Módulo | `print` | Logger | Qué cambia |
+|---|---|---|---|
+| `common/auth.py` | 17 | `bifrost.auth` | STS: `sts: credentials obtained` (DEBUG) o una línea `sts: request failed http=… code=… message=… request_id=…` (WARNING), sin volcar cabeceras ni el cuerpo entero; se quita el engañoso "ERROR: Invalid LDAP credentials". Token: `credentials: no session token for profile …` (DEBUG), errores al leerlo (WARNING). LDAP: `ldap: user found dn=…` (DEBUG) en lugar del `repr` de la conexión; errores de comunicación y no previstos (WARNING, con la excepción). Función nueva de la decisión de renovar (decisión 4). |
+| `views/rclone_browser.py` | 15 | `bifrost.copy` | Navegación y recuentos a DEBUG; filtro por laboratorio a INFO, como el Tag Manager; timeout y errores a WARNING (el texto original de la excepción, como hoy). |
+| `bifrost-transfer/src/main.py` | 12 (+2 comentados) | `bifrost.transfer` | Cierre y duplicaciones (decisión 4); `server selected: minio (https://…)` igual que en Mount; `tag manager opened`; el aviso de `password` sin definir (OOD) a WARNING; se borran los `print` comentados. |
+| `transfer/smb.py` | 12 | `bifrost.netapp` | Sin castellano ni emojis; perfiles creados y contraseña de los perfiles SMB actualizada (sin la contraseña) a INFO; errores a WARNING; la ruta de `rclone.conf` a DEBUG. Cierre de la NetApp: una línea por share, comprobando después si sigue montado (`unmount <carpeta>: done` / `still mounted`), en lugar de un `print` al final. Cómo se desmonta (`umount -f`, `taskkill /IM rclone.exe` en Windows) no cambia en este PR: ver `PENDIENTES.md`, entrada 25. |
+| `common/updates.py` | 8 (+2 comentados) | `bifrost.update` | Las 4 líneas de cada arranque pasan a una: `update check: current=2.0.0 latest=1.0.316 → up to date` (o `→ update available`, o WARNING si falla); "no es la app empaquetada" a DEBUG. |
+| `views/local_fs.py` | 7 | `bifrost.copy` | Navegación y selección a DEBUG; errores con código (decisión 5). |
+| `views/copy.py` | 7 | `bifrost.copy` | Origen y destino elegidos a DEBUG: el destino se "elige" en cada clic al navegar, y la línea `copy command: …` / `check command: …` ya dice origen y destino al empezar. Cancelaciones del selector a DEBUG. |
+| `bifrost-mount/src/main.py` | 4 | `bifrost.mount` | Cierre y credenciales (decisión 4); `PROFILE selected` → `server selected: …` con `%s`. |
+| `web_session.py` | 2 | `bifrost.session` | Sesión guardada y borrada a DEBUG (hoy salen dos veces por login). |
+| `views/credentials.py` | 1 | `bifrost.auth` | Deja de copiar al log cada línea del panel (unas 10 por renovación): `credentials: renewing profile=… days=7 current=expired` y `credentials: renewed profile=… expiry=6d 23h` o el fallo con su código (decisión 5). |
+
+### Documentación (en el mismo commit)
+
+- `operations.md`: la lista de loggers y las líneas nuevas (`credentials: …`, `update check: …`, `reason=window`,
+  el cierre de la NetApp por share).
+- `docs/agent/conventions-gotchas.md` y la de desarrollo: la regla "no `print`, un logger por módulo".
+- Tabla de códigos (usuario y desarrollo): familia 6xx con el 601 y las pantallas `LGN` y `CRD`. En la guía de
+  usuario, la tabla del login dice que el mensaje lleva un código.
+
+### Verificación del PR 5
+
+| Caso | Resultado esperado |
+|---|---|
+| `grep -rn "print(" --include=*.py bifrost-*/src shared` | Solo menciones en comentarios o docstrings (`logs.py` explica la red de seguridad); ninguna llamada |
+| Sesión normal de Mount y de Transfer | Ninguna línea `[bifrost.print]`; la comprobación de versión en una línea; la decisión de credenciales en una línea |
+| Login con contraseña mal / sin VPN | El texto de siempre con `(Error LGN601-…)` / `(Error LGN201-…)`; `issue shown` en el log |
+| Renovar credenciales | Bien: dos líneas `credentials: …`. Con `BIFROST_NO_LDAP=1` y una contraseña mal: `CRD601` en el panel. Sin VPN: `CRD201` |
+| Cerrar la ventana (las dos apps) | `APP shutdown requested (reason=window)` y la limpieza, sin `[close]` |
+| Navegador local en OOD sin permiso | `⚠️ Cannot open a file or folder (Error CPY302-…)` |
+| NetApp en OOD al cerrar | Una línea por share. Con Delete no se puede probar hoy (la limpieza no llega a ejecutarse: `PENDIENTES.md`, entrada 1); se prueba con `kill -TERM <pid del worker>` desde el terminal de la sesión, como describe esa entrada |
+| pyflakes, import en frío, `uv sync --reinstall-package bifrost-shared` en los dos venv | Sin avisos nuevos |
 
 ## PR 6 — Documentación (`docs-update`)
 
-- Las guías de usuario y `operations.md` se actualizaron con cada PR (2a, 2b, PR 3; el PR 4 lleva las suyas).
+- Las guías de usuario y `operations.md` se actualizan con cada PR (2a, 2b, PR 3 y PR 4 hechos; el PR 5 lleva las
+  suyas).
 - Queda: quitar `session_log.py` (ya no existe), `log_event`, `write_log` y `~/bifrost-mount-logs/` de
   `README.md`, `docs/agent/architecture.md`, `docs/development/architecture.md`, `docs/agent/frontend.md`,
   `docs/development/frontend.md` y `docs/agent/conventions-gotchas.md`, y repasar carpetas, formato, niveles,
@@ -1251,5 +1336,6 @@ Por módulo (`log = logging.getLogger("bifrost.<área>")`), del más ruidoso al 
 3. Probar siempre con `flet run` real, no solo importando o llamando a `ft.run`.
 4. Cuando lleguen pytest y mypy: tests de `classify`, `explain_exit`, `RunSummary.feed`,
    el resumen del check, `issue_for_exception`, `_RedactFilter`, `_StreamToLogger` y `log_dir` (funciones
-   puras); del PR 3, `error_text`/`error_key`, `_error_texts` y `drain_rclone_log`; la tabla de verificación de
+   puras); del PR 3, `error_text`/`error_key`, `_error_texts` y `drain_rclone_log`; del PR 4,
+   `UserIssue.reference`, `RunSummary.error_issue`, `TagRun.finish` y `export_logs_zip`; la tabla de verificación de
    la fase 2 sirve de base (y las pruebas del PR 3 con el S3 falso, `rclone serve s3`).
