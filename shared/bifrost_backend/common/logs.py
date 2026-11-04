@@ -43,7 +43,7 @@ def log_dir(app: str) -> Path:
     if system == "Darwin":
         base = Path.home() / "Library" / "Logs" / "BIFROST"
     elif system == "Windows":
-        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "IRB" / "BIFROST"
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "BIFROST"
     else:
         base = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "bifrost"
     return base / app

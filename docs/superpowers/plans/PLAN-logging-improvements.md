@@ -49,7 +49,7 @@ rclone mount ──► fichero temporal rclone/<tipo>-<nombre>.log (JSON, solo e
 | Sistema | Log técnico | Informes (PR 2) | Ficheros temporales de los montajes (PR 3) |
 |---|---|---|---|
 | macOS | `~/Library/Logs/BIFROST/<app>/` | `…/<app>/reports/` | `…/<app>/rclone/` |
-| Windows | `%LOCALAPPDATA%\IRB\BIFROST\<app>\` | `…\reports\` | `…\rclone\` |
+| Windows | `%LOCALAPPDATA%\BIFROST\<app>\` | `…\reports\` | `…\rclone\` |
 | Linux escritorio | `$XDG_STATE_HOME/bifrost/<app>/` (por defecto `~/.local/state/…`) | `…/reports/` | `…/rclone/` |
 | OOD (web) | stdout → `./output.log` | `$BIFROST_SESSION_DIR/reports/` | `$BIFROST_SESSION_DIR/rclone/` |
 
@@ -440,7 +440,7 @@ botocore (`EndpointConnectionError`, `ConnectTimeoutError`, `ReadTimeoutError`, 
 - `docs/user/transfer-data.md`: los posibles resultados de la copia (copiado, nada nuevo, con problemas,
   carpeta ilegible, cancelado, prueba) y del check (idéntico, falta en MinIO, distinto, no comparado por
   falta de checksum, no se pudo terminar), con **qué hacer** en cada caso. Dónde está el informe en cada
-  sistema (`~/Library/Logs/BIFROST/transfer/reports/`, que Finder oculta; `%LOCALAPPDATA%\IRB\BIFROST\
+  sistema (`~/Library/Logs/BIFROST/transfer/reports/`, que Finder oculta; `%LOCALAPPDATA%\BIFROST\
   transfer\reports\`; `~/.local/state/bifrost/transfer/reports/`; en OOD, la carpeta de la sesión).
   "Save log" y Cancel.
 - `docs/user/troubleshooting.md` ("I lost the log of a copy") y `docs/user/web-mode-ood.md` ("Logs"): los

@@ -79,7 +79,7 @@ If you need the logs folder itself:
 | Where you use BIFROST | Logs folder |
 |---|---|
 | macOS | `~/Library/Logs/BIFROST/<app>/` (`mount` or `transfer`). Finder hides this folder: choose **Go → Go to Folder…** and paste the path. |
-| Windows | `%LOCALAPPDATA%\IRB\BIFROST\<app>\`. Paste the path in the address bar of File Explorer. |
+| Windows | `%LOCALAPPDATA%\BIFROST\<app>\`. Paste the path in the address bar of File Explorer. |
 | Linux | `~/.local/state/bifrost/<app>/` |
 
 Each session writes one file; BIFROST keeps the last 30. The reports are in the

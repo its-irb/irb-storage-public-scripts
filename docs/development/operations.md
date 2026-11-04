@@ -52,7 +52,7 @@ Detalle y decisiones: `docs/superpowers/plans/PLAN-logging-improvements.md`.
   `bifrost.logs`. El código no usa `print()`: lo que impriman otras librerías llega como `bifrost.print`, y
   stderr como `bifrost.stderr`. Los secretos (JWT, `password=`…) se enmascaran.
   - Escritorio: un fichero por sesión en la carpeta estándar del sistema (se conservan 30):
-    `~/Library/Logs/BIFROST/<app>/` (macOS), `%LOCALAPPDATA%\IRB\BIFROST\<app>\` (Windows),
+    `~/Library/Logs/BIFROST/<app>/` (macOS), `%LOCALAPPDATA%\BIFROST\<app>\` (Windows),
     `$XDG_STATE_HOME/bifrost/<app>/` o `~/.local/state/bifrost/<app>/` (Linux).
   - Web (Open OnDemand): solo stdout, que es el `output.log` de la carpeta de la sesión.
   - Nivel de consola: INFO en escritorio y DEBUG en web; se cambia con `BIFROST_LOG_LEVEL`.
