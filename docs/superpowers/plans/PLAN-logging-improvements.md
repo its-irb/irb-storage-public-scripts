@@ -660,8 +660,10 @@ Cambios del 2026-10-22, tras las pruebas en `minio:test`:
 - **El log no afirma etiquetas que no se han puesto.** Al repetir una copia con otros metadatos, los
   ficheros idénticos se saltan y conservan sus etiquetas, pero el panel mostraba `### Metadata ###` con los
   valores nuevos. Ahora el bloque se titula "Tags for the files copied in this run" y el resumen dice cuántos
-  ficheros ya estaban y no cambiaron. El dato sale de `rclone copy --match` (rclone anota la decisión que ya
-  toma; sin lecturas ni peticiones extra). Se descuentan los copiados en un intento anterior.
+  ficheros ya estaban y no cambiaron. El dato salía de `rclone copy --match`; **retirado el 2026-11-04**:
+  con `--match`, rclone recorre entera cada carpeta que solo está en MinIO antes de copiar nada, y copiar una
+  carpeta a `test/test-ona` se quedaba en "Running all checks" (Windows y macOS). Ahora sale de las
+  estadísticas: `checks − replaced`, sin número si hubo reintentos o fallos.
 - **Nombres de ficheros solo en el informe**: con copias masivas las listas podían tener miles de líneas. El
   panel da recuentos por causa y dice que la lista está en el informe; el informe guarda lo que mostró el
   panel y, debajo, los ficheros con problemas (no copiados, carpetas ilegibles, sustituidos, distintos,

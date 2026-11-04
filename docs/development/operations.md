@@ -80,10 +80,12 @@ Detalle y decisiones: `docs/superpowers/plans/PLAN-logging-improvements.md`.
   escribe cada tipo de error de rclone una vez, sin nombres ni rutas (`error_text`; hasta 100 textos
   distintos, `MAX_LOGGED_ERRORS`). Los que faltan en MinIO no se nombran nunca: se arreglan volviendo a copiar
   y pueden ser todos.
-- **Ficheros ya idénticos**: copy usa `--match` para contar los ficheros que rclone no copió por ser
-  idénticos. Son los que **no** reciben las etiquetas del formulario, y el resumen lo dice. rclone solo anota
-  la decisión que ya toma: no añade lecturas ni peticiones a MinIO. Se descuentan los que rclone notificó
-  como copiados (en un reintento la lista se reescribe y salen como idénticos).
+- **Ficheros ya idénticos**: los que rclone no copió por ser idénticos. Son los que **no** reciben las
+  etiquetas del formulario, y el resumen lo dice. Salen de las estadísticas de rclone: `checks` (ficheros que
+  ya estaban en MinIO, idénticos o no) menos los sustituidos. Si rclone reintentó o algún fichero falló, no se
+  da número. Copy **no** usa `--match` ni ningún otro informe por fichero de rclone: con ellos, rclone recorre
+  entera cada carpeta que solo está en MinIO antes de copiar nada, y con un destino grande la copia parece
+  colgada en "Running all checks" (comprobado con rclone 1.72.1).
 - **Recuentos de check**: salen de los totales que rclone escribe al terminar ("N files missing",
   "N differences found", "N errors while checking"): exactos y sin depender del disco. Las listas
   `--missing-on-dst/--differ/--error` solo se usan si faltan esos totales.

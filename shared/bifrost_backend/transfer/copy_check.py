@@ -94,7 +94,7 @@ def _ejecutar(operacion: str, comando: list[str], summary: RunSummary, log_fn, e
             expose_proceso["proc"] = None
 
 
-_TEMP_PREFIXES = ("bifrost-copy-", "bifrost-check-")
+_TEMP_PREFIXES = ("bifrost-copy-", "bifrost-check-")   # bifrost-copy-: restos de cuando copy usaba --match
 _TEMP_MAX_AGE = 7 * 86400    # s
 # rclone aborta la operación entera si no puede crear una lista (comprobado con el disco lleno). Las listas
 # ocupan ~60 MB por millón de ficheros; con menos de esto libre se trabaja sin ellas.
@@ -125,8 +125,9 @@ def _borrar_temporales_antiguos() -> None:
 def _ficheros_de_informe(operacion: str, nombres: tuple[str, ...]) -> tuple[Path | None, dict[str, Path] | None]:
     """Carpeta temporal para las listas por fichero que escribe rclone (se borra al terminar).
 
-    rclone anota ahí la decisión que ya toma con cada fichero: no añade lecturas ni peticiones a MinIO. Sin
-    listas, copy no dice cuántos ficheros ya estaban y check usa los totales de rclone.
+    rclone anota ahí la decisión que ya toma con cada fichero: con check --one-way no añade lecturas ni
+    peticiones a MinIO (copy sí las añadiría; ver ejecutar_rclone_copy). Sin listas, check usa los totales de
+    rclone.
     """
     _borrar_temporales_antiguos()
     try:
@@ -159,14 +160,14 @@ def ejecutar_rclone_copy(
     Si *expose_proceso* es un dict, guarda el Popen en expose_proceso['proc']; la vista pone
     expose_proceso['cancelled'] = True antes de terminarlo al pulsar Cancel.
 
-    Los ficheros que ya estaban idénticos en MinIO (y que por tanto no reciben las etiquetas) salen del informe
-    --match de rclone.
+    Sin --match ni ningún otro informe por fichero: con cualquiera de ellos, rclone copy recorre entera cada
+    carpeta que solo está en MinIO para anotar sus ficheros, y con --check-first no copia nada hasta acabar
+    (comprobado con rclone 1.72.1: con un destino grande la copia parece colgada). Los ficheros que ya estaban
+    idénticos salen de las estadísticas (RunSummary._count_unchanged).
     """
     summary = RunSummary("copy", is_web=is_web, dry_run=_es_prueba(flags_adicionales))
     rc = None
-    tmp_dir, reports = None, None
     try:
-        tmp_dir, reports = _ficheros_de_informe("copy", ("match",))
         tag_string = construir_tag_string(metadatos_dict)
         comando = [
             get_rclone_executable(), "copy",
@@ -180,7 +181,6 @@ def ejecutar_rclone_copy(
             *_OUTPUT_FLAGS,
             "--header-upload", f"x-amz-tagging:{tag_string}",
             "--user-agent", _get_user_agent(),
-            *(["--match", str(reports["match"])] if reports else []),
             *flags_adicionales,
         ]
         log.info("copy command: %s", _comando_para_log(comando, [k for k, v in metadatos_dict.items() if v]))
@@ -189,7 +189,7 @@ def ejecutar_rclone_copy(
         log.exception("copy could not run")
         summary.add_internal_error(str(e))
     finally:
-        _terminar("copy", summary, rc, log_fn, on_finish, expose_proceso, reports, tmp_dir)
+        _terminar("copy", summary, rc, log_fn, on_finish, expose_proceso, None, None)
 
 
 def ejecutar_rclone_check(

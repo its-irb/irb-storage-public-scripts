@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import shutil
 from collections import Counter, deque
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -290,7 +289,6 @@ _ATTEMPT = re.compile(r"^Attempt (\d+)/(\d+) failed")
 _CHECK_TOTAL = re.compile(r"^(\d+) (files missing|differences found|errors while checking|matching files|"
                           r"hashes could not be checked)$")
 _HASH_USED = re.compile(r"^Using (\w+) for hash comparisons")
-_MIN_FREE_TEMP = 1024 * 1024  # con menos espacio libre, la lista --match puede haber quedado cortada (rclone no avisa)
 _STATS_LOG_EVERY = 60.0    # s entre líneas de estadísticas en el log técnico
 MAX_PLAIN_LINES = 20       # líneas de salida no JSON que se guardan (errores de opciones de rclone)
 MAX_REPORTED_NAMES = 100   # ficheros con problemas que se nombran en el informe de la operación
@@ -311,10 +309,10 @@ class RunSummary:
     log técnico muestran (CPY103-1103-141526). `feed()` nunca lanza excepciones: un fallo del parser no puede
     cortar la copia.
 
-    Solo se guardan nombres donde hacen falta para contar bien: los copiados (para no contar como "ya estaban"
-    los que se subieron en un intento anterior), los que fallan en cada intento y las carpetas o ficheros que
-    no se pudieron leer (rclone puede dar varios errores del mismo). Lo demás son recuentos. Un recuento que no
-    se puede asegurar queda en None y el texto no da número: nunca se muestra uno inventado.
+    Solo se guardan nombres donde hacen falta para contar bien: los copiados (cada uno se cuenta una vez),
+    los que fallan en cada intento y las carpetas o ficheros que no se pudieron leer (rclone puede dar varios
+    errores del mismo). Lo demás son recuentos. Un recuento que no se puede asegurar queda en None y el texto
+    no da número: nunca se muestra uno inventado.
 
     El progreso no va al panel de log: la pantalla llama a `progress_snapshot()` una vez por segundo desde su
     propio temporizador. Así el hilo que lee rclone solo guarda el último estado y nunca espera a la
@@ -496,11 +494,11 @@ class RunSummary:
         self.internal_error = text
 
     def finish(self, rc: int | None, cancelled: bool, reports: dict[str, Path] | None = None) -> str:
-        """Fija el resultado. `reports`: listas que escribe rclone (--match en copy; --missing-on-dst, --differ
-        y --error en check). Solo se cuentan sus líneas."""
+        """Fija el resultado. `reports`: listas que escribe rclone check (--missing-on-dst, --differ y --error).
+        Solo se cuentan sus líneas."""
         self.rc = rc
         if self.operation == "copy":
-            self.unchanged = self._count_unchanged((reports or {}).get("match"))
+            self.unchanged = self._count_unchanged()
         else:
             self._count_check_results(reports or {})
         if self._unlogged_errors:
@@ -511,25 +509,16 @@ class RunSummary:
             self.ref = issue.reference(self.operation)
         return self.outcome
 
-    def _count_unchanged(self, match: Path | None) -> int | None:
-        """Ficheros que ya estaban idénticos en MinIO (lista --match), o None si la lista no es fiable.
+    def _count_unchanged(self) -> int | None:
+        """Ficheros que ya estaban idénticos en MinIO, o None si no se puede saber.
 
-        Si el disco temporal se llena, rclone corta la lista sin avisar: con poco espacio libre, o si sin
-        reintentos hay menos líneas de las que indican sus estadísticas, no se da número.
+        rclone cuenta una comprobación por cada fichero que ya estaba en MinIO, idéntico o no, y copia los
+        distintos (`replaced`): la resta son los idénticos. Con reintentos las comprobaciones se acumulan entre
+        intentos, y de un fichero que falló no se sabe si llegó a compararse: en esos casos no se da número.
         """
-        if not match or not Path(match).exists():
+        if not self.stats or self.retried or self.failed_files():
             return None
-        # Los copiados en un intento anterior salen como idénticos en el siguiente: esos sí se subieron.
-        lines = sum(1 for name in _lines(match) if name not in self.copied)
-        if shutil.disk_usage(Path(match).parent).free < _MIN_FREE_TEMP:
-            log.warning("copy: the list of files already in MinIO may be incomplete (temporary disk full)")
-            return None
-        at_least = (self.stats.get("checks") or 0) - self.replaced - len(self.failed_files())
-        if not self.retried and lines < at_least:
-            log.warning("copy: the list of files already in MinIO is incomplete (%d lines, at least %d expected)",
-                        lines, at_least)
-            return None
-        return lines
+        return max((self.stats.get("checks") or 0) - self.replaced, 0)
 
     def _count_check_results(self, reports: dict[str, Path]) -> None:
         """Recuentos del check. Los totales que rclone escribe al terminar son exactos y no dependen del disco;
