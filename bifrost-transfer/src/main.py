@@ -58,7 +58,7 @@ import flet as ft
 # import backend
 
 from bifrost_backend import backend
-from bifrost_backend.common.constants import NO_LDAP, STS_RENEWAL_THRESHOLD_DAYS
+from bifrost_backend.common.constants import NO_LDAP
 from bifrost_frontend.frontend import *
 
 import web_session
@@ -105,7 +105,7 @@ except Exception:
     pass
 
 # ============================================================================
-# LOG TÉCNICO (common/logs.py) — los print() pasan por el logger. Escritorio:
+# LOG TÉCNICO (common/logs.py): cada módulo escribe con su logger. Escritorio:
 # fichero por sesión en la carpeta estándar del SO (las apps empaquetadas no
 # tienen consola). Web/OOD: solo stdout, que acaba en output.log de la sesión.
 # ============================================================================
@@ -130,7 +130,7 @@ def _desmontar_shares() -> None:
             log.error("Error unmounting NetApp shares — user: %s — %s", usuario, e)
 
 
-_cleanup_on_exit = backend.register_shutdown(_desmontar_shares, server_managed=IS_CLUSTER)
+backend.register_shutdown(_desmontar_shares, server_managed=IS_CLUSTER)
 
 
 # ============================================================================
@@ -160,25 +160,7 @@ def main(page: ft.Page):
         "_cifs_loading":         False,
     }
 
-    # def on_window_close(e):
-    #     print(f"[debug] on_window_close called, e={e}, e.data={e.data if hasattr(e, 'data') else 'no data'}")
-    #     _cleanup_on_exit()
-    #    page.window.close()
-
-    async def on_window_event(e: ft.WindowEvent):
-        if e.type == ft.WindowEventType.CLOSE:
-            print("[close] Starting cleanup...")
-            _cleanup_on_exit()
-            print("[close] Cleanup done, destroying window...")
-            await page.window.destroy()
-            print("[close] Window destroyed")
-            os._exit(0)
-
-
-    #page.window.on_close = on_window_close
-    page.window.on_event = on_window_event
-    page.window.prevent_close = True
-    
+    install_window_close(page)
 
     body = ft.Container(expand=True, bgcolor=C_BG)
     page.scroll = ft.ScrollMode.AUTO
@@ -246,7 +228,7 @@ def main(page: ft.Page):
             last_user = _LAST_WEB_USER[0]
             session   = _ws_load(last_user) if last_user else None
             if session:
-                print(f"[session] Previous session found for {last_user!r} — showing restore-login")
+                log.info("web session: previous session of %s found, restoring it after the login", last_user)
                 show_screen(build_login_content(
                     page,
                     on_success=lambda creds: on_login_success_with_restore(creds, session),
@@ -257,6 +239,13 @@ def main(page: ft.Page):
                 return
         show_screen(build_login_content(page, on_success=on_login_success,
                                         no_ldap=NO_LDAP, is_web=IS_WEB))
+
+    def _sweep_sftp_huerfanos() -> None:
+        """Borra los perfiles SFTP efímeros que quedaron de sesiones anteriores (al iniciar sesión)."""
+        try:
+            backend.limpiar_perfiles_rclone_con_prefijo("sftp-src-")
+        except Exception as ex:
+            log.warning("sftp: cleanup of leftover profiles failed: %s", ex)
 
     def on_login_success_with_restore(creds: dict, session: dict) -> None:
         """
@@ -269,23 +258,17 @@ def main(page: ft.Page):
         # If the user typed a different username, discard the old session
         # and run the normal fresh flow instead.
         if usuario != _LAST_WEB_USER[0]:
-            print(f"[session] Username changed ({_LAST_WEB_USER[0]!r} → {usuario!r}), discarding old session")
+            log.info("web session: user changed from %s to %s, previous session discarded", _LAST_WEB_USER[0], usuario)
             _ws_clear(_LAST_WEB_USER[0] or "")
             on_login_success(creds)
             return
 
-        print(f"[session] Restoring session for {usuario!r} → cluster={session['servidor_minio']!r} ({session['endpoint']})")
+        log.info("web session: restoring the session of %s: server=%s (%s)", usuario, session["servidor_minio"],
+                 session["endpoint"])
         state["credenciales_ldap"] = creds
         state["servidor_minio"]    = session["servidor_minio"]
         state["perfil_rclone"]     = session["perfil_rclone"]
         state["endpoint"]          = session["endpoint"]
-
-        def _sweep_sftp_huerfanos():
-            try:
-                backend.limpiar_perfiles_rclone_con_prefijo("sftp-src-")
-            except Exception as ex:
-                print(f"[sftp] cleanup sweep failed (non-fatal): {ex}")
-
         backend.safe_thread(page, _sweep_sftp_huerfanos).start()
 
         # Jump straight to credentials-check → copy view
@@ -293,13 +276,6 @@ def main(page: ft.Page):
 
     def on_login_success(creds: dict):
         state["credenciales_ldap"] = creds
-
-        def _sweep_sftp_huerfanos():
-            try:
-                backend.limpiar_perfiles_rclone_con_prefijo("sftp-src-")
-            except Exception as ex:
-                print(f"[sftp] cleanup sweep failed (non-fatal): {ex}")
-
         backend.safe_thread(page, _sweep_sftp_huerfanos).start()
         go_minio()
 
@@ -308,7 +284,7 @@ def main(page: ft.Page):
                                         no_ldap=NO_LDAP, is_web=IS_WEB))
 
     def on_minio_selected(eleccion: dict):
-        print(f"[minio] cluster selected → {eleccion['servidor']} ({eleccion['endpoint']})")
+        log.info("server selected: %s (%s)", eleccion["servidor"], eleccion["endpoint"])
         state["servidor_minio"] = eleccion["servidor"]
         state["perfil_rclone"]  = eleccion["perfil"]
         state["endpoint"]       = eleccion["endpoint"]
@@ -322,16 +298,7 @@ def main(page: ft.Page):
         perfil  = state["perfil_rclone"]
         usuario_actual = state["credenciales_ldap"]["usuario"]
 
-        info = backend.get_session_info(perfil)
-        needs_renewal = info is None or info.needs_renewal(usuario_actual, STS_RENEWAL_THRESHOLD_DAYS)
-        if info is not None:
-            print(
-                f"[credentials] {'Renewal needed' if needs_renewal else 'Token valid → skipping renewal'} — "
-                f"token user: {info.usuario!r}, login user: {usuario_actual!r}, "
-                f"expiry: {info.remaining_text()}"
-            )
-
-        if needs_renewal:
+        if backend.hay_que_renovar_credenciales(perfil, usuario_actual):
             servidor     = state["servidor_minio"]
             extra_config = backend.MINIO_SERVERS.get(servidor, {}).get("IRB", {}).get("extra_rclone_config")
             show_screen(build_credentials_content(
@@ -350,7 +317,7 @@ def main(page: ft.Page):
             go_copy()
 
     def go_tags():
-        print("[tags] Entrando en Tag Manager", flush=True)
+        log.info("tag manager opened")
         show_screen(_build_tag_manager_content(
             page,
             perfil_rclone=state["perfil_rclone"],
@@ -500,7 +467,7 @@ if IS_CLUSTER:
     WEBPATH = os.environ.get("WEBPATH")
     SECRET_TOKEN = os.environ.get("password") or ""
     if not SECRET_TOKEN:
-        print("[WARNING] 'password' environment variable is not set — WebSocket auth disabled", flush=True)
+        log.warning("'password' environment variable is not set: WebSocket authentication is disabled")
 
     app = FastAPI()
     flet_asgi_app  = ft.app(main,export_asgi_app=True)

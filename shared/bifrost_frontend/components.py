@@ -1,6 +1,7 @@
-"""Componentes Flet reutilizables: botones, campos, diálogos y cabecera."""
+"""Componentes Flet reutilizables: botones, campos, diálogos, cabecera y cierre de la ventana."""
 
 import logging
+import os
 from typing import Callable
 
 import flet as ft
@@ -209,7 +210,7 @@ def show_issue(
                 action()
         return (btn_primary if primary else btn_secondary)(label, on_click=_click)
 
-    ref = _log_shown(issue, screen, ref)
+    ref = issue_reference(issue, screen, ref)
     buttons = buttons or [("OK", None)]
     texts = [ft.Text(f"Error {ref}", color=C_TEXT_DIM, size=11, selectable=True,
                      font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK)]
@@ -230,14 +231,16 @@ def show_issue(
 def issue_line(issue, *, is_web: bool, screen: str) -> str:
     """Un error en una línea, para mostrarlo en lugar de una lista que no se pudo cargar: qué ha pasado, su código
     y qué hacer."""
-    ref = _log_shown(issue, screen)
+    ref = issue_reference(issue, screen)
     hint = issue.hint_for(is_web, screen=screen)
     return f"⚠️ {issue.title} (Error {ref}). {hint}" if hint else f"⚠️ {issue.title} (Error {ref})."
 
 
-def _log_shown(issue, screen: str, ref: str | None = None) -> str:
+def issue_reference(issue, screen: str, ref: str | None = None) -> str:
     """El código del error que se va a mostrar (uno nuevo si no tiene) y su línea en el log técnico, que es lo que
-    busca ITS. Sin el contexto: puede ser el nombre de un fichero."""
+    busca ITS. Sin el contexto: puede ser el nombre de un fichero. Lo usan show_issue, issue_line y los mensajes
+    que no son ninguno de los dos: la pantalla de credenciales y el login (este solo anota la línea, sin enseñar
+    el código)."""
     ref = ref or issue.reference(screen)
     log.warning("issue shown: ref=%s code=%s screen=%s", ref, issue.code, screen)
     return ref
@@ -351,3 +354,19 @@ def show_confirm(
     #dlg.open = True
     page.show_dialog(dlg)
     page.update()
+
+
+# ============================================================================
+# CIERRE DE LA VENTANA (ESCRITORIO)
+# ============================================================================
+
+def install_window_close(page: ft.Page) -> None:
+    """Al cerrar la ventana: la limpieza de la app (una sola vez, common/shutdown.py), destruir la ventana y salir."""
+    async def _on_window_event(e: ft.WindowEvent):
+        if e.type == ft.WindowEventType.CLOSE:
+            backend.request_shutdown("window")
+            await page.window.destroy()
+            os._exit(0)                # destruir la ventana no termina el proceso de Python
+
+    page.window.on_event = _on_window_event
+    page.window.prevent_close = True

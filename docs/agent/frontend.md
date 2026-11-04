@@ -53,7 +53,8 @@ from bifrost_frontend.frontend import *      # theme + components + shared views
 Then: 1) (transfer) computes the run mode (`IS_WEB`) and calls
 `_propagar_is_web()`; 2) re-wraps `sys.stdout`/`sys.stderr` in UTF-8 (Windows
 console) — **do not touch**; 3) technical log with `backend.setup_logging(...)` and shutdown cleanup with
-`backend.register_shutdown(...)` (see `docs/development/operations.md#logs`);
+`backend.register_shutdown(...)` (see `docs/development/operations.md#logs`); `main()` calls
+`install_window_close(page)` (window close → `backend.request_shutdown("window")`, destroy the window, exit);
 4) defines `main(page: ft.Page)` and starts with `ft.run(main)` (in cluster
 mode transfer also builds the ASGI `app` with `ft.app(main, export_asgi_app=True)`).
 
@@ -78,9 +79,10 @@ and the live log panel (`ft.ListView` with `auto_scroll=True`).
 
 Constants in `bifrost_backend.common.constants`:
 `STS_RENEWAL_THRESHOLD_DAYS = 3`, `STS_AUTO_RENEWAL_DAYS = 7`. After choosing
-the server, `main.py` calls `backend.get_session_info(profile)`; if there is no
-token or `needs_renewal(user, STS_RENEWAL_THRESHOLD_DAYS)` is true (token of
-another user, unreadable, or 3 days or less left), it shows
+the server, `main.py` calls `backend.hay_que_renovar_credenciales(profile, user)`
+(it logs the decision in one line); if there is no token or
+`needs_renewal(user, STS_RENEWAL_THRESHOLD_DAYS)` is true (token of another user,
+unreadable, or 3 days or less left), it shows
 `build_credentials_content` and renews for 7 days, showing progress; otherwise
 it goes straight to the action view.
 
@@ -156,7 +158,8 @@ With `threading.Timer`, wrap the callback:
   the dialog, then runs its action. `screen` (`mount`, `netapp`, `copy`, `check`, `tags`, `app`) sets the code
   prefix and the hint; `ref` reuses a code (an operation's, or the one shown the first time); it returns the
   code. An error shown instead of a list: `issue_line(issue, *, is_web, screen)`. Both log `issue shown: ref=…
-  code=… screen=…`.
+  code=… screen=…` through `issue_reference(issue, screen, ref=None)`, which the credentials screen (`CRD`)
+  and the login (`LGN`) call directly; the login only logs it and does not show the code (noise there).
 - **Header**: `build_header(subtitle, IS_WEB, no_ldap, page=None)`; with `page`, on desktop, the "Export logs…"
   button (confirmation, then `backend.export_logs_zip()`). Every screen passes `page`.
 - **Log panel lines**: `log_text(line)` (colour from the leading emoji; used by copy and Tag Manager).

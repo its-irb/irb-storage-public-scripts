@@ -67,7 +67,8 @@ A continuación:
 2. Reenvuelve `sys.stdout`/`sys.stderr` en UTF-8 (consola Windows). No tocar.
 3. Configura el log técnico con `backend.setup_logging(...)` (ver
    [operations.md](operations.md#logs)) y registra el cierre con
-   `backend.register_shutdown(...)`.
+   `backend.register_shutdown(...)`. `main()` llama a `install_window_close(page)`: al cerrar la ventana,
+   `backend.request_shutdown("window")`, destruir la ventana y salir.
 4. Define `main(page: ft.Page)`, arma el flujo de vistas y lo arranca con
    `ft.run(main)`. En modo clúster, transfer además crea la app ASGI con
    `ft.app(main, export_asgi_app=True)`.
@@ -105,7 +106,8 @@ STS_RENEWAL_THRESHOLD_DAYS = 3
 STS_AUTO_RENEWAL_DAYS = 7
 ```
 
-Al elegir servidor, `main.py` consulta `backend.get_session_info(perfil)`:
+Al elegir servidor, `main.py` llama a `backend.hay_que_renovar_credenciales(perfil, usuario)`, que deja la
+decisión en una línea del log técnico:
 
 - Si quedan **más de 3 días** de validez y el token es del usuario que ha
   iniciado sesión, se reutilizan las credenciales y se salta
@@ -372,7 +374,9 @@ tareas asyncio.
   `netapp`, `copy`, `check`, `tags`, `app`) da el principio del código y la pista; con `ref` se reutiliza un
   código (el de una operación o el de la primera vez que se mostró) y devuelve el código. Para un error en lugar
   de una lista: `issue_line(issue, *, is_web, screen)` (texto de una línea con su código). Las dos escriben
-  `issue shown: ref=… code=… screen=…` en el log técnico.
+  `issue shown: ref=… code=… screen=…` en el log técnico con `issue_reference(issue, screen, ref=None)`, que la
+  pantalla de credenciales (`CRD`) y el login (`LGN`) llaman directamente; el login solo anota la línea y no
+  enseña el código (en esa pantalla sería ruido).
 - **Cabecera** — `build_header(subtitle, IS_WEB, no_ldap, page=None)`; con `page`, en escritorio, el botón
   "Export logs…" (confirmación y `backend.export_logs_zip()`). Todas las pantallas pasan `page`.
 - **Líneas de los paneles de log** — `log_text(line)` (color según el emoji inicial; lo usan copy y el Tag

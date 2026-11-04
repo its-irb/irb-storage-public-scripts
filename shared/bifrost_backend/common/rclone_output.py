@@ -34,7 +34,8 @@ log = logging.getLogger("bifrost.rclone")
 # ============================================================================
 
 # Primera parte del código de un error: la pantalla en la que se muestra.
-_SCREEN_CODES = {"mount": "MNT", "netapp": "NET", "copy": "CPY", "check": "CHK", "tags": "TAG", "app": "APP"}
+_SCREEN_CODES = {"login": "LGN", "credentials": "CRD", "mount": "MNT", "netapp": "NET", "copy": "CPY", "check": "CHK",
+                 "tags": "TAG", "app": "APP"}
 
 
 @dataclass(frozen=True)
@@ -188,6 +189,11 @@ MOUNT_NOT_ALLOWED = UserIssue("MOUNT_NOT_ALLOWED", 403, "BIFROST cannot open the
 UNMOUNT_FAILED = UserIssue("UNMOUNT_FAILED", 404, "Could not unmount",
                            "A mounted folder is still in use, so it could not be unmounted.",
                            "Close the windows or programs that are using it and click “Unmount all” again.")
+
+# Inicio de sesión: lo detecta el login (LDAP) o la renovación de credenciales sin LDAP (MinIO no da credenciales).
+INVALID_CREDENTIALS = UserIssue("INVALID_CREDENTIALS", 601, "Wrong username or password",
+                                "The IRB username or password is not correct.",
+                                "Check them: they are the ones you use to sign in to your IRB computer.")
 
 # https://rclone.org/docs/#exit-code
 _EXIT = {

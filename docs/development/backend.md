@@ -209,8 +209,12 @@ disco como ficheros no versionados (gitignores; solo se versionan los
 - **Subprocess**: usar `_subprocess_kwargs()` (flags consistentes, p. ej.
   `CREATE_NO_WINDOW` en Windows). No hardcodear.
 - **rclone**: nunca asumir un path; siempre `get_rclone_executable()`.
-- **Logs**: copy/check stream-ea líneas al frontend vía callbacks (`log_fn`);
-  no imprimir a stdout desde esas funciones.
+- **Logs**: nunca `print()`. Un logger por área (`log = logging.getLogger("bifrost.<área>")`, lista en
+  [operations.md](operations.md#logs)); en inglés, una línea por evento, `clave=valor`, argumentos con `%s` (no
+  f-strings), sin emojis; nunca contraseñas, listados de ficheros ni valores de etiquetas. INFO para lo que el
+  usuario pone en marcha y su resultado, DEBUG para la navegación y el detalle, WARNING para fallos que la app
+  controla, `log.exception` cuando la traza ayuda. Copy/check pasan las líneas del panel al frontend con
+  callbacks (`log_fn`).
 
 ## Autoupdate
 

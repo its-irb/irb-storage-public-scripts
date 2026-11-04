@@ -742,21 +742,21 @@ def _build_copy_content(
             result = await file_picker.pick_files()
             if result:
                 ruta = backend.traducir_ruta_a_remote(result[0].path, mounts_activos)
-                print(f"[file-picker] file picked → raw={result[0].path!r} translated={ruta!r}")
+                logger.debug("source picked: %s", ruta)
                 origen_tf.value = ruta
                 page.update()
             else:
-                print("[file-picker] file pick cancelled")
+                logger.debug("source picker cancelled")
 
         async def _pick_folder(e):
             result = await folder_picker.get_directory_path()
             if result:
                 ruta = backend.traducir_ruta_a_remote(result, mounts_activos)
-                print(f"[file-picker] folder picked → raw={result!r} translated={ruta!r}")
+                logger.debug("source picked: %s", ruta)
                 origen_tf.value = ruta
                 page.update()
             else:
-                print("[file-picker] folder pick cancelled")
+                logger.debug("source picker cancelled")
 
         async def _save_log_picker(file_name: str):
             result = await save_picker.save_file(file_name=file_name)
@@ -784,14 +784,14 @@ def _build_copy_content(
         # Modo WEB: browsers propios que leen el filesystem del servidor
         def _open_folder_browser(e):
             def _picked(path: str):
-                print(f"[file-picker] web folder picked → {path}")
+                logger.debug("source picked: %s", path)
                 origen_tf.value = path
                 page.update()
             show_local_fs_modal(page, on_select=_picked, select_mode="folder")
 
         def _open_file_browser(e):
             def _picked(path: str):
-                print(f"[file-picker] web file picked → {path}")
+                logger.debug("source picked: %s", path)
                 origen_tf.value = path
                 page.update()
             show_local_fs_modal(page, on_select=_picked, select_mode="file")
@@ -820,8 +820,7 @@ def _build_copy_content(
     )
 
     def on_browser_select(path: str, is_file: bool = False):
-        print(f"[copy] destination selected → {perfil_rclone}:{path}" if path
-              else "[copy] destination cleared (root)")
+        logger.debug("destination selected: %s:%s", perfil_rclone, path or "(root)")
         _dest_path["value"] = path
         # Persist non-empty selections to session.
         # Do NOT wipe copy_destino on empty path: the browser refresh timer

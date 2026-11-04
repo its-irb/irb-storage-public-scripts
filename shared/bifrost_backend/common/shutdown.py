@@ -1,8 +1,8 @@
 """Cierre ordenado de bifrost-mount y bifrost-transfer.
 
 Una sola limpieza por proceso, llegue el cierre por donde llegue: salida normal (atexit), señal del sistema
-(SIGTERM de Slurm/Open OnDemand o DCV, Ctrl+C) o cierre de la ventana (la app llama a la función que
-devuelve register_shutdown).
+(SIGTERM de Slurm/Open OnDemand o DCV, Ctrl+C) o cierre de la ventana (request_shutdown("window"), desde
+bifrost_frontend.install_window_close).
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ log = logging.getLogger("bifrost.shutdown")
 _state: dict = {"cleanup": None, "server_managed": False, "done": False}
 
 
-def register_shutdown(cleanup: Callable[[], None], *, server_managed: bool = False) -> Callable[[], None]:
-    """Registra `cleanup` para el cierre del proceso y devuelve la versión que se ejecuta una sola vez.
+def register_shutdown(cleanup: Callable[[], None], *, server_managed: bool = False) -> None:
+    """Registra `cleanup` para el cierre del proceso; se ejecuta una sola vez (ver request_shutdown).
 
     Se llama una vez, al importar la app (desde el hilo principal, el único donde se pueden instalar
     manejadores de señal).
@@ -36,7 +36,6 @@ def register_shutdown(cleanup: Callable[[], None], *, server_managed: bool = Fal
     _state.update(cleanup=cleanup, server_managed=server_managed)
     atexit.register(_run_once)
     install_signal_handlers()
-    return _run_once
 
 
 def install_signal_handlers() -> None:
@@ -55,6 +54,12 @@ def install_signal_handlers() -> None:
             log.warning("Cannot install handler for %s (not in the main thread)", sig.name)
 
 
+def request_shutdown(reason: str) -> None:
+    """Cierre pedido por `reason` (una señal, la ventana): lo anota y limpia, una sola vez."""
+    log.info("APP shutdown requested (reason=%s)", reason)
+    _run_once()
+
+
 def _run_once() -> None:
     if _state["done"]:
         return
@@ -64,9 +69,8 @@ def _run_once() -> None:
 
 
 def _on_signal(signum, frame) -> None:
-    log.info("APP shutdown requested (reason=%s)", signal.Signals(signum).name)
     # Se limpia aquí y no se confía en atexit: en la app empaquetada, Flet sustituye sys.exit por una función
     # que avisa al lanzador y no termina el intérprete, así que atexit no llegaría a ejecutarse.
-    _run_once()
+    request_shutdown(signal.Signals(signum).name)
     if not _state["server_managed"]:
         sys.exit(0)

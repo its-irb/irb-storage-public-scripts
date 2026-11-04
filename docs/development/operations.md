@@ -45,9 +45,12 @@ releases de GitHub.
 Detalle y decisiones: `docs/superpowers/plans/PLAN-logging-improvements.md`.
 
 - **Log técnico** (`shared/bifrost_backend/common/logs.py`, `setup_logging`): formato fijo
-  (`fecha hora.ms NIVEL [logger] mensaje`), logger raíz `bifrost`, un logger por módulo
-  (`bifrost.login`, `bifrost.mount`, `bifrost.copy`, `bifrost.rclone`…). Los `print()` se redirigen a
-  `bifrost.print` y stderr a `bifrost.stderr`; los secretos (JWT, `password=`…) se enmascaran.
+  (`fecha hora.ms NIVEL [logger] mensaje`), logger raíz `bifrost`, un logger por área: `bifrost.login`,
+  `bifrost.auth` (STS, token, LDAP, renovación), `bifrost.mount`, `bifrost.netapp`, `bifrost.copy` (copy, check
+  y sus navegadores), `bifrost.tags`, `bifrost.rclone` (texto de rclone), `bifrost.update`, `bifrost.session`
+  (sesión web), `bifrost.transfer`, `bifrost.ui` (`issue shown`, fallos no previstos), `bifrost.shutdown`,
+  `bifrost.logs`. El código no usa `print()`: lo que impriman otras librerías llega como `bifrost.print`, y
+  stderr como `bifrost.stderr`. Los secretos (JWT, `password=`…) se enmascaran.
   - Escritorio: un fichero por sesión en la carpeta estándar del sistema (se conservan 30):
     `~/Library/Logs/BIFROST/<app>/` (macOS), `%LOCALAPPDATA%\IRB\BIFROST\<app>\` (Windows),
     `$XDG_STATE_HOME/bifrost/<app>/` o `~/.local/state/bifrost/<app>/` (Linux).
@@ -118,12 +121,13 @@ Detalle y decisiones: `docs/superpowers/plans/PLAN-logging-improvements.md`.
   desmontaje con el PID que se para (`unmount <carpeta>: stopping rclone pid N` o, si es un resto de una
   sesión anterior, `rclone from a previous session, PIDs [N]` … `done (N s)`). Si la lista de buckets no se
   puede cargar: `bucket list failed: profile=… code=…` y, con `[bifrost.rclone]`, el texto de rclone.
-- **Códigos de error** (PR 4): cada error que ve el usuario (pop-ups, la línea de error en lugar de una lista y
-  la primera línea del resumen de copy, check y Tag Manager cuando fallan) lleva un código
-  `<pantalla><tipo>-<MMDD>-<HHMMSS>`, por ejemplo `MNT101-1103-141526`. Pantalla: `MNT` montar un bucket, `NET`
-  NetApp, `CPY` copy (y "Save log" y el navegador de MinIO de copy), `CHK` check, `TAG` Tag Manager, `APP`
-  actualizar BIFROST o fallo no previsto. El tipo es el campo `num` de cada `UserIssue`
-  (`common/rclone_output.py`); `UserIssue.reference(screen)` crea el código.
+- **Códigos de error** (PR 4 y PR 5): cada error que ve el usuario (pop-ups, la línea de error en lugar de una
+  lista, la primera línea del resumen de copy, check y Tag Manager cuando fallan, y los mensajes de la renovación
+  de credenciales) lleva un código `<pantalla><tipo>-<MMDD>-<HHMMSS>`, por ejemplo `MNT101-1103-141526`. Los
+  del login también tienen el suyo, pero solo en el log técnico: en esa pantalla sería ruido. Pantalla: `LGN`
+  login, `CRD` renovación de credenciales, `MNT` montar un bucket, `NET` NetApp, `CPY` copy (y "Save log" y los
+  navegadores de copy), `CHK` check, `TAG` Tag Manager, `APP` actualizar BIFROST o fallo no previsto. El tipo es
+  el campo `num` de cada `UserIssue` (`common/rclone_output.py`); `UserIssue.reference(screen)` crea el código.
 
   | Familia | Número | `code` |
   |---|---|---|
@@ -132,6 +136,7 @@ Detalle y decisiones: `docs/superpowers/plans/PLAN-logging-improvements.md`.
   | 3xx ficheros de origen | 301 · 302 · 303 · 304 · 305 | `SOURCE_NOT_FOUND` · `SOURCE_PERMISSION` · `SOURCE_CHANGING` · `FILE_IN_USE` · `DISK_FULL` |
   | 4xx montajes | 401 · 402 · 403 · 404 · 405 | `MOUNT_TIMEOUT` · `MOUNT_BUSY` · `MOUNT_NOT_ALLOWED` · `UNMOUNT_FAILED` · `FUSE_MISSING` |
   | 5xx NetApp | 501 · 502 · 503 | `NETAPP_LOGIN` · `NETAPP_SHARE_NOT_FOUND` · `NETAPP_PERMISSION` |
+  | 6xx inicio de sesión | 601 | `INVALID_CREDENTIALS` |
   | 9xx BIFROST | 901 · 902 · 903 · 999 | `RCLONE_MISSING` · `RCLONE_OPTIONS` · `FATAL` · `UNEXPECTED` |
 
   Reglas: un número no se reutiliza ni cambia nunca (un código de una versión antigua sigue significando lo
@@ -142,13 +147,25 @@ Detalle y decisiones: `docs/superpowers/plans/PLAN-logging-improvements.md`.
 
   En el log técnico, para buscar por código:
   - `issue shown: ref=MNT101-1103-141526 code=CREDENTIALS_EXPIRED screen=mount` (logger `bifrost.ui`) cada vez
-    que se muestra un error, sin el contexto (en el Tag Manager es el nombre del fichero).
+    que se muestra un error, sin el contexto (en el Tag Manager es el nombre del fichero). Buscar `issue shown`
+    da todos los errores que ha visto el usuario, también los del login.
   - `copy finished: … ref=CPY103-…`, `check finished: … ref=CHK…`, `tags finished: … ref=TAG…` cuando la
     operación acaba con errores: copy y check `failed` o `partial`, check con ficheros que no pudo leer, Tag
     Manager `stopped` o `partial`. Lo que el check encuentra distinto o que falta en MinIO es un resultado, no
     un error: sin código. El tipo es el del error que explica el resultado (en un parcial, la causa más
     frecuente).
   - `unexpected error ref=APP999-…` con la traza (`safe_thread`) y `update failed ref=APP…` con la suya.
+- **Inicio de sesión y credenciales** (PR 5), una línea por evento:
+  - `LOGIN attempt/success/failed — user: … — reason: …` (`bifrost.login`); `ldap: user found dn=…` (DEBUG).
+  - Al elegir el servidor, `server selected: minio (https://…)` y la decisión de renovar
+    (`hay_que_renovar_credenciales`): `credentials: profile=… token_user=… login_user=… expiry=6d 20h → valid`
+    (o `→ renewal needed`).
+  - Al renovar: `credentials: renewing profile=… days=7 current=…` y `credentials: renewed profile=… expiry=…`;
+    si MinIO no las da, `sts: request failed: http=… code=… message=… request_id=…` (o
+    `sts: unexpected response: … body=…`, en una línea y hasta 300 caracteres).
+- **Otras líneas** (PR 5): `update check: current=… latest=… → up to date` (o `→ update available`; WARNING si
+  falla), `web session saved/cleared for …` (DEBUG), `APP shutdown requested (reason=window|SIGTERM|SIGINT)` y,
+  al cerrar la NetApp, `unmount <carpeta>: done` / `still mounted (<causa>)` por share.
 - **"Export logs…"** (escritorio, en la cabecera de todas las pantallas; en OOD no existe: la pista pide el
   `output.log` de la sesión): tras una confirmación, `export_logs_zip()` guarda en `~/Downloads`
   `BIFROST-<app>-logs-<fecha>.zip` (permisos 0600) con los logs de las 5 últimas sesiones (`EXPORTED_SESSIONS`)

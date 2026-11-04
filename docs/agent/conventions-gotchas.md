@@ -93,12 +93,18 @@ Cross-cutting knowledge that constrains any change. Technical details in
 
 ## Repository hygiene
 
-17. **Do not commit** `.venv/`, `dist/`, `build/`, generated `src/version.py` or
+17. **Never `print()`**: every module logs with its own logger
+    (`logging.getLogger("bifrost.<area>")`, list in
+    `docs/development/operations.md#logs`), in English, one line per event,
+    with `%s` arguments and no emojis, passwords, file listings or tag values.
+    Anything printed by a library still reaches the log as `bifrost.print`
+    (`common/logs.py`), but that is only a safety net.
+18. **Do not commit** `.venv/`, `dist/`, `build/`, generated `src/version.py` or
     the local `pyproject.toml` of the apps. See `.gitignore`.
 
 ## Documentation hygiene
 
-18. `docs/wiki/` is referenced by old documentation but **does not exist**.
+19. `docs/wiki/` is referenced by old documentation but **does not exist**.
     Do not create new references to it.
-19. Documentation is updated with the `docs-update` skill; the agent entry
+20. Documentation is updated with the `docs-update` skill; the agent entry
     point is `AGENTS.md`.

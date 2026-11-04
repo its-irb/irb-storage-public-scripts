@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -12,6 +13,8 @@ from bifrost_backend import backend
 from bifrost_frontend.frontend import *
 
 from meta_fields import WORM_BUCKET_SUFFIX, WORM_FACILITY_DATA_SUBFOLDERS, WORM_ROOT_PREFIXES, build_lab_filter_widget
+
+log = logging.getLogger("bifrost.copy")
 
 # main.py fija el valor real al arrancar: IS_WEB solo puede calcularse en main.py
 # (depende de __name__), y las funciones de este módulo lo leen al ejecutarse.
@@ -56,11 +59,7 @@ def build_rclone_browser(
 
     if lab_filter_enabled:
         def _on_lab_select(acronym: str | None) -> None:
-            previous = filter_state["acronym"]
-            if acronym is None:
-                print(f"[browser] lab filter cleared (was {previous!r}) → showing all buckets")
-            else:
-                print(f"[browser] lab filter → {acronym!r} (was {previous!r})")
+            log.info("lab filter: %s (was %s)", acronym or "cleared", filter_state["acronym"])
             filter_state["acronym"] = acronym
             _navigate("")
 
@@ -167,7 +166,7 @@ def build_rclone_browser(
                 )
 
     def _navigate(path: str):
-        print(f"[browser] navigate → perfil={perfil_rclone!r} path={path!r}")
+        log.debug("browser: open %s:%s", perfil_rclone, path)
         nav_state["current_path"]  = path
         nav_state["selected_file"] = None
         file_row_refs.clear()
@@ -188,10 +187,10 @@ def build_rclone_browser(
                 else:
                     if show_files:
                         entries = backend.rclone_lsjson(perfil_rclone, path, timeout=nav_state["timeout"])
-                        print(f"[browser] rclone lsjson path={path!r} → {len(entries)} entries")
+                        log.debug("browser: %s:%s → %d entries", perfil_rclone, path, len(entries))
                     else:
                         folders = backend.rclone_lsd(perfil_rclone, path, timeout=nav_state["timeout"])
-                        print(f"[browser] rclone lsd path={path!r} → {len(folders)} folders")
+                        log.debug("browser: %s:%s → %d folders", perfil_rclone, path, len(folders))
                         entries = [{"name": f, "is_dir": True} for f in folders]
                     if not path:
                         bucket_cache["list"] = list(entries)
@@ -212,7 +211,7 @@ def build_rclone_browser(
                         by_name = {e["name"]: e for e in entries}
                         missing = [n for n in default_names if n not in by_name]
                         if missing:
-                            print(f"[browser] worm defaults path={path!r} → adding missing virtual folders: {missing}")
+                            log.debug("browser: %s → virtual WORM folders added: %s", path, missing)
                         ordered = [by_name.pop(n, {"name": n, "is_dir": True}) for n in default_names]
                         rest = [e for e in entries if e["name"] in by_name]
                         entries = ordered + rest
@@ -222,7 +221,8 @@ def build_rclone_browser(
                     bucket_names = [e["name"] for e in bucket_cache["list"]]
                     total = len(bucket_names)
                     if bucket_cache["tags"] is None:
-                        print(f"[browser] lab filter {active!r}: scanning S3 'acronym' tag for {total} buckets (one-time per session)...")
+                        log.info("lab filter %s: reading the 'acronym' tag of %d buckets (once per session)", active,
+                                 total)
                         s3 = backend.get_s3_client_from_profile(perfil_rclone, endpoint)
                         with ThreadPoolExecutor(max_workers=8) as pool:
                             futs = {pool.submit(backend.get_bucket_tags, s3, b): b for b in bucket_names}
@@ -235,9 +235,9 @@ def build_rclone_browser(
                                     tag_map[b] = ""
                         bucket_cache["tags"] = tag_map
                         n_tagged = sum(1 for v in tag_map.values() if v)
-                        print(f"[browser] lab filter: tag scan done → {n_tagged}/{total} buckets have an 'acronym' tag (cached for this session)")
+                        log.info("lab filter: %d/%d buckets have an 'acronym' tag", n_tagged, total)
                     entries = [e for e in entries if bucket_cache["tags"].get(e["name"]) == active]
-                    print(f"[browser] lab filter {active!r} → {len(entries)}/{total} buckets match")
+                    log.info("lab filter %s: %d/%d buckets match", active, len(entries), total)
 
                 def _show():
                     loading_row.visible = False
@@ -305,7 +305,7 @@ def build_rclone_browser(
                 backend.ui_call(page, _show)
 
             except subprocess.TimeoutExpired:
-                print(f"[browser] TIMEOUT path={path!r} after {nav_state['timeout']}s")
+                log.warning("browser: listing %s:%s timed out after %d s", perfil_rclone, path, nav_state["timeout"])
                 def _timeout_ui():
                     loading_row.visible = False
                     folder_col.controls.clear()
@@ -325,7 +325,7 @@ def build_rclone_browser(
                     )
                     def confirm_manual(e):
                         new_path = manual_tf.value.strip()
-                        print(f"[browser] manual path confirmed → {new_path!r}")
+                        log.debug("browser: path typed by hand: %s", new_path)
                         nav_state["current_path"]  = new_path
                         nav_state["selected_file"] = None
                         on_select(new_path, False)
@@ -355,7 +355,7 @@ def build_rclone_browser(
                         page.update()
 
                     def retry_60(e):
-                        print(f"[browser] retry path={path!r} with timeout=60s")
+                        log.debug("browser: retry %s with a 60 s timeout", path)
                         nav_state["timeout"] = 60
                         _navigate(path)
 
@@ -404,7 +404,7 @@ def build_rclone_browser(
 
                 backend.ui_call(page, _timeout_ui)
             except Exception as ex:
-                print(f"[browser] ERROR path={path!r}: {ex}")     # el texto original, al log técnico
+                log.warning("browser: listing %s:%s failed: %s", perfil_rclone, path, ex)
                 issue = backend.issue_for_exception(ex)
 
                 def _err():
@@ -445,7 +445,7 @@ def build_rclone_browser(
 
         base     = nav_state["current_path"]
         new_path = f"{base}/{name}" if base else name
-        print(f"[browser] virtual mkdir → {new_path!r} (not created in rclone until copy)")
+        log.debug("browser: new folder %s (created in MinIO when copying)", new_path)
 
         new_folder_tf.value = ""
 
@@ -534,7 +534,7 @@ def build_rclone_browser(
     )
 
     def _refresh():
-        print(f"[browser] refresh() → cache invalidated, initial_path={initial_path!r}")
+        log.debug("browser: refresh (cache cleared), back to %s", initial_path or "the root")
         bucket_cache["list"] = None
         bucket_cache["tags"] = None
         _navigate(initial_path)

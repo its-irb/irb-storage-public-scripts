@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 
 from bifrost_backend import backend
 
@@ -10,6 +11,8 @@ from meta_fields import TAG_PROFILES
 # main.py fija el valor real al arrancar: IS_WEB solo puede calcularse en main.py
 # (depende de __name__), y las funciones de este módulo lo leen al ejecutarse.
 IS_WEB = False
+
+log = logging.getLogger("bifrost.session")
 
 
 # ============================================================================
@@ -61,7 +64,7 @@ def _ws_save(usuario: str, state: dict) -> None:
         "copy_tag_profile":   existing.get("copy_tag_profile", list(TAG_PROFILES.keys())[0]),
     }
     _LAST_WEB_USER[0] = usuario
-    print(f"[session] Saved session for {usuario!r}")
+    log.debug("web session saved for %s", usuario)
 
 
 def _ws_load(usuario: str) -> dict | None:
@@ -84,4 +87,4 @@ def _ws_clear(usuario: str) -> None:
     _WEB_SESSIONS.pop(usuario, None)
     if _LAST_WEB_USER[0] == usuario:
         _LAST_WEB_USER[0] = None
-    print(f"[session] Cleared session for {usuario!r}")
+    log.debug("web session cleared for %s", usuario)

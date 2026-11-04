@@ -24,6 +24,7 @@ from .common.auth import (
     get_credentials,
     configure_rclone,
     get_session_info,
+    hay_que_renovar_credenciales,
     validar_credenciales_ldap,
 )
 from .common.updates import (
@@ -50,10 +51,13 @@ from .common.rclone_output import (
     short_name,
     human_size,
     issue_for_exception,
+    UNEXPECTED,
     UNMOUNT_FAILED,
+    INVALID_CREDENTIALS,
 )
 from .common.shutdown import (
     register_shutdown,
+    request_shutdown,
     install_signal_handlers,
 )
 from .common.rclone_mount import (

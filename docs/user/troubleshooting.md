@@ -2,13 +2,14 @@
 
 ## Error codes
 
-Every error window, every error shown instead of a folder list, and the summary
-of a copy, check or Tag Manager operation that failed show an **error code**,
-for example `MNT101-1103-141526`:
+Every error window, every error shown instead of a folder list, the summary of
+a copy, check or Tag Manager operation that failed, and the errors when BIFROST
+renews your MinIO access show an **error code**, for example
+`MNT101-1103-141526`:
 
 | Part | Example | Meaning |
 |---|---|---|
-| Where | `MNT` | `MNT` mounting a folder (Bifrost mount) · `NET` NetApp share (cluster) · `CPY` copy · `CHK` check · `TAG` Tag Manager · `APP` updating BIFROST, or an unexpected error |
+| Where | `MNT` | `CRD` renewing your MinIO access · `MNT` mounting a folder (Bifrost mount) · `NET` NetApp share (cluster) · `CPY` copy · `CHK` check · `TAG` Tag Manager · `APP` updating BIFROST, or an unexpected error |
 | What | `101` | The kind of problem (see the table below). The same problem always has the same number. |
 | When | `1103-141526` | Month and day (November 3) and time (14:15:26). |
 
@@ -50,6 +51,8 @@ exact error in your logs (see [Send your logs to ITS](#send-your-logs-to-its)).
 | 501 | NetApp did not accept your password | Sign out and sign in again with your current IRB password. |
 | 502 | NetApp share not found | Contact ITS. |
 | 503 | No permission on the NetApp share | If you need access, ask your group's data manager. |
+| **6xx** | **Signing in** | |
+| 601 | Wrong username or password | Check your **username and password**: they are the ones you use to sign in to your IRB computer. |
 | **9xx** | **BIFROST** | |
 | 901 | BIFROST is incomplete | Reinstall BIFROST. |
 | 902 | Options not valid | Check the options in **Additional rclone flags (advanced)**, or restore the default values. |

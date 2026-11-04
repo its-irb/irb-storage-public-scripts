@@ -2,7 +2,8 @@
 
 Un solo punto de configuración: consola (stdout) y, en escritorio, un fichero por sesión en la carpeta
 estándar del sistema operativo (en la app empaquetada la consola solo recibe avisos y errores, ver _PACKAGED).
-Los print() existentes se redirigen al logger para que nada se pierda mientras se migra el código.
+El código de BIFROST escribe con un logger por módulo y nunca con print(); lo que otras librerías impriman en
+stdout/stderr se redirige al logger como red de seguridad, para que nada se pierda.
 """
 
 from __future__ import annotations

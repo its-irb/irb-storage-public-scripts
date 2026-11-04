@@ -9,7 +9,7 @@ Rama: `refactor/unified-logging`. Última actualización: 2026-11-03.
 | PR 2 | Salida de rclone para el usuario: 2a copy / check · 2b Tag Manager | **2a hecho** (`cc17aa7`, `5d11c22`); **2b implementado** (pendiente de commit y de la prueba manual) |
 | PR 3 | Montajes con rclone (MinIO y NetApp): verificación real y errores de rclone al log técnico | **Implementado** (pendiente de commit, de la prueba manual y de Windows) |
 | PR 4 | Referencia en cada error y exportación de los logs | **Implementado** (probado en macOS; pendiente de commit, Windows y OOD) |
-| PR 5 | Migración de `print` al logger y limpieza del contenido | Pendiente (plan revisado el 2026-11-04) |
+| PR 5 | Migración de `print` al logger y limpieza del contenido | **Implementado** (pendiente de commit y de la prueba manual) |
 | PR 6 | Documentación (`docs-update`) | Pendiente |
 
 ## Objetivo
@@ -1218,7 +1218,8 @@ con clave mala y error del navegador del Tag Manager.
 **Objetivo.** Que el log técnico solo tenga líneas útiles y legibles: hoy los `print` son la mitad del log de
 Bifrost Mount (17 de 32 líneas en una sesión de prueba) y un tercio del de Bifrost Transfer (24 de 74), salen todos
 como `[bifrost.print]`, con emojis, en dos idiomas y algunos partidos en varias líneas. Además, los errores que
-aún se muestran sin código (login, pantalla de credenciales, navegador local) pasan a llevarlo, como en el PR 4.
+aún se muestran sin código (pantalla de credenciales, navegador local) pasan a llevarlo, como en el PR 4; los del
+login lo llevan solo en el log técnico (decisión 5).
 
 **Ya resuelto en PR anteriores (se quita del plan):** `views/tag_manager.py` ya no tiene `print` (PR 2b);
 `mount/s3_mount.py`, `mount/preflight.py` y `views/mount.py` tampoco, ni avisos de pyflakes (PR 3); el ruido de
@@ -1256,14 +1257,16 @@ compartido (`common/shutdown.py`).
      entrada 24, para un problema de ese barrido que ya existe y no es de este PR.
 5. **Códigos de error que faltaban** (mismo formato que el PR 4):
    - Pantallas nuevas en el código: `LGN` (login) y `CRD` (pantalla de credenciales).
-   - Tipo nuevo **601 "Wrong username or password"** (`WRONG_PASSWORD`), en una familia nueva **6xx "inicio de
-     sesión"**. No se reutiliza ni cambia, como los demás. Es una constante de `common/rclone_output.py`, como
-     `MOUNT_TIMEOUT`: no sale de un texto de rclone, la detecta el flujo del login. `_SCREEN_CODES` gana
-     `"login": "LGN"` y `"credentials": "CRD"`.
-   - **Login:** los textos actuales se mantienen (están pensados para esa pantalla y la guía de usuario los
-     explica) y se les añade el código al final: usuario o contraseña incorrectos → `LGN601`; sin VPN o el
-     servidor LDAP no responde → `LGN201`; error no previsto → `LGN999`. Los campos vacíos no llevan código (son
-     avisos sobre lo que escribe el usuario).
+   - Tipo nuevo **601 "Wrong username or password"** (`INVALID_CREDENTIALS`: el usuario o la contraseña, sin decir
+     cuál), en una familia nueva **6xx "inicio de sesión"**. No se reutiliza ni cambia, como los demás. Es una constante de `common/rclone_output.py`, como
+     `MOUNT_TIMEOUT`: no sale de un texto de rclone, la detecta el login o la pantalla de credenciales.
+     `_SCREEN_CODES` gana `"login": "LGN"` y `"credentials": "CRD"`.
+   - **Login: el código solo va al log técnico** (cambiado el 2026-11-04, después de implementarlo con el código
+     también en pantalla: ahí es ruido visual). Los textos de siempre no cambian. Cada fallo escribe
+     `issue shown: ref=LGN601-… code=INVALID_CREDENTIALS screen=login`, como los errores de las demás pantallas, así
+     que buscar `issue shown` da todos los errores que ha visto el usuario. Usuario o contraseña incorrectos →
+     `LGN601`; sin VPN o el servidor LDAP no responde → `LGN201`; error no previsto → `LGN999`. Los campos vacíos
+     no se anotan (son avisos sobre lo que escribe el usuario).
    - **Pantalla de credenciales:** se mantiene la distinción que ya hace hoy. Si MinIO no da credenciales y se
      entró sin LDAP (`BIFROST_NO_LDAP=1`, cuando hoy dice "Wrong username or password"), es la contraseña →
      `CRD601`. Con LDAP, el login ya comprobó la contraseña, así que es otra cosa ("Failed to obtain
@@ -1301,8 +1304,8 @@ compartido (`common/shutdown.py`).
 - `operations.md`: la lista de loggers y las líneas nuevas (`credentials: …`, `update check: …`, `reason=window`,
   el cierre de la NetApp por share).
 - `docs/agent/conventions-gotchas.md` y la de desarrollo: la regla "no `print`, un logger por módulo".
-- Tabla de códigos (usuario y desarrollo): familia 6xx con el 601 y las pantallas `LGN` y `CRD`. En la guía de
-  usuario, la tabla del login dice que el mensaje lleva un código.
+- Tabla de códigos (usuario y desarrollo): familia 6xx con el 601 y la pantalla `CRD`; en la de desarrollo,
+  también `LGN`, que solo sale en el log.
 
 ### Verificación del PR 5
 
@@ -1310,12 +1313,47 @@ compartido (`common/shutdown.py`).
 |---|---|
 | `grep -rn "print(" --include=*.py bifrost-*/src shared` | Solo menciones en comentarios o docstrings (`logs.py` explica la red de seguridad); ninguna llamada |
 | Sesión normal de Mount y de Transfer | Ninguna línea `[bifrost.print]`; la comprobación de versión en una línea; la decisión de credenciales en una línea |
-| Login con contraseña mal / sin VPN | El texto de siempre con `(Error LGN601-…)` / `(Error LGN201-…)`; `issue shown` en el log |
+| Login con contraseña mal / sin VPN | El texto de siempre, sin código; en el log, `LOGIN failed … reason: invalid_password` e `issue shown: ref=LGN601-…` (sin VPN: `reason: vpn` y `LGN201`) |
 | Renovar credenciales | Bien: dos líneas `credentials: …`. Con `BIFROST_NO_LDAP=1` y una contraseña mal: `CRD601` en el panel. Sin VPN: `CRD201` |
 | Cerrar la ventana (las dos apps) | `APP shutdown requested (reason=window)` y la limpieza, sin `[close]` |
 | Navegador local en OOD sin permiso | `⚠️ Cannot open a file or folder (Error CPY302-…)` |
 | NetApp en OOD al cerrar | Una línea por share. Con Delete no se puede probar hoy (la limpieza no llega a ejecutarse: `PENDIENTES.md`, entrada 1); se prueba con `kill -TERM <pid del worker>` desde el terminal de la sesión, como describe esa entrada |
 | pyflakes, import en frío, `uv sync --reinstall-package bifrost-shared` en los dos venv | Sin avisos nuevos |
+
+### Estado del PR 5 (2026-11-04)
+
+**Implementado según las decisiones de arriba, con estos detalles:**
+- Ninguna llamada a `print()` en el código (comprobado con el AST de todos los módulos); las 5 llamadas al logger
+  con f-string pasan a `%s`; ningún emoji en los mensajes del logger.
+- `auth.py`: `hay_que_renovar_credenciales(perfil, usuario, umbral_dias=STS_RENEWAL_THRESHOLD_DAYS)`, que usan los
+  dos `main.py`. STS: si MinIO no da credenciales y responde con su error, `sts: request failed: http=… code=…
+  message=… request_id=…`; si responde otra cosa (XML o no, p. ej. la página de un proxy), `sts: unexpected
+  response: http=… body=…` (una línea, 300 caracteres). Se quitan el volcado de cabeceras y "ERROR: Invalid
+  LDAP credentials".
+- `shutdown.py`: `request_shutdown(reason)` (la usan las señales y la ventana); `register_shutdown` ya no devuelve
+  nada. `bifrost_frontend`: `install_window_close(page)` y `issue_reference` (público).
+- `rclone_output.py`: `INVALID_CREDENTIALS` (601) y pantallas `login`/`credentials`. El login mantiene sus textos, sin
+  código en pantalla, y anota el código en el log (decisión 5); `user_not_found` e `invalid_password` dan el mismo
+  texto, para no revelar si el usuario existe.
+- `updates.py`: una línea; cualquier fallo de la comprobación (red, código HTTP, respuesta que no es JSON) sigue
+  sin lanzar excepciones, como antes.
+- `smb.py`: el `umount` captura su salida para ponerla en la línea `still mounted (<causa>)` en lugar de dejarla
+  suelta en stderr; la contraseña de los perfiles SMB, con el número de perfiles.
+- Navegador local: los dos casos de error (sin permiso y cualquier otro) se juntan en uno con `issue_line`.
+- Documentación: lista de loggers, regla "nunca `print`" (`conventions-gotchas.md` y `backend.md`), familia 6xx y
+  pantallas `LGN` (solo en el log) y `CRD` en las tablas de códigos.
+
+**Probado** (local y simulado, sin MinIO ni LDAP): 42 casos (AST sin `print`, STS correcto/con error/HTML de un
+proxy/sin XML, token y decisión de renovar con un `rclone.conf` de verdad, LDAP simulado, comprobación de
+versión en 5 situaciones, cierre de la NetApp por share, contraseña SMB sin la contraseña en el log, señal y
+ventana por la misma función, login con los 6 motivos (sin código en pantalla, con él en el log), pantalla de
+credenciales con sus 3 errores y la renovación correcta, navegador local sin permiso, sesión web, barrido SFTP).
+Las pruebas de los PR 3 y 4 siguen pasando (36 en cada app, 4 de la NetApp, 19 de logs de rclone, 19 de montaje
+perdido).
+
+**Falta:** prueba manual con `flet run` (login con contraseña mal y sin VPN, renovación de credenciales, cerrar
+la ventana en las dos apps, sesión completa sin `[bifrost.print]`) y en OOD (navegador local sin permiso, cierre
+de la NetApp con `kill -TERM`).
 
 ## PR 6 — Documentación (`docs-update`)
 

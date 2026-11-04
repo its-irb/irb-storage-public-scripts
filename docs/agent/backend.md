@@ -72,10 +72,13 @@ with Flet's diff walker (`IndexError` in `_compare_lists`; details in
 Every error the user sees (pop-ups, the error line shown instead of a list, and
 the first summary line of a copy, check or Tag Manager operation that failed)
 carries a code `<screen><type>-<MMDD>-<HHMMSS>`, for example
-`MNT101-1103-141526`. Screen: `MNT` bucket mount, `NET` NetApp, `CPY` copy
-(also "Save log" and the copy screen's MinIO browser), `CHK` check, `TAG` Tag
-Manager, `APP` updating BIFROST or an unexpected failure. The type is the
-`num` of the `UserIssue`; `UserIssue.reference(screen)` builds the code.
+`MNT101-1103-141526`. Screen: `LGN` login, `CRD` credentials renewal, `MNT`
+bucket mount, `NET` NetApp, `CPY` copy (also "Save log" and the copy screen's
+browsers), `CHK` check, `TAG` Tag Manager, `APP` updating BIFROST or an
+unexpected failure. The type is the `num` of the `UserIssue`;
+`UserIssue.reference(screen)` builds the code. The login screen does not show
+its code (noise there) but logs it like every other screen, so searching
+`issue shown` lists every error the user saw.
 
 | Family | Number | `code` |
 |---|---|---|
@@ -84,6 +87,7 @@ Manager, `APP` updating BIFROST or an unexpected failure. The type is the
 | 3xx source files | 301 · 302 · 303 · 304 · 305 | `SOURCE_NOT_FOUND` · `SOURCE_PERMISSION` · `SOURCE_CHANGING` · `FILE_IN_USE` · `DISK_FULL` |
 | 4xx mounts | 401 · 402 · 403 · 404 · 405 | `MOUNT_TIMEOUT` · `MOUNT_BUSY` · `MOUNT_NOT_ALLOWED` · `UNMOUNT_FAILED` · `FUSE_MISSING` |
 | 5xx NetApp | 501 · 502 · 503 | `NETAPP_LOGIN` · `NETAPP_SHARE_NOT_FOUND` · `NETAPP_PERMISSION` |
+| 6xx sign-in | 601 | `INVALID_CREDENTIALS` |
 | 9xx BIFROST | 901 · 902 · 903 · 999 | `RCLONE_MISSING` · `RCLONE_OPTIONS` · `FATAL` · `UNEXPECTED` |
 
 Rules: a number is never reused or changed (a code from an old version keeps
@@ -134,8 +138,11 @@ Consequences:
 - **Subprocess**: use `_subprocess_kwargs()` (consistent flags, for example
   `CREATE_NO_WINDOW` on Windows). Do not hardcode flags.
 - **rclone**: never assume a path; always `get_rclone_executable()`.
-- **Logs**: copy/check stream lines to the frontend through callbacks
-  (`log_fn`). Do not print to stdout from copy/check functions.
+- **Logs**: never `print()`. One logger per area (`log = logging.getLogger("bifrost.<area>")`, list in
+  `docs/development/operations.md#logs`); English, one line per event, `key=value`, `%s` arguments (no
+  f-strings), no emojis; never passwords, file listings or tag values. INFO for what the user starts and its
+  result, DEBUG for navigation and details, WARNING for handled failures, `log.exception` when the traceback
+  helps. Copy/check stream panel lines to the frontend through callbacks (`log_fn`).
 
 ## fuse-t on macOS (`bifrost-mount`)
 

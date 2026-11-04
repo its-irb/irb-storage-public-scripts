@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import pathlib
 import threading
 from typing import Callable
@@ -9,6 +10,8 @@ from typing import Callable
 import flet as ft
 from bifrost_backend import backend
 from bifrost_frontend.frontend import *
+
+log = logging.getLogger("bifrost.copy")
 
 
 # ============================================================================
@@ -29,8 +32,9 @@ def build_local_fs_browser(
     Navegador de ficheros del servidor con breadcrumb.
 
     Returns:
-        (widget, refresh_fn) — llama a refresh_fn() después de añadir
-        el widget al árbol para arrancar la carga inicial.
+        (widget, refresh_fn, navigate_to) — llama a refresh_fn() después de
+        añadir el widget al árbol para arrancar la carga inicial;
+        navigate_to(path) abre otra carpeta (accesos rápidos del modal).
     """
 
     root_path = pathlib.Path(start_path or pathlib.Path.home())
@@ -84,12 +88,12 @@ def build_local_fs_browser(
                 )
 
     def _navigate(path: pathlib.Path):
-        print(f"[local-fs] navigate → {path}")
+        log.debug("local browser: open %s", path)
         nav_state["current"] = path
         # Auto-select the current folder when browsing in folder/both mode,
         # so the user can just navigate and press Confirm without needing the ✓ icon.
         if select_mode in ("folder", "both"):
-            print(f"[local-fs] auto-select folder (mode={select_mode!r}) → {path}")
+            log.debug("local browser: folder selected %s", path)
             on_select(str(path))
         loading_row.visible  = True
         error_text.visible   = False
@@ -100,20 +104,12 @@ def build_local_fs_browser(
         def _load():
             try:
                 raw = sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
-            except PermissionError:
-                print(f"[local-fs] PERMISSION DENIED: {path}")
-                def _perm():
+            except Exception as ex:                 # sin permiso, la carpeta ya no existe…
+                log.warning("local browser: listing %s failed: %s", path, ex)
+                issue = backend.issue_for_exception(ex)
+                def _err():
                     loading_row.visible = False
-                    error_text.value    = f"Permission denied: {path}"
-                    error_text.visible  = True
-                    page.update()
-                backend.ui_call(page, _perm)
-                return
-            except Exception as ex:
-                print(f"[local-fs] ERROR listing {path}: {ex}")
-                def _err(ex_val=ex):
-                    loading_row.visible = False
-                    error_text.value    = f"Error: {ex_val}"
+                    error_text.value    = issue_line(issue, is_web=page.web, screen="copy")
                     error_text.visible  = True
                     page.update()
                 backend.ui_call(page, _err)
@@ -121,7 +117,7 @@ def build_local_fs_browser(
 
             dirs  = [p for p in raw if p.is_dir()  and not p.name.startswith(".")]
             files = [p for p in raw if p.is_file() and not p.name.startswith(".")]
-            print(f"[local-fs] listed {path} → {len(dirs)} dirs, {len(files)} files")
+            log.debug("local browser: %s → %d folders, %d files", path, len(dirs), len(files))
 
             def _show():
                 loading_row.visible = False
@@ -172,12 +168,12 @@ def build_local_fs_browser(
                             if nav:
                                 _navigate(ep)
                             if sel and not nav:
-                                print(f"[local-fs] selected (click) → {ep}")
+                                log.debug("local browser: selected %s", ep)
                                 on_select(str(ep))
                         return _click
 
                     def _select_via_icon(e, ep=ep_snap):
-                        print(f"[local-fs] selected (✓ button) → {ep}")
+                        log.debug("local browser: selected %s", ep)
                         on_select(str(ep))
 
                     # Botón "Select" solo si es seleccionable Y no vamos a navegar

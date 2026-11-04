@@ -65,7 +65,7 @@ def obtener_shares_accesibles(
         raw = respuesta.json()
         data = json.loads(raw) if isinstance(raw, str) else raw
     except Exception as e:
-        print(f"Error getting shares from proxy: {e}")
+        log.warning("netapp shares: request to the proxy failed: %s", e)
         return []
 
     grupos_set = {g.strip().lower() for g in grupos_usuario}
@@ -105,7 +105,7 @@ def obtener_shares_accesibles(
 def obtener_perfiles_rclone_config(config_path=None) -> list[str]:
     """Lee el rclone.conf y devuelve los nombres de los perfiles configurados."""
     config_path = obtener_ruta_rclone_conf()
-    print(f"Using rclone config path: {config_path}")
+    log.debug("netapp: rclone config %s", config_path)
     if not os.path.exists(config_path):
         return []
     config = configparser.ConfigParser()
@@ -149,7 +149,6 @@ def actualizar_password_perfiles_rclone(
 ) -> None:
     """Actualiza la contraseña de todos los perfiles SMB del usuario."""
     rclone = get_rclone_executable()
-    print(f"Actualizando contraseña para perfiles rclone tipo '{usuario}-smbmount-*'...")
     if not rclone_config_path:
         rclone_config_path = obtener_ruta_rclone_conf()
     config = configparser.ConfigParser()
@@ -162,22 +161,18 @@ def actualizar_password_perfiles_rclone(
         )
         password_obscurecida = resultado.stdout.strip()
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error obscuring password: {e.stderr}")
+        log.warning("netapp: could not obscure the password of the SMB profiles: %s", e.stderr.strip())
         return
-    actualizado = False
-    for section in config.sections():
-        if (
-            section.startswith(f"{usuario}-smbmount-")
-            and config[section].get("type") == "smb"
-        ):
-            config[section]["pass"] = password_obscurecida
-            actualizado = True
-    if actualizado:
-        with open(rclone_config_path, "w") as f:
-            config.write(f)
-        print(f"🔐 Password updated for all SMB profiles of '{usuario}'")
-    else:
-        print(f"⚠️ No profiles '{usuario}-smbmount-*' found in rclone.conf")
+    perfiles = [s for s in config.sections()
+                if s.startswith(f"{usuario}-smbmount-") and config[s].get("type") == "smb"]
+    if not perfiles:
+        log.debug("netapp: no SMB profiles of %s to update", usuario)
+        return
+    for section in perfiles:
+        config[section]["pass"] = password_obscurecida
+    with open(rclone_config_path, "w") as f:
+        config.write(f)
+    log.info("netapp: password updated in %d SMB profile(s) of %s", len(perfiles), usuario)
 
 
 def obtener_letra_unidad_disponible() -> str | None:
@@ -197,7 +192,7 @@ def obtener_letra_unidad_disponible() -> str | None:
             if letra not in letras_en_uso:
                 return letra
     except Exception as e:
-        print(f"Error obteniendo letras de unidad: {e}")
+        log.warning("netapp: could not list the Windows drive letters: %s", e)
     return None
 
 
@@ -246,7 +241,7 @@ def montar_share_rclone(
 
 
 def desmontar_todos_los_shares(usuario_actual: str) -> None:
-    """Desmonta todos los shares SMB del usuario (llamado en atexit)."""
+    """Desmonta todos los shares SMB del usuario, con una línea por share en el log técnico (al cerrar la app)."""
     sistema = platform.system()
     if sistema == "Windows":
         try:
@@ -255,9 +250,9 @@ def desmontar_todos_los_shares(usuario_actual: str) -> None:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            print("All SMB shares have been unmounted.")
+            log.info("netapp: all rclone processes stopped (Windows)")
         except Exception as e:
-            print(f"Error unmounting in Windows: {e}")
+            log.warning("netapp: could not stop the rclone processes (Windows): %s", e)
     else:
         base_dir = Path.home() / "netapp-mount" / usuario_actual
         if not base_dir.exists():
@@ -265,14 +260,15 @@ def desmontar_todos_los_shares(usuario_actual: str) -> None:
         for subdir in base_dir.iterdir():
             if not subdir.is_dir():
                 continue
-            if os.path.ismount(subdir):
-                try:
-                    subprocess.run(["umount", "-f", str(subdir)], check=True)
-                except subprocess.CalledProcessError as e:
-                    print(f"Error unmounting {subdir}: {e}")
+            if is_mounted(subdir):
+                result = subprocess.run(["umount", "-f", str(subdir)], capture_output=True, text=True)
+                if is_mounted(subdir):
+                    detail = result.stderr.strip() or f"rc={result.returncode}"
+                    log.warning("unmount %s: still mounted (%s)", subdir, detail)
+                else:
+                    log.info("unmount %s: done", subdir)
             # La carpeta lleva el nombre del share (generar_punto_montaje), como su log temporal de rclone
             drain_rclone_log(rclone_log_path("netapp", subdir.name), f"mount {subdir}")
-        print("All SMB shares have been unmounted.")
 
 
 def configurar_perfiles_smb_si_faltan(
@@ -297,7 +293,7 @@ def configurar_perfiles_smb_si_faltan(
                 username=credenciales_smb["usuario"],
                 password=credenciales_smb["password"],
             )
-            print(f"Rclone profile created for share {share['name']}: {nombre_perfil}")
+            log.info("netapp: rclone profile %s created for share %s", nombre_perfil, share["name"])
     return obtener_perfiles_rclone_config()
 
 
