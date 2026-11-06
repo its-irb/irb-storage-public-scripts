@@ -52,7 +52,7 @@ jobs:
   # macOS — flet build macos → .app
   # ─────────────────────────────────────────────────────────────────────────────
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-26
     strategy:
       matrix:
         app: [bifrost-transfer, bifrost-mount]
@@ -152,10 +152,7 @@ jobs:
   # macOS Intel — stopgap hasta nov-2026 (macos-14 es el último runner Intel)
   # ─────────────────────────────────────────────────────────────────────────────
   build-macos-intel:
-    runs-on: macos-14
-    # Tras el 2-nov-2026 (macos-14 retirado) este job fallará: no debe bloquear
-    # la release. Eliminar el job por completo en el follow-up post-nov-2026.
-    continue-on-error: true
+    runs-on: macos-15-intel
     strategy:
       matrix:
         app: [bifrost-transfer, bifrost-mount]
