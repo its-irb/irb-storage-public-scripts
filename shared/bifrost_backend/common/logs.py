@@ -37,16 +37,41 @@ _STAMP = re.compile(r"\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d")
 log = logging.getLogger("bifrost.logs")
 
 
-def log_dir(app: str) -> Path:
-    """Carpeta estándar de logs del SO para la app ('mount' | 'transfer')."""
+def _base_dir() -> Path:
+    """Carpeta estándar de logs del SO, común a las dos apps."""
     system = platform.system()
     if system == "Darwin":
-        base = Path.home() / "Library" / "Logs" / "BIFROST"
+        base = Path.home() / "Library" / "Logs"
     elif system == "Windows":
-        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "BIFROST"
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
     else:
-        base = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "bifrost"
-    return base / app
+        base = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
+    return base / "bifrost"
+
+
+def log_dir(app: str) -> Path:
+    """Carpeta estándar de logs del SO para la app ('mount' | 'transfer')."""
+    return _base_dir() / app
+
+
+def _rename_legacy_dir() -> tuple[int, str] | None:
+    """Renombra la carpeta antigua BIFROST (macOS y Windows) a bifrost. En los discos que no distinguen mayúsculas
+    la ruta nueva ya daba con la antigua y solo cambia el nombre que se ve; en los que sí, evita que los logs
+    anteriores se queden en una carpeta aparte. Devuelve el nivel y el texto para el log (None si no había nada
+    que hacer). No lanza excepciones: si falla, se vuelve a intentar en el siguiente arranque."""
+    new = _base_dir()
+    old = new.with_name("BIFROST")
+    try:
+        names = os.listdir(new.parent)          # con el nombre tal como está en disco
+    except OSError:
+        return None
+    if old.name not in names or new.name in names:   # nada que renombrar, o ya hay las dos (se dejan)
+        return None
+    try:
+        os.rename(old, new)
+    except OSError as ex:                       # Windows: la otra app de BIFROST tiene abierto un fichero dentro
+        return logging.WARNING, f"could not rename the log folder {old} to {new.name}: {ex}"
+    return logging.INFO, f"log folder renamed: {old} -> {new.name}"
 
 
 def _prune(folder: Path, pattern: str, keep: int) -> None:
@@ -270,8 +295,9 @@ def setup_logging(app: str, *, is_web: bool, version: str) -> Path | None:
         handler.addFilter(redact)
         root.addHandler(handler)
 
-    log_file, file_error = None, None
+    log_file, file_error, renamed = None, None, None
     if not is_web:
+        renamed = _rename_legacy_dir()
         d = log_dir(app)
         try:
             d.mkdir(parents=True, exist_ok=True)
@@ -289,6 +315,8 @@ def setup_logging(app: str, *, is_web: bool, version: str) -> Path | None:
         _add_handler(_ConsoleHandler(console), console_level)
     if file_error:
         root.warning(file_error)
+    if renamed:
+        log.log(*renamed)
 
     # warnings.warn (DeprecationWarning…) → un único registro con su línea de código, no dos líneas sueltas
     logging.captureWarnings(True)

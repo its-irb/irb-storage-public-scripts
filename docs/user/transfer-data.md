@@ -145,8 +145,8 @@ where: **📄 Report saved: …**
 
 | Where you use BIFROST | Folder of the reports |
 |---|---|
-| macOS | `~/Library/Logs/BIFROST/transfer/reports/`. Finder hides this folder: in Finder, choose **Go → Go to Folder…** and paste the path. |
-| Windows | `%LOCALAPPDATA%\BIFROST\transfer\reports\`. Paste the path in the address bar of File Explorer. |
+| macOS | `~/Library/Logs/bifrost/transfer/reports/`. Finder hides this folder: in Finder, choose **Go → Go to Folder…** and paste the path. |
+| Windows | `%LOCALAPPDATA%\bifrost\transfer\reports\`. Paste the path in the address bar of File Explorer. |
 | Linux | `~/.local/state/bifrost/transfer/reports/` |
 | Cluster (Open OnDemand) | In the folder of your session, see [web-mode-ood.md](web-mode-ood.md#logs-and-reports). |
 

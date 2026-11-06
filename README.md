@@ -455,7 +455,7 @@ The only places where `page.update()` can be called directly without `ui_call` a
 
 At the end of each copy or check, the app saves a report (header, what the user saw and the full list of
 files with problems) with `report_path()`: on desktop in `<log folder>/reports/`
-(`~/Library/Logs/BIFROST/transfer/reports/` on macOS), in web mode in the Open OnDemand session folder
+(`~/Library/Logs/bifrost/transfer/reports/` on macOS), in web mode in the Open OnDemand session folder
 (`$BIFROST_SESSION_DIR/reports/`, next to `output.log`). The last 30 reports of each type are kept. See
 `docs/development/operations.md` for the technical log.
 
