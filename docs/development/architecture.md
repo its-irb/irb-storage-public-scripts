@@ -16,6 +16,7 @@ rclone.
 | `bifrost-transfer` | Copiar datos a buckets S3 con verificación de integridad, aplicar perfiles de metadatos, gestionar tags existentes (Tag Manager), ofrecer modo web para el clúster (Open OnDemand). |
 | `bifrost-mount` | Montar rutas de buckets S3 como unidades locales en Windows/macOS/Linux. |
 | `shared/bifrost_backend` | Toda la lógica no-UI: autenticación (LDAP), credenciales temporales (STS) y token de sesión, perfiles y ejecución de rclone, acceso SMB/CIFS, tagging S3 vía boto3, autoupdate, helpers de concurrencia UI y constantes compartidas. Organizado en `common/`, `mount/` y `transfer/`; `backend.py` es una fachada que reexporta la API pública. |
+| `ood-app-bifrost` (submódulo de git) | La app de Open OnDemand que lanza el job de `bifrost-transfer` en el clúster (formulario, `submit.yml.erb` y `template/script.sh.erb`, que arranca la app en modo web con Hypercorn). No se usa para desarrollar ni para los builds de escritorio. |
 | `shared/bifrost_frontend` | Tema (paleta, fuentes), componentes Flet reutilizables y las vistas comunes a las dos apps (actualización, login, selección de MinIO, renovación de credenciales), para que ambas apps se vean y se comporten igual. `frontend.py` es una fachada que reexporta todo. |
 
 ## Por qué está estructurado así
@@ -37,13 +38,17 @@ rclone.
   `from bifrost_frontend.frontend import *`. Las fachadas reexportan los
   nombres para que esa división no obligue a cambiar las llamadas (así lo
   indican sus docstrings: "fachada de compatibilidad").
+- **`ood-app-bifrost` como submódulo**: antes estaba en un repositorio aparte;
+  ahora el repositorio de BIFROST lo incluye como submódulo para que la versión
+  del lanzador de Open OnDemand vaya de la mano de la de la app. El submódulo
+  apunta a un commit concreto de `its-irb/ood-app-bifrost`; para descargarlo en
+  un clon: `git submodule update --init` (o clonar con `--recurse-submodules`).
 - **Vistas compartidas en `shared/bifrost_frontend/views/`**: login, selección
   de MinIO y renovación de credenciales eran casi idénticas en las dos apps;
   ahora hay una sola versión y lo que cambia entre apps se pasa como parámetro
-  (`no_ldap`, `is_web`, `prefill_user`, `log_event`, `write_log`,
-  `done_message`). Un arreglo en esas vistas se hace una vez para las dos apps.
+  (`no_ldap`, `is_web`, `prefill_user`, `done_message`). Un arreglo en esas vistas se hace una vez para las dos apps.
 - **Backend que importa del frontend**: solo `safe_thread`
-  (`common/ui_helpers.py`) importa `show_dialog` y `C_ERROR` de
+  (`common/ui_helpers.py`) importa `show_issue` de
   `bifrost_frontend.frontend`, para mostrar en un diálogo las excepciones no
   capturadas de los hilos. El import es diferido (dentro de la función) para
   evitar un import circular. Es un compromiso consciente (no es un backend
@@ -90,8 +95,9 @@ además renovarlas a mano (botón "🔑 Renew credentials", de 1 a 30 días).
 - **Las vistas no importan `main`**: `main.py` importa las vistas, así que el
   import inverso sería circular. Lo que necesitan a la vez una vista y
   `main.py` vive en `shared/` (p. ej. las constantes `STS_*` y `NO_LDAP` en
-  `bifrost_backend.common.constants`) o en un módulo propio de la app
-  (`session_log.py`, `web_session.py`).
+  `bifrost_backend.common.constants`, o el log técnico en
+  `bifrost_backend.common.logs`) o en un módulo propio de la app
+  (`web_session.py`).
 - **`_propagar_is_web()`**: si un módulo nuevo de transfer lee `IS_WEB` y no se
   añade a la tupla de `_propagar_is_web()`, se comportará siempre como
   escritorio, sin dar ningún error.

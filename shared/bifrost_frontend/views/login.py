@@ -3,21 +3,27 @@
 from __future__ import annotations
 
 import getpass
+import logging
 from typing import Callable
 
 import flet as ft
 from bifrost_backend import backend
+from bifrost_backend.common.rclone_output import INVALID_CREDENTIALS, ISSUES_BY_CODE, UNEXPECTED
 
-from ..components import btn_primary, build_header, styled_field
+from ..components import btn_primary, build_header, issue_reference, styled_field
 from ..theme import C_BORDER, C_ERROR, C_PRIMARY, C_SURFACE, C_TEXT, C_TEXT_DIM, C_WARNING
 
+log = logging.getLogger("bifrost.login")
 
-_LDAP_ERROR_MESSAGES = {
-    "vpn":     "⚠️ Cannot reach the IRB network. Are you connected to the VPN?",
-    "network": "⚠️ Could not reach the LDAP server. Try again or contact ITS.",
-    "error":   "⚠️ Unexpected error validating credentials. Contact ITS.",
+# Motivo del fallo (validar_credenciales_ldap) → mensaje de esta pantalla y tipo de error. El código no se muestra
+# (aquí es ruido), pero se anota en el log técnico ("issue shown") como en las demás pantallas.
+_LDAP_ERRORS = {
+    "vpn":     ("⚠️ Cannot reach the IRB network. Are you connected to the VPN?", ISSUES_BY_CODE["NETWORK"]),
+    "network": ("⚠️ Could not reach the LDAP server. Try again or contact ITS.", ISSUES_BY_CODE["NETWORK"]),
+    "error":   ("⚠️ Unexpected error validating credentials. Contact ITS.", UNEXPECTED),
 }
-# user_not_found / invalid_password no están a propósito: usan el mensaje por defecto.
+# user_not_found / invalid_password no están a propósito: usan el error por defecto, el mismo para no revelar si el
+# usuario existe.
 
 
 def build_login_content(
@@ -27,7 +33,6 @@ def build_login_content(
     *,
     no_ldap: bool,
     is_web: bool = False,
-    log_event: Callable[[str], None] = print,
 ) -> ft.Control:
 
     try:
@@ -74,18 +79,19 @@ def build_login_content(
 
         def _auth():
             creds = {"usuario": user, "password": pwd}
-            log_event(f"LOGIN attempt — user: {user}")
+            log.info("LOGIN attempt — user: %s", user)
             if no_ldap:
-                log_event(f"LOGIN bypass LDAP — user: {user}")
+                log.info("LOGIN bypass LDAP — user: %s", user)
                 backend.ui_call(page, lambda: on_success(creds))
                 return
             ok, motivo = backend.validar_credenciales_ldap(creds)
             if ok:
-                log_event(f"LOGIN success — user: {user}")
+                log.info("LOGIN success — user: %s", user)
                 backend.ui_call(page, lambda: on_success(creds))
             else:
-                msg = _LDAP_ERROR_MESSAGES.get(motivo, "Invalid credentials. Please try again.")
-                log_event(f"LOGIN failed — user: {user} — reason: {motivo}")
+                log.info("LOGIN failed — user: %s — reason: %s", user, motivo)
+                msg, issue = _LDAP_ERRORS.get(motivo, ("Invalid credentials. Please try again.", INVALID_CREDENTIALS))
+                issue_reference(issue, "login")             # el código, solo al log técnico
                 backend.ui_call(page, lambda: _show_error(msg))
 
         backend.safe_thread(page, _auth).start()
@@ -96,7 +102,7 @@ def build_login_content(
 
     content = ft.Column(
         [
-            build_header(subtitle="Authentication", IS_WEB=is_web, no_ldap=no_ldap),
+            build_header(subtitle="Authentication", IS_WEB=is_web, no_ldap=no_ldap, page=page),
             ft.Container(expand=True),
             ft.Row(
                 [

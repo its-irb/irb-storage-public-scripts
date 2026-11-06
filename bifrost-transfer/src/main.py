@@ -33,7 +33,7 @@ Fixes aplicados respecto al piloto inicial:
   - Log usa ft.ListView con auto_scroll=True en lugar de TextField
   - ft.Ref[str] reemplazado por dict simple
   - Vista de shares vacíos muestra mensaje explicativo
-  - atexit eliminado; el cierre limpio se gestiona via on_window_event y do_close()
+  - Cierre limpio en common/shutdown.py (atexit + señales) y en on_window_event
   - Sin hint de asteriscos en campos password
   - Espaciado (margin bottom) entre header y contenido de cada vista
   - backend.safe_thread: todos los hilos capturan excepciones y las muestran en diálogo
@@ -46,9 +46,7 @@ Fixes aplicados respecto al piloto inicial:
 import os
 import sys
 import io
-import getpass
-import pathlib
-from datetime import datetime
+import logging
 
 import flet as ft
 
@@ -60,12 +58,13 @@ import flet as ft
 # import backend
 
 from bifrost_backend import backend
-from bifrost_backend.common.constants import NO_LDAP, STS_RENEWAL_THRESHOLD_DAYS
+from bifrost_backend.common.constants import NO_LDAP
 from bifrost_frontend.frontend import *
 
 import web_session
 from web_session import _LAST_WEB_USER, _ws_clear, _ws_load, _ws_save
-from views import copy as _views_copy, shares as _views_shares, tag_manager as _views_tag_manager
+from views import copy as _views_copy, rclone_browser as _views_rclone_browser, shares as _views_shares, \
+    tag_manager as _views_tag_manager
 from views.copy import _build_copy_content
 from views.shares import _build_shares_content
 from views.tag_manager import _build_tag_manager_content
@@ -76,8 +75,10 @@ from views.tag_manager import _build_tag_manager_content
 
 
 
-# Modo web: producción (BIFROST_CLUSTER=1), Flet web runtime, o dev local (--web)
-IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or (os.environ.get("BIFROST_CLUSTER") == "1")
+# Producción en Open OnDemand: la app la sirve Hypercorn (ver el bloque del final del fichero)
+IS_CLUSTER = os.environ.get("BIFROST_CLUSTER") == "1"
+# Modo web: producción (IS_CLUSTER), Flet web runtime, o dev local (--web)
+IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or IS_CLUSTER
 
 
 def _propagar_is_web() -> None:
@@ -86,7 +87,7 @@ def _propagar_is_web() -> None:
     IS_WEB solo puede calcularse aquí (depende de __name__) y main() puede cambiarlo
     (page.web), así que hay que llamar a esta función cada vez que cambie.
     """
-    for _m in (web_session, _views_shares, _views_copy, _views_tag_manager):
+    for _m in (web_session, _views_shares, _views_copy, _views_tag_manager, _views_rclone_browser):
         _m.IS_WEB = IS_WEB
 
 
@@ -104,53 +105,32 @@ except Exception:
     pass
 
 # ============================================================================
-# TEE DE CONSOLA A FICHERO — persiste todo lo que se hace print() (navegación,
-# filtros, copy, tags, selección de cluster, etc.) en ~/bifrost-logs/, igual
-# que ya se hace con los logs de copy/tags. Así el histórico de debug no
-# depende de que haya una consola visible (apps empaquetadas con flet build
-# no muestran una).
+# LOG TÉCNICO (common/logs.py): cada módulo escribe con su logger. Escritorio:
+# fichero por sesión en la carpeta estándar del SO (las apps empaquetadas no
+# tienen consola). Web/OOD: solo stdout, que acaba en output.log de la sesión.
 # ============================================================================
-class _TeeStream:
-    def __init__(self, *streams):
-        self._streams = streams
+backend.setup_logging("transfer", is_web=IS_WEB, version=backend.__version__)
+log = logging.getLogger("bifrost.transfer")
 
-    def write(self, data):
-        for s in self._streams:
-            try:
-                s.write(data)
-            except Exception:
-                pass
-
-    def flush(self):
-        for s in self._streams:
-            try:
-                s.flush()
-            except Exception:
-                pass
+# ============================================================================
+# CIERRE — una sola limpieza por proceso (common/shutdown.py). En web hay una
+# sesión de Flet por conexión del navegador, así que no puede vivir en main().
+# ============================================================================
+# Usuarios SMB con los que alguna sesión ha preparado shares de NetApp (solo en
+# web). Se guarda el nombre y no el state de la sesión, que lleva la contraseña.
+_SMB_USERS: set[str] = set()
 
 
-try:
-    _console_log_dir = pathlib.Path.home() / "bifrost-logs"
-    _console_log_dir.mkdir(parents=True, exist_ok=True)
-    _console_log_path = _console_log_dir / f"bifrost-console-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
-    _console_log_file = open(_console_log_path, "a", encoding="utf-8", errors="replace", buffering=1)
-    sys.stdout = _TeeStream(sys.stdout, _console_log_file)
-    sys.stderr = _TeeStream(sys.stderr, _console_log_file)
-    print(f"[startup] console log → {_console_log_path}")
-
-    # Rotación: conservar solo los 50 ficheros de consola más recientes.
-    _console_logs = sorted(
-        _console_log_dir.glob("bifrost-console-*.log"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    for _old_console_log in _console_logs[50:]:
+def _desmontar_shares() -> None:
+    """Desmonta los shares de NetApp de todos los usuarios SMB usados en este proceso."""
+    for usuario in _SMB_USERS:
         try:
-            _old_console_log.unlink()
-        except Exception:
-            pass
-except Exception as _console_log_ex:
-    print(f"[startup] Could not set up console log file: {_console_log_ex}")
+            backend.desmontar_todos_los_shares(usuario)
+        except Exception as e:
+            log.error("Error unmounting NetApp shares — user: %s — %s", usuario, e)
+
+
+backend.register_shutdown(_desmontar_shares, server_managed=IS_CLUSTER)
 
 
 # ============================================================================
@@ -161,6 +141,8 @@ def main(page: ft.Page):
     global IS_WEB
     IS_WEB = IS_WEB or page.web
     _propagar_is_web()
+    if not IS_WEB:
+        backend.install_signal_handlers()   # ft.run() ha puesto los suyos al arrancar (ver common/shutdown.py)
     apply_theme(page)
 
     state = {
@@ -178,40 +160,7 @@ def main(page: ft.Page):
         "_cifs_loading":         False,
     }
 
-    import atexit
-    
-    def _cleanup_on_exit():
-        print("[atexit] Cleaning up...")
-        mounts = state.get("mounts_activos", [])
-        if mounts and IS_WEB:
-            usuario = (state.get("credenciales_smb") or {}).get("usuario") or getpass.getuser()
-            try:
-                backend.desmontar_todos_los_shares(usuario)
-            except Exception as e:
-                print(f"[atexit] Error unmounting shares: {e}")
-
-    atexit.register(_cleanup_on_exit)
-
-
-    # def on_window_close(e):
-    #     print(f"[debug] on_window_close called, e={e}, e.data={e.data if hasattr(e, 'data') else 'no data'}")
-    #     _cleanup_on_exit()
-    #    page.window.close()
-
-    async def on_window_event(e: ft.WindowEvent):
-        if e.type == ft.WindowEventType.CLOSE:
-            print("[close] Starting cleanup...")
-            _cleanup_on_exit()
-            print("[close] Cleanup done, destroying window...")
-            await page.window.destroy()
-            print("[close] Window destroyed")
-            os._exit(0)
-
-
-    #page.window.on_close = on_window_close
-    page.window.on_event = on_window_event
-    page.window.prevent_close = True
-    
+    install_window_close(page)
 
     body = ft.Container(expand=True, bgcolor=C_BG)
     page.scroll = ft.ScrollMode.AUTO
@@ -279,7 +228,7 @@ def main(page: ft.Page):
             last_user = _LAST_WEB_USER[0]
             session   = _ws_load(last_user) if last_user else None
             if session:
-                print(f"[session] Previous session found for {last_user!r} — showing restore-login")
+                log.info("web session: previous session of %s found, restoring it after the login", last_user)
                 show_screen(build_login_content(
                     page,
                     on_success=lambda creds: on_login_success_with_restore(creds, session),
@@ -290,6 +239,13 @@ def main(page: ft.Page):
                 return
         show_screen(build_login_content(page, on_success=on_login_success,
                                         no_ldap=NO_LDAP, is_web=IS_WEB))
+
+    def _sweep_sftp_huerfanos() -> None:
+        """Borra los perfiles SFTP efímeros que quedaron de sesiones anteriores (al iniciar sesión)."""
+        try:
+            backend.limpiar_perfiles_rclone_con_prefijo("sftp-src-")
+        except Exception as ex:
+            log.warning("sftp: cleanup of leftover profiles failed: %s", ex)
 
     def on_login_success_with_restore(creds: dict, session: dict) -> None:
         """
@@ -302,23 +258,17 @@ def main(page: ft.Page):
         # If the user typed a different username, discard the old session
         # and run the normal fresh flow instead.
         if usuario != _LAST_WEB_USER[0]:
-            print(f"[session] Username changed ({_LAST_WEB_USER[0]!r} → {usuario!r}), discarding old session")
+            log.info("web session: user changed from %s to %s, previous session discarded", _LAST_WEB_USER[0], usuario)
             _ws_clear(_LAST_WEB_USER[0] or "")
             on_login_success(creds)
             return
 
-        print(f"[session] Restoring session for {usuario!r} → cluster={session['servidor_minio']!r} ({session['endpoint']})")
+        log.info("web session: restoring the session of %s: server=%s (%s)", usuario, session["servidor_minio"],
+                 session["endpoint"])
         state["credenciales_ldap"] = creds
         state["servidor_minio"]    = session["servidor_minio"]
         state["perfil_rclone"]     = session["perfil_rclone"]
         state["endpoint"]          = session["endpoint"]
-
-        def _sweep_sftp_huerfanos():
-            try:
-                backend.limpiar_perfiles_rclone_con_prefijo("sftp-src-")
-            except Exception as ex:
-                print(f"[sftp] cleanup sweep failed (non-fatal): {ex}")
-
         backend.safe_thread(page, _sweep_sftp_huerfanos).start()
 
         # Jump straight to credentials-check → copy view
@@ -326,13 +276,6 @@ def main(page: ft.Page):
 
     def on_login_success(creds: dict):
         state["credenciales_ldap"] = creds
-
-        def _sweep_sftp_huerfanos():
-            try:
-                backend.limpiar_perfiles_rclone_con_prefijo("sftp-src-")
-            except Exception as ex:
-                print(f"[sftp] cleanup sweep failed (non-fatal): {ex}")
-
         backend.safe_thread(page, _sweep_sftp_huerfanos).start()
         go_minio()
 
@@ -341,7 +284,7 @@ def main(page: ft.Page):
                                         no_ldap=NO_LDAP, is_web=IS_WEB))
 
     def on_minio_selected(eleccion: dict):
-        print(f"[minio] cluster selected → {eleccion['servidor']} ({eleccion['endpoint']})")
+        log.info("server selected: %s (%s)", eleccion["servidor"], eleccion["endpoint"])
         state["servidor_minio"] = eleccion["servidor"]
         state["perfil_rclone"]  = eleccion["perfil"]
         state["endpoint"]       = eleccion["endpoint"]
@@ -355,16 +298,7 @@ def main(page: ft.Page):
         perfil  = state["perfil_rclone"]
         usuario_actual = state["credenciales_ldap"]["usuario"]
 
-        info = backend.get_session_info(perfil)
-        needs_renewal = info is None or info.needs_renewal(usuario_actual, STS_RENEWAL_THRESHOLD_DAYS)
-        if info is not None:
-            print(
-                f"[credentials] {'Renewal needed' if needs_renewal else 'Token valid → skipping renewal'} — "
-                f"token user: {info.usuario!r}, login user: {usuario_actual!r}, "
-                f"expiry: {info.remaining_text()}"
-            )
-
-        if needs_renewal:
+        if backend.hay_que_renovar_credenciales(perfil, usuario_actual):
             servidor     = state["servidor_minio"]
             extra_config = backend.MINIO_SERVERS.get(servidor, {}).get("IRB", {}).get("extra_rclone_config")
             show_screen(build_credentials_content(
@@ -383,7 +317,7 @@ def main(page: ft.Page):
             go_copy()
 
     def go_tags():
-        print("[tags] Entrando en Tag Manager", flush=True)
+        log.info("tag manager opened")
         show_screen(_build_tag_manager_content(
             page,
             perfil_rclone=state["perfil_rclone"],
@@ -412,8 +346,8 @@ def main(page: ft.Page):
                         state["usar_privilegios"],
                         state["credenciales_admin"],
                     )
-                except ValueError as ex:
-                    backend.ui_call(page, lambda: show_dialog(page, "Error", str(ex), C_ERROR))
+                except ValueError as ex:             # faltan las credenciales de administrador: no es un fallo
+                    backend.ui_call(page, lambda ex_val=ex: show_dialog(page, "ITS privileges", str(ex_val), C_WARNING))
                     return
 
                 shares = backend.obtener_shares_accesibles(
@@ -450,6 +384,7 @@ def main(page: ft.Page):
                 )
                 state["shares_accesibles"]     = shares
                 state["perfiles_configurados"] = perfiles
+                _SMB_USERS.add(state["credenciales_smb"]["usuario"])   # para desmontar al cerrar
 
                 def _show():
                     show_screen(_build_shares_content(
@@ -523,7 +458,7 @@ def main(page: ft.Page):
 # ============================================================================
 # WEB VERSION IN OOD
 # ============================================================================
-if os.environ.get("BIFROST_CLUSTER") == "1":
+if IS_CLUSTER:
     from flet.fastapi import FletApp, app_manager
     from fastapi import FastAPI, WebSocket
     import asyncio
@@ -532,7 +467,7 @@ if os.environ.get("BIFROST_CLUSTER") == "1":
     WEBPATH = os.environ.get("WEBPATH")
     SECRET_TOKEN = os.environ.get("password") or ""
     if not SECRET_TOKEN:
-        print("[WARNING] 'password' environment variable is not set — WebSocket auth disabled", flush=True)
+        log.warning("'password' environment variable is not set: WebSocket authentication is disabled")
 
     app = FastAPI()
     flet_asgi_app  = ft.app(main,export_asgi_app=True)

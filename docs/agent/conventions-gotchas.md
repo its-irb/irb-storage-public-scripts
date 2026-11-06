@@ -19,7 +19,7 @@ Cross-cutting knowledge that constrains any change. Technical details in
 ## Structure and coupling
 
 4. **The backend imports from the frontend in one place only**:
-   `common/ui_helpers.safe_thread` imports `show_dialog` and `C_ERROR` from
+   `common/ui_helpers.safe_thread` imports `show_issue` from
    `bifrost_frontend.frontend` lazily (inside the function) to show unhandled
    exceptions. Keep it lazy: a top-level import creates a circular import.
 5. **`config.py` must be importable as a top-level module** in each app — the
@@ -41,8 +41,9 @@ Cross-cutting knowledge that constrains any change. Technical details in
    `_propagar_is_web()`; otherwise it silently behaves as desktop.
 8. **Views never import `main`** (`main.py` imports the views; the reverse is a
    circular import). Shared constants (`STS_*`, `NO_LDAP`) come from
-   `bifrost_backend.common.constants`; the mount session log from
-   `session_log.py`; web sessions from `web_session.py`.
+   `bifrost_backend.common.constants`; the technical log is configured in
+   `main.py` with `backend.setup_logging(...)` and every module writes with its
+   own `logging.getLogger("bifrost.<area>")`; web sessions from `web_session.py`.
 
 ## Visible behaviour to preserve
 
@@ -93,12 +94,18 @@ Cross-cutting knowledge that constrains any change. Technical details in
 
 ## Repository hygiene
 
-17. **Do not commit** `.venv/`, `dist/`, `build/`, generated `src/version.py` or
+17. **Never `print()`**: every module logs with its own logger
+    (`logging.getLogger("bifrost.<area>")`, list in
+    `docs/development/operations.md#logs`), in English, one line per event,
+    with `%s` arguments and no emojis, passwords, file listings or tag values.
+    Anything printed by a library still reaches the log as `bifrost.print`
+    (`common/logs.py`), but that is only a safety net.
+18. **Do not commit** `.venv/`, `dist/`, `build/`, generated `src/version.py` or
     the local `pyproject.toml` of the apps. See `.gitignore`.
 
 ## Documentation hygiene
 
-18. `docs/wiki/` is referenced by old documentation but **does not exist**.
+19. `docs/wiki/` is referenced by old documentation but **does not exist**.
     Do not create new references to it.
-19. Documentation is updated with the `docs-update` skill; the agent entry
+20. Documentation is updated with the `docs-update` skill; the agent entry
     point is `AGENTS.md`.

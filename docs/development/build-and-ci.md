@@ -45,9 +45,13 @@ la carpeta de la app:
    sed -i '' "s|__BUILDPATH__|${PWD}/..|g" ./pyproject.toml   # macOS
    sed -i "s|__BUILDPATH__|${PWD}/..|g" ./pyproject.toml      # Linux / Git Bash
    ```
-   ```bash
-   Copy-Item pyproject-template.toml pyproject.toml
-   (Get-Content pyproject.toml -Raw) -replace '__BUILDPATH__', ((Resolve-Path ..).Path -replace '\\','/') | Set-Content pyproject.toml -NoNewline -Encoding utf8 # Windows
+   ```powershell
+   # Windows (PowerShell), dentro de la carpeta de la app. El fichero tiene que quedar en UTF-8 sin BOM:
+   # con Set-Content -Encoding utf8, PowerShell 5.1 añade un BOM y flet run falla con
+   # "TOMLDecodeError: Invalid statement (at line 1, column 1)".
+   $utf8 = New-Object System.Text.UTF8Encoding $false
+   $toml = [IO.File]::ReadAllText("$PWD\pyproject-template.toml", $utf8).Replace('__BUILDPATH__', ((Resolve-Path ..).Path -replace '\\','/'))
+   [IO.File]::WriteAllText("$PWD\pyproject.toml", $toml, $utf8)
    ```
 2. Sincronizar el entorno virtual (instala las dependencias y
    `bifrost-shared` desde la ruta local):
@@ -119,6 +123,11 @@ source .venv/bin/activate            # macOS / Linux
 flet run
 ```
 
+En Windows, `.\build-windows.ps1 -app <app> -run` desde la raíz del repo hace
+los pasos de «Primera vez» (genera el `pyproject.toml`, descarga los assets y
+sincroniza el venv reinstalando `bifrost-shared`) y lanza `uv run flet run` en
+la carpeta de la app, sin tener que activar el venv (ver «Empaquetado»).
+
 Flags útiles:
 
 ```bash
@@ -188,7 +197,7 @@ común: `pyproject.toml` local generado desde la plantilla con
 | Entorno | Salida |
 |---|---|
 | macOS local | `dist/<app>.app` |
-| Windows local | `dist/<app>/` + paso manual de Inno Setup para el instalador |
+| Windows local | `<app>/build/windows/` (`build-windows.ps1` llama a `flet build windows` sin `--output`; la CI usa `--output dist`) + paso manual de Inno Setup para el instalador |
 | Linux (clúster) | Sin empaquetado: `bifrost-transfer` corre **desde código** en modo web (Open OnDemand, `BIFROST_CLUSTER=1`) |
 
 ```bash
@@ -197,8 +206,9 @@ común: `pyproject.toml` local generado desde la plantilla con
 ```
 
 ```powershell
-# Windows (desde la raíz del repo)
-.\build-windows.ps1 -app bifrost-mount    # o -app bifrost-transfer (por omisión, transfer)
+# Windows (desde la raíz del repo; por omisión, -app bifrost-mount)
+.\build-windows.ps1 -app bifrost-transfer        # flet build windows
+.\build-windows.ps1 -app bifrost-transfer -run   # flet run, para desarrollar
 ```
 
 **`build-macos.sh`** automatiza: plantilla → `pyproject.toml` (con
@@ -210,8 +220,13 @@ además `frameworks/fuse_t.framework` a
 macOS no funciona).
 
 **`build-windows.ps1`** automatiza: regenerar `pyproject.toml` desde la
-plantilla, descargar rclone (`windows-assets-downloader.sh`),
-`uv sync --reinstall-package bifrost-shared` y `flet build windows`. **No**
+plantilla (`__BUILDPATH__` = ruta absoluta de la raíz del repo, con barras
+`/`, la del propio script), descargar rclone (`windows-assets-downloader.sh`),
+`uv sync --reinstall-package bifrost-shared` y, según `-run`,
+`uv run flet run` (con el venv de la app, aunque haya otro activado) o
+`flet build windows` (con el `flet` que esté en el PATH, así que hay que tener
+activado el venv de la app). Usa rutas relativas a la raíz del repo, así que
+hay que lanzarlo desde allí. Si no se indica `-app`, usa `bifrost-mount`. **No**
 ejecuta Inno Setup: el instalador se empaqueta aparte, con
 
 ```powershell

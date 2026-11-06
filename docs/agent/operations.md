@@ -96,7 +96,7 @@ Common prerequisite: local `pyproject.toml` generated from the template with
 
 | Environment | Notes |
 |---|---|
-| Local Windows | Regenerates `pyproject.toml`, downloads rclone, reinstalls `bifrost-shared` and runs `flet build windows`. The installer (Inno Setup) is packaged separately. |
+| Local Windows | `build-windows.ps1`, from the repo root: regenerates `pyproject.toml`, downloads rclone, reinstalls `bifrost-shared` and runs `flet build windows` (output in `<app>/build/windows/`; uses the `flet` on PATH, so the app's venv must be active) or, with `-run`, `uv run flet run` (always the app's venv). Default app: `bifrost-mount`. The installer (Inno Setup) is packaged separately. |
 | Local macOS | From the app folder; requires Xcode. Local version `2.0.0.dev`; in mount it copies `fuse_t.framework` into the bundle. |
 | CI | `.github/workflows/main.yml` — macOS (`.app` → DMG) and Windows (build + Inno Setup + installer signing) for both apps. **There is no Linux job.** |
 | Linux (cluster) | No packaging: `bifrost-transfer` runs from source in web mode (Open OnDemand, `BIFROST_CLUSTER=1`). |
@@ -109,8 +109,9 @@ Local builds:
 ```
 
 ```powershell
-# Windows (from the repo root)
-.\build-windows.ps1 -app bifrost-mount    # or -app bifrost-transfer
+# Windows (from the repo root; default -app bifrost-mount)
+.\build-windows.ps1 -app bifrost-transfer        # flet build windows
+.\build-windows.ps1 -app bifrost-transfer -run   # flet run (development)
 ```
 
 Windows installer (Inno Setup, separate from the build):

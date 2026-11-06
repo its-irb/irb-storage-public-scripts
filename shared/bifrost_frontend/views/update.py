@@ -1,5 +1,6 @@
 """Vista de comprobación e instalación de actualizaciones (compartida por mount y transfer)."""
 
+import logging
 import os
 import shutil
 import stat
@@ -13,11 +14,13 @@ import flet as ft
 from bifrost_backend import backend
 from config import APP_INFO
 
-from ..components import btn_primary, btn_secondary, build_header, show_dialog
+from ..components import btn_primary, btn_secondary, build_header, show_dialog, show_issue
 from ..theme import (
-    C_ACCENT, C_ERROR, C_PRIMARY, C_SURFACE2, C_TEXT, C_TEXT_DIM, C_WARNING,
+    C_ACCENT, C_PRIMARY, C_SURFACE2, C_TEXT, C_TEXT_DIM, C_WARNING,
     FONT_MONO, MONO_FALLBACK,
 )
+
+log = logging.getLogger("bifrost.update")
 
 # ============================================================================
 # SELF-UPDATE
@@ -55,8 +58,9 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                 import time; time.sleep(1)
                 backend.ui_call(page, on_continue)
         except Exception as e:
-            def _show_err():
-                status_text.value = f"Could not check updates: {e}"
+            log.warning("UPDATE check failed — %s", e)
+            def _show_err(ex_val=e):
+                status_text.value = f"Could not check updates: {ex_val}"
                 status_text.color = C_TEXT_DIM
                 progress.visible  = False
                 page.update()
@@ -149,8 +153,11 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                         C_ACCENT,
                     ))
             except Exception as ex:
-                err_str = str(ex)
-                backend.ui_call(page, lambda: show_dialog(page, "Update failed", err_str, C_ERROR))
+                issue = backend.issue_for_exception(ex)
+                ref = issue.reference("app")
+                log.exception("update failed ref=%s", ref)
+                backend.ui_call(page, lambda: show_issue(
+                    page, issue, is_web=page.web, title="Could not update BIFROST", screen="app", ref=ref))
 
         backend.safe_thread(page, _download).start()
 
@@ -158,7 +165,7 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
 
     content = ft.Column(
         [
-            build_header("Checking for updates"),
+            build_header("Checking for updates", page=page),
             ft.Container(expand=True),
             ft.Column(
                 [

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Callable
 
 import flet as ft
 from bifrost_backend import backend
 from bifrost_backend.common.constants import NO_LDAP
 from bifrost_frontend.frontend import *
+
+log = logging.getLogger("bifrost.netapp")
 
 # main.py fija el valor real al arrancar: IS_WEB solo puede calcularse en main.py
 # (depende de __name__), y las funciones de este módulo lo leen al ejecutarse.
@@ -33,7 +36,7 @@ def _build_shares_content(
     if not shares:
         content = ft.Column(
             [
-                build_header(subtitle=f"NetApp Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
+                build_header(subtitle=f"NetApp Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP, page=page),
                 ft.Container(
                     content=ft.Row(
                         [btn_secondary("← Back", on_click=lambda e: on_back())],
@@ -80,8 +83,15 @@ def _build_shares_content(
     _row_containers:   dict[str, ft.Container] = {}
     _status_spinners:  dict[str, ft.ProgressRing] = {}
     _status_texts:     dict[str, ft.Text] = {}
+    _error_buttons:    dict[str, ft.TextButton] = {}
     _mounted_badges:   dict[str, ft.Container] = {}
     _mounting:         set[str] = set()
+
+    def _show_mount_error(name: str, error, ref: str | None = None) -> str:
+        """Pop-up con por qué falló el montaje de un share. Devuelve su código: al pulsar "Error (details)" se vuelve
+        a mostrar el mismo."""
+        return show_issue(page, error.issue, is_web=IS_WEB, title="Could not mount the NetApp share", context=name,
+                          screen="netapp", ref=ref)
 
     def _select_share(name: str) -> None:
         if _selected["name"]:
@@ -100,26 +110,32 @@ def _build_shares_content(
         _mounting.add(name)
         spinner    = _status_spinners[name]
         status_txt = _status_texts[name]
+        error_btn  = _error_buttons[name]
         badge      = _mounted_badges[name]
         spinner.visible    = True
+        error_btn.visible  = False
         status_txt.value   = "Mounting..."
         status_txt.color   = C_TEXT_DIM
         status_txt.visible = True
         page.update()
 
         def _do():
-            fallidos = backend.montar_shares_seleccionados(
-                [name], recursos_cifs_dict, mounts_activos
-            )
+            try:
+                error = backend.montar_shares_seleccionados([name], recursos_cifs_dict, mounts_activos).get(name)
+            except Exception as ex:              # p. ej. rclone no está: también se explica en el pop-up
+                log.exception("mounting the NetApp share %s failed", name)
+                error = backend.MountError(backend.issue_for_exception(ex))
+
             def _after():
                 _mounting.discard(name)
-                spinner.visible = False
-                if fallidos:
-                    status_txt.value = "Error"
-                    status_txt.color = C_ERROR
+                spinner.visible    = False
+                status_txt.visible = False
+                if error is None:
+                    badge.visible = True
                 else:
-                    status_txt.visible = False
-                    badge.visible      = True
+                    ref = _show_mount_error(name, error)
+                    error_btn.on_click = lambda e: _show_mount_error(name, error, ref)
+                    error_btn.visible  = True
                 page.update()
             backend.ui_call(page, _after)
 
@@ -130,6 +146,7 @@ def _build_shares_content(
             width=14, height=14, stroke_width=2, color=C_PRIMARY, visible=False
         )
         status_txt = ft.Text("", size=11, color=C_TEXT_DIM, visible=False)
+        error_btn = ft.TextButton("⚠️ Error (details)", style=ft.ButtonStyle(color=C_ERROR), visible=False)
         badge = ft.Container(
             content=ft.Row(
                 [
@@ -144,6 +161,7 @@ def _build_shares_content(
         )
         _status_spinners[share_name] = spinner
         _status_texts[share_name]    = status_txt
+        _error_buttons[share_name]   = error_btn
         _mounted_badges[share_name]  = badge
 
         c = ft.Container(
@@ -153,6 +171,7 @@ def _build_shares_content(
                     ft.Text(share_name, size=13, color=C_TEXT, expand=True),
                     spinner,
                     status_txt,
+                    error_btn,
                     badge,
                 ],
                 spacing=8,
@@ -292,7 +311,7 @@ def _build_shares_content(
 
     content = ft.Column(
         [
-            build_header(subtitle=f"NetApp Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP),
+            build_header(subtitle=f"NetApp Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP, page=page),
             ft.Container(
                 content=ft.Row(
                     [c for c in [back_btn_widget] if c is not None],

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Callable
 
@@ -9,11 +10,13 @@ import flet as ft
 from bifrost_backend import backend
 from bifrost_backend.common.constants import STS_AUTO_RENEWAL_DAYS
 
-from ..components import btn_secondary, build_header, card, section_title
+from ..components import btn_secondary, build_header, card, issue_reference, section_title
 from ..theme import (
     C_ACCENT, C_BG, C_BORDER, C_ERROR, C_PRIMARY, C_SURFACE2, C_TEXT, C_TEXT_DIM,
     C_WARNING, FONT_MONO, MONO_FALLBACK,
 )
+
+log = logging.getLogger("bifrost.auth")
 
 def build_credentials_content(
     page: ft.Page,
@@ -28,7 +31,6 @@ def build_credentials_content(
     no_ldap: bool,
     is_web: bool = False,
     done_message: str,
-    write_log: Callable[[str], None] | None = None,
 ) -> ft.Control:
     log_list = ft.ListView(
         expand=True,
@@ -51,10 +53,8 @@ def build_credentials_content(
     status_text = ft.Text("Renewing credentials...", size=13, color=C_TEXT_DIM,
                            font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK)
 
-    def log(msg: str, color: str = C_TEXT):
-        print(msg.rstrip())
-        if write_log:
-            write_log(msg)
+    def panel(msg: str, color: str = C_TEXT):
+        """Una línea del panel RENEWAL LOG (no va al log técnico: allí van líneas de resumen)."""
         def _add():
             log_list.controls.append(
                 ft.Text(msg.rstrip("\n"), size=11, color=color,
@@ -63,30 +63,37 @@ def build_credentials_content(
         backend.ui_call(page, _add)
 
     def _do_renew():
-        duracion_segundos = (duracion_dias or STS_AUTO_RENEWAL_DAYS) * 86400
+        dias = duracion_dias or STS_AUTO_RENEWAL_DAYS
 
         info = backend.get_session_info(perfil_rclone)
         if info is None:
-            log("⚠️  No credentials found for this profile.", C_WARNING)
+            panel("⚠️  No credentials found for this profile.", C_WARNING)
         elif info.remaining is None:
-            log("⚠️  Could not read expiry from current token.", C_WARNING)
+            panel("⚠️  Could not read expiry from current token.", C_WARNING)
         else:
-            log(f"⚠️  Current credentials expire in: {info.remaining_text()}", C_WARNING)
+            panel(f"⚠️  Current credentials expire in: {info.remaining_text()}", C_WARNING)
+        log.info("credentials: renewing profile=%s endpoint=%s days=%d current=%s", perfil_rclone, endpoint, dias,
+                 info.remaining_text() if info else "none")
 
-        log(f"\n🔄 Requesting new STS credentials ({duracion_dias or STS_AUTO_RENEWAL_DAYS} days)...", C_PRIMARY)
-        log(f"   Profile  : {perfil_rclone}", C_TEXT_DIM)
-        log(f"   Endpoint : {endpoint}", C_TEXT_DIM)
-        log(f"   User     : {credenciales_ldap['usuario']}", C_TEXT_DIM)
+        panel(f"\n🔄 Requesting new STS credentials ({dias} days)...", C_PRIMARY)
+        panel(f"   Profile  : {perfil_rclone}", C_TEXT_DIM)
+        panel(f"   Endpoint : {endpoint}", C_TEXT_DIM)
+        panel(f"   User     : {credenciales_ldap['usuario']}", C_TEXT_DIM)
 
         try:
             creds = backend.get_credentials(
                 endpoint,
                 credenciales_ldap["usuario"],
                 credenciales_ldap["password"],
-                duracion_segundos,
+                dias * 86400,
             )
         except Exception as exc:
-            log(f"\n❌ Cannot connect to MinIO: {exc}", C_ERROR)
+            log.warning("credentials: request to MinIO failed: %s", exc)
+            issue = backend.issue_for_exception(exc)
+            panel(f"\n❌ Cannot connect to MinIO — {issue.title} (Error {issue_reference(issue, 'credentials')})",
+                  C_ERROR)
+            if hint := issue.hint_for(is_web):
+                panel(f"   What you can do: {hint}", C_TEXT_DIM)
             def _show_net_err():
                 progress.visible  = False
                 status_text.value = "❌ Connection error."
@@ -98,10 +105,14 @@ def build_credentials_content(
             return
 
         if creds is None:
+            # Sin LDAP (on_back), el login no comprobó la contraseña: es lo más probable. Con LDAP sí la comprobó,
+            # así que es otra cosa; la causa está en la línea "sts: …" del log técnico.
             if on_back:
-                log("\n❌ Wrong username or password. Please try again.", C_ERROR)
+                ref = issue_reference(backend.INVALID_CREDENTIALS, "credentials")
+                panel(f"\n❌ Wrong username or password. Please try again. (Error {ref})", C_ERROR)
             else:
-                log("\n❌ Failed to obtain credentials. Check your password or contact ITS.", C_ERROR)
+                ref = issue_reference(backend.UNEXPECTED, "credentials")
+                panel(f"\n❌ Failed to obtain credentials. Check your password or contact ITS. (Error {ref})", C_ERROR)
             def _show_err():
                 progress.visible  = False
                 status_text.value = "❌ Wrong username or password." if on_back else "❌ Renewal failed."
@@ -112,8 +123,8 @@ def build_credentials_content(
             backend.ui_call(page, _show_err)
             return
 
-        log("\n✅ Credentials obtained successfully.", C_ACCENT)
-        log("   Writing to rclone config...", C_TEXT_DIM)
+        panel("\n✅ Credentials obtained successfully.", C_ACCENT)
+        panel("   Writing to rclone config...", C_TEXT_DIM)
 
         backend.configure_rclone(
             creds["AccessKeyId"],
@@ -126,11 +137,13 @@ def build_credentials_content(
 
         new_info = backend.get_session_info(perfil_rclone)
         if new_info and new_info.remaining is not None:
-            log(f"   New credentials expire in: {new_info.remaining_text()}", C_ACCENT)
+            panel(f"   New credentials expire in: {new_info.remaining_text()}", C_ACCENT)
+            log.info("credentials: renewed profile=%s expiry=%s", perfil_rclone, new_info.remaining_text())
         else:
-            log("⚠️  Could not verify the new token in rclone config.", C_WARNING)
+            panel("⚠️  Could not verify the new token in rclone config.", C_WARNING)
+            log.warning("credentials: renewed profile=%s, but the new token could not be read back", perfil_rclone)
 
-        log(f"\n✅ Done. {done_message}", C_ACCENT)
+        panel(f"\n✅ Done. {done_message}", C_ACCENT)
 
         def _finish():
             progress.visible  = False
@@ -143,7 +156,7 @@ def build_credentials_content(
 
     content = ft.Column(
         [
-            build_header(subtitle="S3 Credentials — Auto Renewal", IS_WEB=is_web, no_ldap=no_ldap),
+            build_header(subtitle="MinIO credentials — Auto renewal", IS_WEB=is_web, no_ldap=no_ldap, page=page),
             ft.Container(
                 content=ft.Column(
                     [

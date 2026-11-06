@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import configparser
-import ctypes, ctypes.util
 import json
+import logging
 import os
 import platform
 import requests
 import subprocess
-import time
 from pathlib import Path
 
+from ..common.logs import rclone_log_path
 from ..common.rclone import _subprocess_kwargs, get_rclone_executable, obtener_ruta_rclone_conf
+from ..common.rclone_mount import MountError, drain_rclone_log, is_mounted, mount_and_wait
+
+log = logging.getLogger("bifrost.netapp")
 
 
 EXCEPCION_FILERS = ["filer12-svm-vm"]
@@ -62,7 +65,7 @@ def obtener_shares_accesibles(
         raw = respuesta.json()
         data = json.loads(raw) if isinstance(raw, str) else raw
     except Exception as e:
-        print(f"Error getting shares from proxy: {e}")
+        log.warning("netapp shares: request to the proxy failed: %s", e)
         return []
 
     grupos_set = {g.strip().lower() for g in grupos_usuario}
@@ -102,7 +105,7 @@ def obtener_shares_accesibles(
 def obtener_perfiles_rclone_config(config_path=None) -> list[str]:
     """Lee el rclone.conf y devuelve los nombres de los perfiles configurados."""
     config_path = obtener_ruta_rclone_conf()
-    print(f"Using rclone config path: {config_path}")
+    log.debug("netapp: rclone config %s", config_path)
     if not os.path.exists(config_path):
         return []
     config = configparser.ConfigParser()
@@ -146,7 +149,6 @@ def actualizar_password_perfiles_rclone(
 ) -> None:
     """Actualiza la contraseña de todos los perfiles SMB del usuario."""
     rclone = get_rclone_executable()
-    print(f"Actualizando contraseña para perfiles rclone tipo '{usuario}-smbmount-*'...")
     if not rclone_config_path:
         rclone_config_path = obtener_ruta_rclone_conf()
     config = configparser.ConfigParser()
@@ -159,22 +161,18 @@ def actualizar_password_perfiles_rclone(
         )
         password_obscurecida = resultado.stdout.strip()
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error obscuring password: {e.stderr}")
+        log.warning("netapp: could not obscure the password of the SMB profiles: %s", e.stderr.strip())
         return
-    actualizado = False
-    for section in config.sections():
-        if (
-            section.startswith(f"{usuario}-smbmount-")
-            and config[section].get("type") == "smb"
-        ):
-            config[section]["pass"] = password_obscurecida
-            actualizado = True
-    if actualizado:
-        with open(rclone_config_path, "w") as f:
-            config.write(f)
-        print(f"🔐 Password updated for all SMB profiles of '{usuario}'")
-    else:
-        print(f"⚠️ No profiles '{usuario}-smbmount-*' found in rclone.conf")
+    perfiles = [s for s in config.sections()
+                if s.startswith(f"{usuario}-smbmount-") and config[s].get("type") == "smb"]
+    if not perfiles:
+        log.debug("netapp: no SMB profiles of %s to update", usuario)
+        return
+    for section in perfiles:
+        config[section]["pass"] = password_obscurecida
+    with open(rclone_config_path, "w") as f:
+        config.write(f)
+    log.info("netapp: password updated in %d SMB profile(s) of %s", len(perfiles), usuario)
 
 
 def obtener_letra_unidad_disponible() -> str | None:
@@ -194,7 +192,7 @@ def obtener_letra_unidad_disponible() -> str | None:
             if letra not in letras_en_uso:
                 return letra
     except Exception as e:
-        print(f"Error obteniendo letras de unidad: {e}")
+        log.warning("netapp: could not list the Windows drive letters: %s", e)
     return None
 
 
@@ -213,45 +211,37 @@ def montar_share_rclone(
     share_path: str,
     punto_montaje: str,
     mounts_activos: list,
-) -> bool:
-    """Monta un share SMB con rclone."""
-    rclone = get_rclone_executable()
-    rclone_config_path = obtener_ruta_rclone_conf()
-    sistema = platform.system()
-    if sistema != "Windows":
+) -> None:
+    """Monta un share de la NetApp en solo lectura y lo apunta en `mounts_activos` solo si funciona (copy y check
+    traducen rutas con esa lista).
+
+    Raises:
+        MountError: el share no se pudo montar; trae la causa traducida.
+    """
+    if is_mounted(punto_montaje):
+        return
+    if platform.system() != "Windows":
         os.makedirs(punto_montaje, exist_ok=True)
-    if os.path.ismount(punto_montaje):
-        return True
     comando = [
-        rclone, "mount",
+        get_rclone_executable(), "mount",
         f"{nombre_perfil}:/{share_path}", str(punto_montaje),
         "--vfs-cache-mode", "off",
         "--read-only",
-        "--config", str(rclone_config_path),
+        "--config", str(obtener_ruta_rclone_conf()),
     ]
-    if sistema == "Windows":
+    if platform.system() == "Windows":
         comando.extend(["--volname", nombre_perfil])
+    log.info("mounting NetApp share %s at %s", share_path, punto_montaje)
+    mount_and_wait(comando, Path(punto_montaje), rclone_log_path("netapp", share_path))
     mounts_activos.append({
         "mount_path":     str(punto_montaje),
         "remote_name":    nombre_perfil,
         "remote_subpath": share_path,
     })
-    print(f"Montando {comando}...")
-    try:
-        proceso = subprocess.Popen(comando, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **_subprocess_kwargs())
-        for _ in range(30):
-            time.sleep(1)
-            if os.path.ismount(punto_montaje):
-                return True
-        proceso.terminate()
-        return False
-    except Exception as e:
-        print(f"Exception mounting share: {e}")
-        return False
 
 
 def desmontar_todos_los_shares(usuario_actual: str) -> None:
-    """Desmonta todos los shares SMB del usuario (llamado en atexit)."""
+    """Desmonta todos los shares SMB del usuario, con una línea por share en el log técnico (al cerrar la app)."""
     sistema = platform.system()
     if sistema == "Windows":
         try:
@@ -260,20 +250,25 @@ def desmontar_todos_los_shares(usuario_actual: str) -> None:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            print("All SMB shares have been unmounted.")
+            log.info("netapp: all rclone processes stopped (Windows)")
         except Exception as e:
-            print(f"Error unmounting in Windows: {e}")
+            log.warning("netapp: could not stop the rclone processes (Windows): %s", e)
     else:
         base_dir = Path.home() / "netapp-mount" / usuario_actual
         if not base_dir.exists():
             return
         for subdir in base_dir.iterdir():
-            if subdir.is_dir() and os.path.ismount(subdir):
-                try:
-                    subprocess.run(["umount", "-f", str(subdir)], check=True)
-                except subprocess.CalledProcessError as e:
-                    print(f"Error unmounting {subdir}: {e}")
-        print("All SMB shares have been unmounted.")
+            if not subdir.is_dir():
+                continue
+            if is_mounted(subdir):
+                result = subprocess.run(["umount", "-f", str(subdir)], capture_output=True, text=True)
+                if is_mounted(subdir):
+                    detail = result.stderr.strip() or f"rc={result.returncode}"
+                    log.warning("unmount %s: still mounted (%s)", subdir, detail)
+                else:
+                    log.info("unmount %s: done", subdir)
+            # La carpeta lleva el nombre del share (generar_punto_montaje), como su log temporal de rclone
+            drain_rclone_log(rclone_log_path("netapp", subdir.name), f"mount {subdir}")
 
 
 def configurar_perfiles_smb_si_faltan(
@@ -298,7 +293,7 @@ def configurar_perfiles_smb_si_faltan(
                 username=credenciales_smb["usuario"],
                 password=credenciales_smb["password"],
             )
-            print(f"Rclone profile created for share {share['name']}: {nombre_perfil}")
+            log.info("netapp: rclone profile %s created for share %s", nombre_perfil, share["name"])
     return obtener_perfiles_rclone_config()
 
 
@@ -306,24 +301,16 @@ def montar_shares_seleccionados(
     recursos_seleccionados: list[str],
     recursos_cifs_dict: dict,
     mounts_activos: list,
-) -> list[str]:
-    """Monta los shares seleccionados y devuelve lista de los que fallaron."""
-    fallidos = []
+) -> dict[str, MountError]:
+    """Monta los shares seleccionados y devuelve los que fallaron, con su error."""
+    errores: dict[str, MountError] = {}
     for recurso in recursos_seleccionados:
         datos = recursos_cifs_dict[recurso]
-        punto_montaje = datos["punto_montaje"]
-        if not os.path.ismount(punto_montaje):
-            if platform.system() != "Windows":
-                os.makedirs(punto_montaje, exist_ok=True)
-            exito = montar_share_rclone(
-                datos["nombre_perfil"],
-                datos["remote_path"],
-                punto_montaje,
-                mounts_activos,
-            )
-            if not exito:
-                fallidos.append(recurso)
-    return fallidos
+        try:
+            montar_share_rclone(datos["nombre_perfil"], datos["remote_path"], datos["punto_montaje"], mounts_activos)
+        except MountError as ex:
+            errores[recurso] = ex
+    return errores
 
 
 def construir_recursos_cifs_dict(shares: list, usuario_actual: str) -> dict:

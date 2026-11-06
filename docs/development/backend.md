@@ -48,14 +48,18 @@ llamando a `backend.X` (`from bifrost_backend import backend`).
 | `common/rclone.py` — resolución de rclone | `get_rclone_executable()` — resuelve el binario en (1) `FLET_ASSETS_DIR/bin/` (apps empaquetadas), (2) `bifrost-<flavour>/src/assets/bin/` del repo (desarrollo; se construye con `APP_INFO["flavour"]`), (3) PATH (modo web/clúster); si no lo encuentra lanza `EnvironmentError`. `obtener_ruta_rclone_conf()` (ejecuta `rclone config file`; el resultado se cachea con `lru_cache`), `rclone_lsd()` (solo carpetas — S3 destino), `_subprocess_kwargs()`. |
 | `common/updates.py` — autoupdate | `_parse_version()`, `check_update_version()`, `should_check_for_updates()`, `get_update_file_suffix()`, `download_new_binary()`, `get_emoji_font_asset_path()`. |
 | `common/ui_helpers.py` — Flet ⇄ threading | `ui_call(page, fn)`, `safe_thread(page, target)`. |
+| `common/logs.py` — log técnico, informes y exportación | `setup_logging()`, `log_dir()`, `report_path()`, `write_report()`, `rclone_log_path()`, `open_in_file_browser()`, `export_logs_zip(sessions=EXPORTED_SESSIONS)` → ruta del zip, en `~/Downloads` (0600) con los logs de las 5 últimas sesiones y los informes de copy, check y Tag Manager de esas sesiones. |
+| `common/shutdown.py` — cierre ordenado | `register_shutdown(cleanup, *, server_managed=False)`: se llama una vez, al importar la app y desde el hilo principal (el único donde se pueden instalar manejadores de señal). Ejecuta `cleanup` **una sola vez por proceso**, llegue el cierre por donde llegue: salida normal (`atexit`), una señal (SIGTERM de Slurm/Open OnDemand o de DCV, Ctrl+C) o el cierre de la ventana (`request_shutdown("window")`, desde `install_window_close`). Limpia en el propio manejador de la señal y no confía en `atexit`, porque en la app empaquetada Flet sustituye `sys.exit` y `atexit` no llega a ejecutarse. `install_signal_handlers()`: `main()` la vuelve a llamar porque `ft.run()` instala al arrancar sus propios manejadores, que no cierran la app y hacen que la segunda señal la mate sin limpiar. `server_managed=True` es para producción en Open OnDemand, donde Hypercorn ejecuta la app en un proceso hijo y el padre decide el cierre: el hijo deja SIGINT al padre, y con SIGTERM (un `scancel`, Delete en Open OnDemand) solo limpia, sin salir, para no cortar a medias el cierre ordenado del padre. `request_shutdown(reason)` deja `APP shutdown requested (reason=…)` en el log. |
+| `common/rclone_output.py` — errores para el usuario y salida de rclone | `UserIssue(code, num, title, message, hint, web_hint, tags_hint)`: `num` es el tipo en el código que ve el usuario (tabla en [operations.md](operations.md#logs)); `hint_for(is_web, screen)`; `reference(screen)` → `MNT101-1103-141526`. Catálogo, `classify()`, `error_text()`, `error_key()`, `issue_for_exception()`. `RunSummary` (copy y check): `finish()` fija `ref` si la operación acaba con errores (`error_issue()`), que va en la primera línea de `final_lines()` y en `log_line()`. |
 | `mount/preflight.py` — checks de FS userland | `WinFspMissingError`, `_check_winfsp_windows()`, `install_winfsp_windows(on_progress)`, `_get_fuse_macos()`, `_macos_app_bundle_frameworks()`, `_check_fuse_linux()`. |
-| `mount/s3_mount.py` — montaje S3 | `mount_rclone_S3_prefix_to_folder()`, `resolver_mount_point_destino()`, `desmontar_punto_montaje()`, `desmontar_todos_los_mounts_s3()` (y helpers de limpieza de puntos de montaje colgados). |
+| `common/rclone_mount.py` — lanzar y comprobar montajes | `mount_and_wait(comando, carpeta, log_path, env=, timeout=30)` → `Popen`: lanza `rclone mount` con un log temporal de solo errores en JSON (`--use-json-log --log-level ERROR`, máx. 10 MB + 1) y solo lo da por bueno si la carpeta se puede listar (rclone monta al instante aunque falle la conexión o las credenciales; la lectura de prueba va en otro hilo porque puede tardar minutos). Si falla → `MountError(issue)` con la causa leída del log de rclone, cuyos errores pasan al log técnico. `drain_rclone_log(log, etiqueta)`: pasa los errores del fichero al log técnico (`bifrost.rclone`, cada texto una vez, sin nombres de ficheros, hasta 100) y lo borra; lo usan el fallo de un montaje y todos los desmontajes. Si la carpeta ya está montada no lanza nada (`MOUNT_BUSY`): la comprobación vería ese montaje y no el nuevo. `is_mounted(carpeta)`, `stop_process(proc)`. Lo usan los montajes de MinIO y de la NetApp. |
+| `mount/s3_mount.py` — montaje S3 | `mount_rclone_S3_prefix_to_folder()` → carpeta montada y comprobada (`MountError` / `WinFspMissingError`); si ya está montada y responde, la devuelve sin lanzar otro rclone; si el sistema quitó un montaje de esta sesión (macOS tras un corte de red) y su rclone sigue vivo, lo para antes de volver a montar. `resolver_mount_point_destino()` (única fuente de la carpeta de un bucket), `desmontar_punto_montaje()` → `bool` (termina solo el rclone de ese montaje; para restos de sesiones anteriores, el `rclone mount` cuya línea de comandos tiene exactamente esa carpeta —`ps` en macOS/Linux, PowerShell en Windows—, así rclone desmonta limpio; solo fuerza el desmontaje si la carpeta sigue montada; nunca `taskkill /IM` ni otros rclone, como las copias), `desmontar_todos_los_mounts_s3()` (y helpers de limpieza de puntos de montaje colgados). |
 | `transfer/copy_check.py` — copy/check | `ejecutar_rclone_copy()`, `ejecutar_rclone_check()`, `es_directorio_rclone()`, `traducir_a_ruta_local_montada()`, `preparar_origen_para_check()`. |
 | `transfer/ldap_groups.py` | `get_ldap_groups()`. |
-| `transfer/rclone_ops.py` — listado y sistema | `rclone_lsjson()` (carpetas + ficheros — SFTP), `rclone_list_files_only()`, `list_prefix_contents(perfil, bucket, prefix)`, `obtener_num_cpus()`, `traducir_ruta_a_remote()`. |
-| `transfer/s3_tags.py` — boto3 / tagging S3 | `get_s3_client_from_profile(profile_name, endpoint)`, `get_object_tags(s3_client, bucket, key)`, `apply_tags_to_object(...)`, `apply_tags_to_prefix(...)`, `get_bucket_tags(s3_client, bucket)` → `dict[str, str]`; vacío si no hay tags o hay error; `construir_tag_string()`. |
+| `transfer/rclone_ops.py` — listado y sistema | `rclone_lsjson()` (carpetas + ficheros — SFTP), `rclone_list_files_only(perfil, bucket, prefix)` (claves de los ficheros), `list_prefix_folders(perfil, bucket, prefix)` (subcarpetas, terminadas en `/`), `obtener_num_cpus()`, `traducir_ruta_a_remote()`. Los listados lanzan `RuntimeError` si rclone falla (nunca devuelven `[]` por un error). |
+| `transfer/s3_tags.py` — boto3 / tagging S3 | `get_s3_client_from_profile(profile_name, endpoint)`, `read_object_tags(s3_client, bucket, key)` → `(etiquetas, fecha de subida)` (la fecha es el `LastModified` del objeto, `None` si no se puede leer; un error al leer las etiquetas se lanza), `apply_tags_to_object(...)` (un fichero; lanza la excepción de boto3), `apply_tags_to_prefix(..., stop=, on_progress=)` y `apply_tags_to_keys(...)` → `TagRun` (por páginas de 1.000, 8 a la vez; `stop` es el Cancel; se para sola ante credenciales caducadas, sin red, reloj o sin permiso en los primeros 20; `TagRun` da `outcome`, `final_lines()`, `problem_lines()` y `log_line()`), `get_bucket_tags(s3_client, bucket)` → `dict[str, str]`; vacío si no hay tags o hay error; `construir_tag_string()`. Todas sustituyen el conjunto entero de etiquetas del objeto. |
 | `transfer/sftp.py` — perfiles SFTP efímeros | `crear_perfil_rclone_sftp()`, `generar_nombre_perfil_sftp()`, `validar_conexion_sftp()`, `eliminar_perfil_rclone()`, `limpiar_perfiles_rclone_con_prefijo()`. |
-| `transfer/smb.py` — SMB/CIFS y montaje de shares | `construir_credenciales_smb()`, `obtener_shares_accesibles()`, `obtener_perfiles_rclone_config()`, `crear_perfil_rclone_smb()`, `actualizar_password_perfiles_rclone()`, `configurar_perfiles_smb_si_faltan()`, `montar_shares_seleccionados()`, `construir_recursos_cifs_dict()`, `obtener_letra_unidad_disponible()` (Windows), `generar_punto_montaje()`, `montar_share_rclone()`, `desmontar_todos_los_shares()`. |
+| `transfer/smb.py` — SMB/CIFS y montaje de shares | `construir_credenciales_smb()`, `obtener_shares_accesibles()`, `obtener_perfiles_rclone_config()`, `crear_perfil_rclone_smb()`, `actualizar_password_perfiles_rclone()`, `configurar_perfiles_smb_si_faltan()`, `montar_share_rclone()` (con `mount_and_wait`; solo se apunta en `mounts_activos` si monta), `montar_shares_seleccionados()` → `dict[share, MountError]`, `construir_recursos_cifs_dict()`, `obtener_letra_unidad_disponible()` (Windows), `generar_punto_montaje()`, `montar_share_rclone()`, `desmontar_todos_los_shares()`. |
 
 ## Token de sesión STS — `get_session_info(perfil)`
 
@@ -116,15 +120,17 @@ completo del bug está en [frontend.md](frontend.md).
 
 ## `safe_thread(page, target, daemon=True)`
 
-Envuelve `target` en un `threading.Thread` con try/except; cualquier
-excepción se muestra en un diálogo vía `ui_call`. Es la forma estándar de
-lanzar acciones de usuario en background.
+Envuelve `target` en un `threading.Thread` con try/except: una excepción no
+controlada va al log técnico con su traza y un código (`unexpected error
+ref=APP999-…`) y el usuario ve el pop-up de `UNEXPECTED` con ese mismo código
+(vía `ui_call`). Es la forma estándar de lanzar acciones de usuario en
+background.
 
 ## Acoplamiento backend → frontend
 
 ```python
 # common/ui_helpers.py, dentro de safe_thread (diferido: evita un import circular)
-from bifrost_frontend.frontend import show_dialog, C_ERROR
+from bifrost_frontend.frontend import show_issue
 # common/rclone.py, common/updates.py
 from config import APP_INFO
 ```
@@ -204,8 +210,12 @@ disco como ficheros no versionados (gitignores; solo se versionan los
 - **Subprocess**: usar `_subprocess_kwargs()` (flags consistentes, p. ej.
   `CREATE_NO_WINDOW` en Windows). No hardcodear.
 - **rclone**: nunca asumir un path; siempre `get_rclone_executable()`.
-- **Logs**: copy/check stream-ea líneas al frontend vía callbacks (`log_fn`);
-  no imprimir a stdout desde esas funciones.
+- **Logs**: nunca `print()`. Un logger por área (`log = logging.getLogger("bifrost.<área>")`, lista en
+  [operations.md](operations.md#logs)); en inglés, una línea por evento, `clave=valor`, argumentos con `%s` (no
+  f-strings), sin emojis; nunca contraseñas, listados de ficheros ni valores de etiquetas. INFO para lo que el
+  usuario pone en marcha y su resultado, DEBUG para la navegación y el detalle, WARNING para fallos que la app
+  controla, `log.exception` cuando la traza ayuda. Copy/check pasan las líneas del panel al frontend con
+  callbacks (`log_fn`).
 
 ## Autoupdate
 

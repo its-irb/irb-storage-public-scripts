@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 
 from bifrost_backend import backend
 
@@ -10,6 +11,8 @@ from meta_fields import TAG_PROFILES
 # main.py fija el valor real al arrancar: IS_WEB solo puede calcularse en main.py
 # (depende de __name__), y las funciones de este módulo lo leen al ejecutarse.
 IS_WEB = False
+
+log = logging.getLogger("bifrost.session")
 
 
 # ============================================================================
@@ -20,8 +23,9 @@ IS_WEB = False
 # restored without the user's password:
 #   - servidor_minio, perfil_rclone, endpoint, extra_config
 #   - copy_log_buffer  — accumulated log lines from a running/finished copy
-#   - copy_status      — "idle" | "running" | "done" | "error"
-#   - copy_proceso     — the live subprocess.Popen object (or None)
+#   - copy_proceso     — dict shared by reference with the copy view: "proc" (the
+#                        live subprocess.Popen or None), "cancelled" and "status"
+#                        ("running" or the RunSummary outcome of the last copy/check)
 #   - copy_origen, copy_destino  — last copy paths
 #   - copy_log_callbacks         — callables registered by the current UI page;
 #                                  multiple sessions may subscribe simultaneously
@@ -51,7 +55,6 @@ def _ws_save(usuario: str, state: dict) -> None:
         ),
         # copy state — always inherited so a running copy survives reconnection
         "copy_log_buffer":    existing.get("copy_log_buffer", []),
-        "copy_status":        existing.get("copy_status", "idle"),
         "copy_origen":        existing.get("copy_origen", ""),
         "copy_destino":       existing.get("copy_destino", ""),
         "copy_log_callbacks": existing.get("copy_log_callbacks", []),
@@ -61,7 +64,7 @@ def _ws_save(usuario: str, state: dict) -> None:
         "copy_tag_profile":   existing.get("copy_tag_profile", list(TAG_PROFILES.keys())[0]),
     }
     _LAST_WEB_USER[0] = usuario
-    print(f"[session] Saved session for {usuario!r}")
+    log.debug("web session saved for %s", usuario)
 
 
 def _ws_load(usuario: str) -> dict | None:
@@ -84,4 +87,4 @@ def _ws_clear(usuario: str) -> None:
     _WEB_SESSIONS.pop(usuario, None)
     if _LAST_WEB_USER[0] == usuario:
         _LAST_WEB_USER[0] = None
-    print(f"[session] Cleared session for {usuario!r}")
+    log.debug("web session cleared for %s", usuario)

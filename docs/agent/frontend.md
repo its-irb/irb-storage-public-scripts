@@ -19,7 +19,7 @@
 
 | App | Modules in `src/` besides `main.py` |
 |---|---|
-| `bifrost-mount` | `session_log.py` (`_write_to_log_file`, `_log_event` → `~/bifrost-mount-logs/`), `views/mount.py` (`build_rclone_browser` bucket list, `_build_mount_bucket`). |
+| `bifrost-mount` | `views/mount.py` (`build_rclone_browser` bucket list, `_build_mount_bucket`). |
 | `bifrost-transfer` | `web_session.py`, `meta_fields.py`, `views/shares.py` (`_build_shares_content`), `views/rclone_browser.py` (`build_rclone_browser` folder navigator), `views/local_fs.py` (`build_local_fs_browser`, `show_local_fs_modal`), `views/copy.py` (`_build_copy_content`), `views/tag_manager.py` (`_build_tag_manager_content`). |
 
 `build_rclone_browser` has the same name in both apps but different code: a
@@ -35,9 +35,9 @@ bucket list in mount, a folder navigator in transfer.
 | View | Signature | Notes |
 |---|---|---|
 | `views/update.py` | `build_update_content(page, on_continue)` | First screen; checks GitHub releases and installs updates. |
-| `views/login.py` | `build_login_content(page, on_success, prefill_user="", *, no_ldap, is_web=False, log_event=print)` | Locks button and fields while validating (`_set_busy`), so Enter/click cannot start a second LDAP check. Message per `validar_credenciales_ldap` reason (`_LDAP_ERROR_MESSAGES`); "Username is required." / "Password is required." for empty fields; the password is not stripped. `log_event` receives `LOGIN attempt/bypass LDAP/success/failed — reason: <reason>` (mount passes `_log_event`; transfer keeps `print`). `prefill_user` shows the "Resuming previous session" banner (transfer web). |
+| `views/login.py` | `build_login_content(page, on_success, prefill_user="", *, no_ldap, is_web=False)` | Locks button and fields while validating (`_set_busy`), so Enter/click cannot start a second LDAP check. Message per `validar_credenciales_ldap` reason (`_LDAP_ERROR_MESSAGES`); "Username is required." / "Password is required." for empty fields; the password is not stripped. Writes `LOGIN attempt/bypass LDAP/success — user: <user>` and `LOGIN failed — user: <user> — reason: <reason>` to the technical log (logger `bifrost.login`), the same in both apps. `prefill_user` shows the "Resuming previous session" banner (transfer web). |
 | `views/minio.py` | `build_minio_content(page, on_continue, *, no_ldap, is_web=False)` | MinIO server selection. |
-| `views/credentials.py` | `build_credentials_content(page, perfil_rclone, endpoint, credenciales_ldap, on_continue, extra_config=None, duracion_dias=None, on_back=None, *, no_ldap, is_web=False, done_message, write_log=None)` | STS renewal with on-screen log; `write_log` also writes each line to a file (mount passes `_write_to_log_file`); `done_message` is the last line ("Loading mount interface…" / "Continuing to copy interface…"). |
+| `views/credentials.py` | `build_credentials_content(page, perfil_rclone, endpoint, credenciales_ldap, on_continue, extra_config=None, duracion_dias=None, on_back=None, *, no_ldap, is_web=False, done_message)` | STS renewal with on-screen log; the technical log (logger `bifrost.auth`) gets one line per step (`credentials: renewing …`, `credentials: renewed …`, request failures), not the on-screen text; `done_message` is the last line ("Loading mount interface…" / "Continuing to copy interface…"). |
 
 Differences between the apps are parameters; do not copy these views back into
 an app.
@@ -52,9 +52,9 @@ from bifrost_frontend.frontend import *      # theme + components + shared views
 
 Then: 1) (transfer) computes the run mode (`IS_WEB`) and calls
 `_propagar_is_web()`; 2) re-wraps `sys.stdout`/`sys.stderr` in UTF-8 (Windows
-console) — **do not touch**; 3) persistent log: mount through `session_log.py`
-(`~/bifrost-mount-logs/`); transfer tees all console output to
-`~/bifrost-logs/bifrost-console-*.log` (keeps the 50 most recent files);
+console) — **do not touch**; 3) technical log with `backend.setup_logging(...)` and shutdown cleanup with
+`backend.register_shutdown(...)` (see `docs/development/operations.md#logs`); `main()` calls
+`install_window_close(page)` (window close → `backend.request_shutdown("window")`, destroy the window, exit);
 4) defines `main(page: ft.Page)` and starts with `ft.run(main)` (in cluster
 mode transfer also builds the ASGI `app` with `ft.app(main, export_asgi_app=True)`).
 
@@ -79,9 +79,10 @@ and the live log panel (`ft.ListView` with `auto_scroll=True`).
 
 Constants in `bifrost_backend.common.constants`:
 `STS_RENEWAL_THRESHOLD_DAYS = 3`, `STS_AUTO_RENEWAL_DAYS = 7`. After choosing
-the server, `main.py` calls `backend.get_session_info(profile)`; if there is no
-token or `needs_renewal(user, STS_RENEWAL_THRESHOLD_DAYS)` is true (token of
-another user, unreadable, or 3 days or less left), it shows
+the server, `main.py` calls `backend.hay_que_renovar_credenciales(profile, user)`
+(it logs the decision in one line); if there is no token or
+`needs_renewal(user, STS_RENEWAL_THRESHOLD_DAYS)` is true (token of another user,
+unreadable, or 3 days or less left), it shows
 `build_credentials_content` and renews for 7 days, showing progress; otherwise
 it goes straight to the action view.
 
@@ -109,7 +110,7 @@ IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or (os.environ.get("B
 
 - `main(page)` also sets `IS_WEB = IS_WEB or page.web`. `IS_WEB` lives only in
   `main.py`; `_propagar_is_web()` copies it to `web_session`, `views.shares`,
-  `views.copy` and `views.tag_manager` (see `architecture.md`).
+  `views.copy`, `views.tag_manager` and `views.rclone_browser` (see `architecture.md`).
 - ASGI server: **Hypercorn** (a single asyncio event loop). Each tab opens its
   own WebSocket with its own `page` object.
 - Sessions in `_WEB_SESSIONS` (`web_session.py`; global dict by `username`;
@@ -122,9 +123,12 @@ IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or (os.environ.get("B
 - Log dispatcher `_dispatch_log` with a **150 ms throttle** (buffer cap 5000
   lines, several callbacks per user, `_dispatch_lock` lock). Without the
   throttle Hypercorn saturates and reconnections hang.
-- Autosave: when each copy/check ends, `_autosave_log()` dumps the buffer to
-  `~/bifrost-logs/bifrost-YYYY-MM-DD_HH-MM-SS.log` (critical in web mode: the
-  in-memory buffer is capped and the full log only exists on disk).
+- Per-operation report: each copy/check keeps its own lines (`op_log`); when it
+  ends, `on_finish(summary)` writes the report with `_write_report` to
+  `backend.report_path("copy"|"check")` (desktop: `<log dir>/reports/`; web:
+  `$BIFROST_SESSION_DIR/reports/`). rclone output is parsed by
+  `common/rclone_output.RunSummary` (panel: progress + summary; raw output to the
+  technical log). Do not rebuild reports from the web buffer or the UI controls.
 - The `Mount NetApp` button (web mode only) opens the CIFS shares view
   (`go_cifs`).
 
@@ -147,7 +151,18 @@ With `threading.Timer`, wrap the callback:
 - **Colours**: only constants from `bifrost_frontend.frontend` (`C_PRIMARY`,
   `C_ERROR`, …). Do not hardcode hex values.
 - **Buttons**: prefer `btn_primary` / `btn_secondary` over raw `ft.Button`.
-- **Error dialogs**: `show_dialog(page, "Error", msg, color=C_ERROR)`.
+- **Error dialogs**: notices about what the user typed: `show_dialog(page, title, msg, color=C_ERROR)`. Program
+  errors (`UserIssue`): `show_issue(page, issue, *, is_web, title=None, context="", screen=…, buttons=[(label,
+  action), …], ref=None) -> str` — under the title, the error code ("Error MNT101-1103-141526"); then the context
+  (the bucket, one file or a count; never lists or log paths), what happened and what to do; each button closes
+  the dialog, then runs its action. `screen` (`mount`, `netapp`, `copy`, `check`, `tags`, `app`) sets the code
+  prefix and the hint; `ref` reuses a code (an operation's, or the one shown the first time); it returns the
+  code. An error shown instead of a list: `issue_line(issue, *, is_web, screen)`. Both log `issue shown: ref=…
+  code=… screen=…` through `issue_reference(issue, screen, ref=None)`, which the credentials screen (`CRD`)
+  and the login (`LGN`) call directly; the login only logs it and does not show the code (noise there).
+- **Header**: `build_header(subtitle, IS_WEB, no_ldap, page=None)`; with `page`, on desktop, the "Export logs…"
+  button (confirmation, then `backend.export_logs_zip()`). Every screen passes `page`.
+- **Log panel lines**: `log_text(line)` (colour from the leading emoji; used by copy and Tag Manager).
 - **Confirmations**: `show_confirm(page, title, message, on_yes, on_no=None)`.
 - **Copy logs** (transfer/web): always go through `_dispatch_log`; never
   `log_list.controls.append(...)` directly from a thread.

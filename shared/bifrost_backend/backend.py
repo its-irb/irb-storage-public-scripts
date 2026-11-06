@@ -24,6 +24,7 @@ from .common.auth import (
     get_credentials,
     configure_rclone,
     get_session_info,
+    hay_que_renovar_credenciales,
     validar_credenciales_ldap,
 )
 from .common.updates import (
@@ -36,6 +37,32 @@ from .common.updates import (
 from .common.ui_helpers import (
     ui_call,
     safe_thread,
+)
+from .common.logs import (
+    setup_logging,
+    report_path,
+    write_report,
+    open_in_file_browser,
+    export_logs_zip,
+    EXPORTED_SESSIONS,
+)
+from .common.rclone_output import (
+    MAX_CURRENT,
+    short_name,
+    human_size,
+    issue_for_exception,
+    UNEXPECTED,
+    UNMOUNT_FAILED,
+    INVALID_CREDENTIALS,
+)
+from .common.shutdown import (
+    register_shutdown,
+    request_shutdown,
+    install_signal_handlers,
+)
+from .common.rclone_mount import (
+    MountError,
+    is_mounted,
 )
 from .mount.s3_mount import (
     mount_rclone_S3_prefix_to_folder,
@@ -50,7 +77,7 @@ from .mount.preflight import (
 from .transfer.rclone_ops import (
     rclone_lsjson,
     rclone_list_files_only,
-    list_prefix_contents,
+    list_prefix_folders,
     obtener_num_cpus,
     traducir_ruta_a_remote,
 )
@@ -59,8 +86,10 @@ from .transfer.ldap_groups import (
 )
 from .transfer.s3_tags import (
     get_s3_client_from_profile,
-    get_object_tags,
+    read_object_tags,
     apply_tags_to_prefix,
+    apply_tags_to_keys,
+    TagRun,
     apply_tags_to_object,
     get_bucket_tags,
     construir_tag_string,
@@ -90,6 +119,7 @@ from .transfer.sftp import (
 from .transfer.copy_check import (
     ejecutar_rclone_copy,
     ejecutar_rclone_check,
+    flags_no_permitidos,
     es_directorio_rclone,
     traducir_a_ruta_local_montada,
     preparar_origen_para_check,

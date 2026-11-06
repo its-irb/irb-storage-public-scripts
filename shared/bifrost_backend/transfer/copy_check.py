@@ -1,16 +1,146 @@
-"""Ejecución de rclone copy y rclone check."""
+"""Ejecución de rclone copy y rclone check.
+
+La salida de rclone se interpreta con common/rclone_output.RunSummary: el panel recibe solo líneas para el
+usuario (progreso, resumen, qué hacer) y la salida cruda va al log técnico.
+"""
 
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 import shlex
+import shutil
 import subprocess
+import tempfile
+import time
 from pathlib import Path
 from sys import platform as sys_platform
 
 from ..common.rclone import _get_user_agent, _subprocess_kwargs, get_rclone_executable
+from ..common.rclone_output import FAILED, UNEXPECTED, RunSummary
 from .s3_tags import construir_tag_string
+
+log = logging.getLogger("bifrost.copy")
+
+_EXCLUDES = [
+    "--exclude", "**/.DS_Store",
+    "--exclude", "**/*.Thumbs.db",
+    "--exclude", ".snapshot/**",
+    "--exclude", "**/.snapshot/**",
+    "--exclude", ".snapshot/",
+    "--exclude", "**/.Trash*/**",
+    "--exclude", "**/.cache/**",
+]
+# Salida JSON que interpreta RunSummary. Solo cambia el formato de la salida, no qué se copia ni cómo.
+_OUTPUT_FLAGS = ["--use-json-log", "--log-level", "INFO", "--stats", "1s", "--stats-log-level", "NOTICE"]
+
+# Opciones del campo "Additional rclone flags (advanced)" que no se aceptan: cambian o desvían la salida (la
+# app dejaría de entenderla), escriben informes propios, piden respuestas por teclado o pueden volcar secretos
+# al log. Las opciones cortas agrupadas (-vP) también se rechazan: no se pueden revisar una a una.
+_FORBIDDEN_FLAG = re.compile(
+    r"^(-[A-Za-z]{2,}|-v|-q|-P|-i|--verbose|--quiet|--progress|--interactive|--log-.*|--use-json-log|"
+    r"--syslog.*|--stats.*|--dump.*|--config|--combined|--missing-on-.*|--differ|--match|--error|"
+    r"--header.*|--.*(secret|token|pass|key).*)$",
+)
+
+
+def flags_no_permitidos(flags: list[str]) -> list[str]:
+    """Opciones de `flags` que no se pueden usar en la copia o el check (ver _FORBIDDEN_FLAG)."""
+    return [f for f in flags if _FORBIDDEN_FLAG.match(f.split("=", 1)[0])]
+
+
+def _es_prueba(flags: list[str]) -> bool:
+    return any(f in ("-n", "--dry-run") for f in flags)
+
+
+def _comando_para_log(comando: list[str], tag_keys: list[str]) -> str:
+    """Comando completo para el log técnico, sin los valores de las etiquetas (son metadatos personales)."""
+    shown = [f"x-amz-tagging:<{', '.join(tag_keys) or 'no tags'}>" if a.startswith("x-amz-tagging:") else a
+             for a in comando]
+    return " ".join(shlex.quote(a) for a in shown)
+
+
+def _ejecutar(operacion: str, comando: list[str], summary: RunSummary, log_fn, expose_proceso) -> int:
+    """Lanza rclone, pasa su salida por `summary` y devuelve el código de salida."""
+    # Prioridad baja para que el proceso de la app (Hypercorn en web) siempre pueda ejecutarse aunque rclone
+    # sature los núcleos. nice(10): Linux/macOS; en Windows no hay preexec_fn.
+    _preexec = (lambda: os.nice(10)) if sys_platform != "win32" else None
+    proceso = subprocess.Popen(
+        comando,
+        stdin=subprocess.DEVNULL,            # rclone nunca debe quedarse esperando una respuesta
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        encoding="utf-8",
+        errors="replace",
+        preexec_fn=_preexec,
+        **_subprocess_kwargs(),
+    )
+    if expose_proceso is not None:
+        expose_proceso["proc"] = proceso
+        expose_proceso["summary"] = summary        # la pantalla lee de aquí el progreso (progress_snapshot)
+    try:
+        for linea in proceso.stdout:
+            for out in summary.feed(linea, time.monotonic()):
+                log_fn(out)
+        proceso.wait()
+        return proceso.returncode
+    finally:
+        # No dejar rclone en marcha si la lectura de la salida ha fallado.
+        if proceso.poll() is None:
+            proceso.terminate()
+        if expose_proceso is not None and expose_proceso.get("proc") is proceso:
+            expose_proceso["proc"] = None
+
+
+_TEMP_PREFIXES = ("bifrost-copy-", "bifrost-check-")   # bifrost-copy-: restos de cuando copy usaba --match
+_TEMP_MAX_AGE = 7 * 86400    # s
+# rclone aborta la operación entera si no puede crear una lista (comprobado con el disco lleno). Las listas
+# ocupan ~60 MB por millón de ficheros; con menos de esto libre se trabaja sin ellas.
+_TEMP_MIN_FREE = 100 * 1024 * 1024
+
+
+def _borrar_temporales_antiguos() -> None:
+    """Borra carpetas temporales de operaciones que se cortaron de golpe (la app murió antes de borrarlas).
+
+    Solo las del usuario y sin cambios en 7 días: en un nodo compartido el mismo usuario puede tener otra
+    sesión con una operación en marcha, y su lista se sigue escribiendo.
+    """
+    limite = time.time() - _TEMP_MAX_AGE
+    for carpeta in Path(tempfile.gettempdir()).glob("bifrost-*"):
+        try:
+            if not (carpeta.name.startswith(_TEMP_PREFIXES) and carpeta.is_dir()):
+                continue
+            st = carpeta.stat()
+            if hasattr(os, "getuid") and st.st_uid != os.getuid():
+                continue
+            if max([st.st_mtime] + [f.stat().st_mtime for f in carpeta.iterdir()]) < limite:
+                shutil.rmtree(carpeta, ignore_errors=True)
+                log.info("removed leftover temporary folder %s", carpeta.name)
+        except OSError:
+            continue
+
+
+def _ficheros_de_informe(operacion: str, nombres: tuple[str, ...]) -> tuple[Path | None, dict[str, Path] | None]:
+    """Carpeta temporal para las listas por fichero que escribe rclone (se borra al terminar).
+
+    rclone anota ahí la decisión que ya toma con cada fichero: con check --one-way no añade lecturas ni
+    peticiones a MinIO (copy sí las añadiría; ver ejecutar_rclone_copy). Sin listas, check usa los totales de
+    rclone.
+    """
+    _borrar_temporales_antiguos()
+    try:
+        libre = shutil.disk_usage(tempfile.gettempdir()).free
+        if libre < _TEMP_MIN_FREE:
+            log.warning("%s: only %d MB free in the temporary folder; running without per-file lists",
+                        operacion, libre // 2**20)
+            return None, None
+        tmp_dir = Path(tempfile.mkdtemp(prefix=f"bifrost-{operacion}-"))
+    except OSError as e:
+        log.warning("%s: cannot create the per-file lists (%s); running without them", operacion, e)
+        return None, None
+    return tmp_dir, {k: tmp_dir / f"{k}.txt" for k in nombres}
 
 
 def ejecutar_rclone_copy(
@@ -21,85 +151,45 @@ def ejecutar_rclone_copy(
     metadatos_dict: dict,
     flags_adicionales: list[str],
     log_fn,
-    on_success=None,
     on_finish=None,
     expose_proceso: dict | None = None,
+    is_web: bool = False,
 ) -> None:
-    """Lanza rclone copy. Si *expose_proceso* es un dict, guarda el Popen en expose_proceso['proc']."""
-    rclone = get_rclone_executable()
-    tag_string   = construir_tag_string(metadatos_dict)
-    header_value = f"x-amz-tagging:{tag_string}"
-    print(f"[copy] tags applied → {tag_string or '(none)'}")
+    """Lanza rclone copy y llama a `on_finish(summary)` al terminar, siempre.
 
-    comando = [
-        rclone, "copy",
-        origen,
-        f"{destino_perfil}:/{destino_path}",
-        "--config", rclone_config_path,
-        "--checksum",
-        "--check-first",
-        "--copy-links",
-        "--exclude", "**/.DS_Store",
-        "--exclude", "**/*.Thumbs.db",
-        "--exclude", ".snapshot/**",
-        "--exclude", "**/.snapshot/**",
-        "--exclude", ".snapshot/",
-        "--exclude", "**/.Trash*/**",
-        "--exclude", "**/.cache/**",
-        "--progress",
-        "--stats=1s",
-        "--header-upload", header_value,
-        "--user-agent", _get_user_agent(),
-    ]
-    comando.extend(flags_adicionales)
+    Si *expose_proceso* es un dict, guarda el Popen en expose_proceso['proc']; la vista pone
+    expose_proceso['cancelled'] = True antes de terminarlo al pulsar Cancel.
 
-    comando_str = " ".join(shlex.quote(arg) for arg in comando)
-    log_fn(f"\n🧾 Full command:\n{comando_str}\n\n")
-
-    # Run rclone at a lower CPU priority so the Hypercorn/Python server
-    # process is always schedulable even when rclone saturates all cores.
-    # nice(10) means the OS will prefer processes at niceness < 10 (e.g.
-    # Hypercorn at niceness 0) when CPU is contested. Linux/macOS only;
-    # preexec_fn is silently ignored on Windows (but we also gate it).
-    _preexec = (lambda: os.nice(10)) if sys_platform != "win32" else None
-
+    Sin --match ni ningún otro informe por fichero: con cualquiera de ellos, rclone copy recorre entera cada
+    carpeta que solo está en MinIO para anotar sus ficheros, y con --check-first no copia nada hasta acabar
+    (comprobado con rclone 1.72.1: con un destino grande la copia parece colgada). Los ficheros que ya estaban
+    idénticos salen de las estadísticas (RunSummary._count_unchanged).
+    """
+    summary = RunSummary("copy", is_web=is_web, dry_run=_es_prueba(flags_adicionales))
+    rc = None
     try:
-        proceso = subprocess.Popen(
-            comando,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            encoding="utf-8",
-            errors="replace",
-            preexec_fn=_preexec,
-            **_subprocess_kwargs(),
-        )
-        if expose_proceso is not None:
-            expose_proceso["proc"] = proceso
-        for linea in proceso.stdout:
-            log_fn(linea)
-        proceso.wait()
-        if proceso.returncode == 0:
-            print(f"[copy] finished OK → {origen} → {destino_perfil}:/{destino_path} (tags: {tag_string or '(none)'})")
-            log_fn("\n✅ Copy completed successfully.\n")
-            if on_success:
-                on_success()
-        else:
-            print(f"[copy] FAILED (rc={proceso.returncode}) → {origen} → {destino_perfil}:/{destino_path}")
-            log_fn(f"\n❌ Copy error. Code: {proceso.returncode}")
+        tag_string = construir_tag_string(metadatos_dict)
+        comando = [
+            get_rclone_executable(), "copy",
+            origen,
+            f"{destino_perfil}:/{destino_path}",
+            "--config", rclone_config_path,
+            "--checksum",
+            "--check-first",
+            "--copy-links",
+            *_EXCLUDES,
+            *_OUTPUT_FLAGS,
+            "--header-upload", f"x-amz-tagging:{tag_string}",
+            "--user-agent", _get_user_agent(),
+            *flags_adicionales,
+        ]
+        log.info("copy command: %s", _comando_para_log(comando, [k for k, v in metadatos_dict.items() if v]))
+        rc = _ejecutar("copy", comando, summary, log_fn, expose_proceso)
     except Exception as e:
-        print(f"[copy] EXCEPTION → {origen} → {destino_perfil}:/{destino_path}: {e}")
-        log_fn(f"\n❌ Exception while executing rclone: {str(e)}")
+        log.exception("copy could not run")
+        summary.add_internal_error(str(e))
     finally:
-        # Guarantee the subprocess is not left running if the stdout loop raised.
-        try:
-            if proceso.poll() is None:
-                proceso.terminate()
-        except Exception:
-            pass
-        if expose_proceso is not None:
-            expose_proceso["proc"] = None
-        if on_finish:
-            on_finish()
+        _terminar("copy", summary, rc, log_fn, on_finish, expose_proceso, None, None)
 
 
 def ejecutar_rclone_check(
@@ -112,87 +202,62 @@ def ejecutar_rclone_check(
     log_fn,
     on_finish=None,
     expose_proceso: dict | None = None,
+    is_web: bool = False,
 ) -> None:
-    """Lanza rclone check. Si *expose_proceso* es un dict, guarda el Popen en expose_proceso['proc']."""
-    rclone = get_rclone_executable()
-    origen_ajustado, fichero = preparar_origen_para_check(
-        origen, mounts_activos, rclone_config_path
-    )
-    combined_path = Path.home() / "rclone-combined-check.txt"
-    combined_path.parent.mkdir(parents=True, exist_ok=True)
+    """Lanza rclone check y llama a `on_finish(summary)` al terminar, siempre.
 
-    comando = [
-        rclone, "check",
-        origen_ajustado,
-        f"{destino_perfil}:/{destino_path}",
-        "--config", rclone_config_path,
-        "--progress",
-        "--stats=1s",
-    ]
-    if fichero:
-        comando += ["--one-way", "--copy-links"]
-    else:
-        comando += [
-            "--one-way",
-            "--combined", str(combined_path),
-            "--copy-links",
-            "--exclude", "**/.DS_Store",
-            "--exclude", "**/*.Thumbs.db",
-            "--exclude", ".snapshot/**",
-            "--exclude", "**/.snapshot/**",
-            "--exclude", ".snapshot/",
-            "--exclude", "**/.Trash*/**",
-            "--exclude", "**/.cache/**"
-        ]
-    comando.extend(flags_adicionales)
-
-    comando_str = " ".join(shlex.quote(arg) for arg in comando)
-    log_fn(f"\n🧾 Full command:\n{comando_str}\n\n")
-
-    _preexec = (lambda: os.nice(10)) if sys_platform != "win32" else None
-
+    Las listas de ficheros con problemas salen de los informes de rclone --missing-on-dst, --differ y
+    --error (solo rutas con problemas; los idénticos no se guardan).
+    """
+    summary = RunSummary("check", is_web=is_web)
+    rc = None
+    tmp_dir, reports = None, None
     try:
-        proceso = subprocess.Popen(
-            comando,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            encoding="utf-8",
-            errors="replace",
-            preexec_fn=_preexec,
-            **_subprocess_kwargs(),
-        )
-        if expose_proceso is not None:
-            expose_proceso["proc"] = proceso
-        for linea in proceso.stdout:
-            log_fn(linea)
-        proceso.wait()
-        if proceso.returncode == 0:
-            log_fn("\n✅ Verification OK: no differences found.\n")
-        elif proceso.returncode == 1:
-            # rclone check exits 1 when differences are found — expected, not a hard error.
-            # Exit codes ≥2 indicate real failures (network, permissions, etc.).
-            log_fn(
-                "\n⚠️ Verification complete: differences found. "
-                "Check the combined report for details.\n"
-            )
-        else:
-            log_fn(
-                f"\n❌ Verification failed (exit code {proceso.returncode}). "
-                "Check for network or permissions issues.\n"
-            )
+        origen_ajustado, fichero = preparar_origen_para_check(origen, mounts_activos, rclone_config_path)
+        tmp_dir, reports = _ficheros_de_informe("check", ("missing", "differ", "error"))
+        comando = [
+            get_rclone_executable(), "check",
+            origen_ajustado,
+            f"{destino_perfil}:/{destino_path}",
+            "--config", rclone_config_path,
+            "--one-way",
+            "--copy-links",
+            *([] if fichero else _EXCLUDES),
+            *_OUTPUT_FLAGS,
+        ]
+        if reports:
+            comando += ["--missing-on-dst", str(reports["missing"]), "--differ", str(reports["differ"]),
+                        "--error", str(reports["error"])]
+        comando += flags_adicionales
+        log.info("check command: %s", " ".join(shlex.quote(a) for a in comando))
+        rc = _ejecutar("check", comando, summary, log_fn, expose_proceso)
     except Exception as e:
-        log_fn(f"\n❌ Exception during verification: {str(e)}")
+        log.exception("check could not run")
+        summary.add_internal_error(str(e))
     finally:
-        # Guarantee the subprocess is not left running if the stdout loop raised.
+        _terminar("check", summary, rc, log_fn, on_finish, expose_proceso, reports, tmp_dir)
+
+
+def _terminar(operacion, summary: RunSummary, rc, log_fn, on_finish, expose_proceso, reports, tmp_dir) -> None:
+    """Fija el resultado, escribe el resumen en el panel, llama a on_finish(summary) y borra *tmp_dir*."""
+    cancelled = bool(expose_proceso and expose_proceso.get("cancelled"))
+    try:
+        summary.finish(rc, cancelled, reports)
+        for line in summary.final_lines():
+            log_fn(line)
+        log.info("%s finished: %s", operacion, summary.log_line())
+    except Exception:
+        summary.outcome, summary.ref = FAILED, UNEXPECTED.reference(operacion)
+        log.exception("%s: could not build the summary ref=%s", operacion, summary.ref)
+        log_fn(f"\n❌ The {operacion} ended, but BIFROST could not read its result. (Error {summary.ref})\n"
+               f"   Do not delete the original. What you can do: {UNEXPECTED.hint_for(summary.is_web)}\n")
+    finally:
         try:
-            if proceso.poll() is None:
-                proceso.terminate()
-        except Exception:
-            pass
-        if expose_proceso is not None:
-            expose_proceso["proc"] = None
-        if on_finish:
-            on_finish()
+            if on_finish:
+                on_finish(summary)
+        finally:
+            if tmp_dir is not None:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def es_directorio_rclone(ruta_rclone: str, config_path: str) -> bool:

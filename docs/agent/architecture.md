@@ -16,8 +16,7 @@ per app.
 ```text
 bifrost-mount/            # Mount app (desktop)
   src/
-    main.py               # Flet entry point: startup, exit cleanup (signals/atexit), view navigation
-    session_log.py        # Persistent session log (~/bifrost-mount-logs/)
+    main.py               # Flet entry point: technical log, exit cleanup (register_shutdown), view navigation
     views/mount.py        # Bucket selector + mount/unmount view
     config.py             # APP_INFO = {"flavour": "mount", ...}
     version.py            # __version__ (written by CI/build)
@@ -29,7 +28,7 @@ bifrost-mount/            # Mount app (desktop)
 
 bifrost-transfer/         # Transfer app (desktop + web)
   src/
-    main.py               # Flet entry point: IS_WEB, console log, view navigation, cluster ASGI app
+    main.py               # Flet entry point: IS_WEB, technical log, exit cleanup, view navigation, cluster ASGI app
     web_session.py        # Web-mode sessions (_WEB_SESSIONS, _ws_save/_ws_load/_ws_clear)
     views/                # shares.py, rclone_browser.py, local_fs.py, copy.py, tag_manager.py
     meta_fields.py        # Profiles, metadata fields, lab filter
@@ -44,7 +43,7 @@ bifrost-transfer/         # Transfer app (desktop + web)
 shared/                   # bifrost-shared package (local wheel)
   bifrost_backend/
     backend.py            # Facade: re-exports the public API (backend.X)
-    common/               # auth, constants, rclone, ui_helpers, updates
+    common/               # auth, constants, logs, rclone, rclone_mount, rclone_output, shutdown, ui_helpers, updates
     mount/                # preflight (WinFsp/FUSE checks), s3_mount
     transfer/             # copy_check, ldap_groups, rclone_ops, s3_tags, sftp, smb
   bifrost_frontend/
@@ -56,7 +55,8 @@ shared/                   # bifrost-shared package (local wheel)
   *-assets-downloader.sh  # Download rclone/fuse-t (also used by CI)
 
 old/                      # Legacy scripts (do not use)
-build-windows.ps1         # Local Windows build (pyproject from template + rclone + flet build)
+build-windows.ps1         # Local Windows build or run (pyproject from template + rclone + flet build / -run: uv run flet run)
+ood-app-bifrost/          # Git submodule: Open OnDemand app that launches the bifrost-transfer job (versioned with this repo)
 .github/workflows/main.yml  # CI: macOS/Windows build + release
 AGENTS.md                 # Entry point for any agent -> docs/agent/
 docs/agent/               # Agent layer (English)
@@ -84,11 +84,11 @@ docs/superpowers/         # Historical feature specs and plans
 
 **App-specific**:
 - `src/main.py` — entry point: startup, view navigation (login → minio →
-  credentials → mount/copy) and exit cleanup. In `bifrost-transfer` it also
-  computes `IS_WEB`, sets up the console log and builds the cluster ASGI app.
+  credentials → mount/copy), the technical log (`backend.setup_logging(...)`)
+  and exit cleanup (`backend.register_shutdown(...)`). In `bifrost-transfer` it
+  also computes `IS_WEB` and builds the cluster ASGI app.
 - `src/views/` — the app's own views (`mount.py` in mount; `shares.py`,
   `rclone_browser.py`, `local_fs.py`, `copy.py`, `tag_manager.py` in transfer).
-- `src/session_log.py` (**mount only**) — persistent session log.
 - `src/web_session.py` (**transfer only**) — web-mode session store.
 - `src/meta_fields.py` — **`bifrost-transfer` only**: `FieldType`, `TAG_PROFILES`, `build_meta_fields`, `LAB_ACRONYMS`, `build_lab_filter_widget`, `detect_profile`. Canonical source of profiles and fields.
 - `src/config.py` — only `APP_INFO`. The backend reads `APP_INFO["flavour"]` to resolve asset paths in dev.
@@ -112,16 +112,16 @@ docs/superpowers/         # Historical feature specs and plans
   real path of the shared package. `pyproject.toml` is not versioned: it is
   generated from `pyproject-template.toml`.
 - The backend imports from the frontend only in one place:
-  `common/ui_helpers.safe_thread` imports `show_dialog` and `C_ERROR` lazily
+  `common/ui_helpers.safe_thread` imports `show_issue` lazily
   (inside the function) to show unhandled exceptions. Keep that import lazy:
   a top-level import would create a circular import.
 - **Views never import `main`**: `main.py` imports the views, so the reverse
   import would be circular. Anything a view and `main.py` both need lives in
-  `shared/` or in an app module (`session_log.py`, `web_session.py`).
+  `shared/` or in an app module (`web_session.py`).
 - **`IS_WEB` (transfer)**: computed only in `src/main.py`, because it depends on
   `__name__ != "__main__"`; `main()` also sets `IS_WEB = IS_WEB or page.web`.
   Modules moved out of `main.py` that read it (`web_session`, `views.shares`,
-  `views.copy`, `views.tag_manager`) declare `IS_WEB = False`, and
+  `views.copy`, `views.tag_manager`, `views.rclone_browser`) declare `IS_WEB = False`, and
   `_propagar_is_web()` in `main.py` copies the real value into them at import
   and whenever `main()` updates it. A new module that reads `IS_WEB` must be
   added to `_propagar_is_web()`.

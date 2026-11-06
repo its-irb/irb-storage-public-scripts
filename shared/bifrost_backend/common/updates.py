@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import requests
@@ -12,6 +13,8 @@ from pathlib import Path
 from config import APP_INFO
 
 from .constants import EMOJI_FONT_FILENAME, REPO, __version__
+
+log = logging.getLogger("bifrost.update")
 
 
 def _parse_version(v: str) -> tuple:
@@ -31,28 +34,19 @@ def check_update_version(force_update: bool = False) -> str | None:
     """
     # Por si se quiere probar el update manualmente durante el desarrollo sin necesidad de subir una nueva release:
     # if force_update:
-    #     print("⚠️ Force update mode enabled (--update flag detected)")
-    #     print("Simulating new version available: 999.999.999")
     #     return "v999.999.999"
 
-    print(f"Version of this executable: {__version__}")
     try:
-        url = f"https://api.github.com/repos/{REPO}/releases/latest"
-        print(f"Checking the latest version of {REPO}... at url: {url}")
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200:
-            latest_tag = response.json().get("tag_name", "")
-            print(f"\nLatest available version: {latest_tag.strip('v')}")
-            if latest_tag and _parse_version(latest_tag) > _parse_version(__version__):
-                print(f"\n🚀 New version available: {latest_tag}")
-                return latest_tag
-            else:
-                print("✅ You are using the latest version.")
-        else:
-            print("⚠️ Could not check the latest version.")
-    except Exception as e:
-        print(f"⚠️ Error verifying update: {e}")
-    return None
+        response = requests.get(f"https://api.github.com/repos/{REPO}/releases/latest", timeout=5)
+        response.raise_for_status()
+        latest_tag = response.json().get("tag_name", "")
+    except Exception as e:                      # sin red, GitHub no responde o la respuesta no es la esperada
+        log.warning("update check failed: %s", e)
+        return None
+    newer = bool(latest_tag) and _parse_version(latest_tag) > _parse_version(__version__)
+    log.info("update check: current=%s latest=%s → %s", __version__, latest_tag.strip("v") or "?",
+             "update available" if newer else "up to date")
+    return latest_tag if newer else None
 
 
 def should_check_for_updates() -> bool:
@@ -64,7 +58,7 @@ def should_check_for_updates() -> bool:
     if "--update" in sys.argv:
         return True
     if not getattr(sys, 'frozen', False) and not os.environ.get('FLET_APP_STORAGE_TEMP'):
-        print("ℹ️ Running as Python script (not compiled). Skipping update check.")
+        log.debug("update check skipped: not a packaged app")
         return False
     executable_name = os.path.basename(sys.argv[0] if hasattr(sys, 'argv') else '')
     if '_linux_cluster' in executable_name or '_cluster' in executable_name:

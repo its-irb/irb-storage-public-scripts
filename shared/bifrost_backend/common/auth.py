@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import configparser
+import logging
 import jwt
 import requests
 from dataclasses import dataclass
@@ -12,10 +13,13 @@ from ldap3.core.exceptions import LDAPCommunicationError
 from ldap3.utils.conv import escape_filter_chars
 from xml.etree import ElementTree as etree
 
-from .constants import LDAP_BASE_DN, LDAP_SERVER_URL
+from .constants import LDAP_BASE_DN, LDAP_SERVER_URL, STS_RENEWAL_THRESHOLD_DAYS
 from .rclone import obtener_ruta_rclone_conf
 
+log = logging.getLogger("bifrost.auth")
+
 LDAP_TIMEOUT = 10  # segundos: conexión y respuesta
+_LOGGED_BODY = 300  # caracteres de una respuesta inesperada de MinIO que van al log técnico (en una línea)
 
 
 def get_credentials(endpoint: str, username: str, password: str, durationseconds: int = 86400) -> dict | None:
@@ -33,40 +37,25 @@ def get_credentials(endpoint: str, username: str, password: str, durationseconds
         "Version": "2011-06-15",
     }
     r = requests.post(endpoint, data=payload, timeout=30)
-
-    print(f"[STS] HTTP {r.status_code}")
-    if r.status_code >= 400:
-        print(f"[STS] Response headers: {dict(r.headers)}")
-        print(f"[STS] Response body:\n{r.text}")
-
+    ns = {"ns": "https://sts.amazonaws.com/doc/2011-06-15/"}
     try:
         root = etree.fromstring(r.content)
-    except Exception as e:
-        print(f"[STS] ERROR: respuesta no es XML válido: {e}")
-        print(f"[STS] Raw body:\n{r.text}")
-        return None
-
-    ns = {"ns": "https://sts.amazonaws.com/doc/2011-06-15/"}
+    except etree.ParseError:
+        root = etree.Element("not-xml")      # sin XML: no hay ni credenciales ni error de STS
+    et = root.find("ns:AssumeRoleWithLDAPIdentityResult/ns:Credentials", ns)
+    if et is not None:
+        log.debug("sts: credentials obtained (http %s)", r.status_code)
+        return {el.tag.rpartition("}")[2]: el.text for el in et}
 
     err = root.find(".//ns:Error", ns)
     if err is not None:
-        code  = err.findtext("ns:Code", namespaces=ns)
-        msg   = err.findtext("ns:Message", namespaces=ns)
-        reqid = root.findtext(".//ns:RequestId", namespaces=ns)
-        print(f"[STS] Error Code={code} Message={msg} RequestId={reqid}")
-
-    et = root.find("ns:AssumeRoleWithLDAPIdentityResult/ns:Credentials", ns)
-    if et is None:
-        print("[STS] No se encontró Credentials en la respuesta XML.")
-        print(f"[STS] Body (XML):\n{r.text}")
-        print("ERROR: Invalid LDAP credentials")
-        return None
-
-    credentials = {}
-    for el in et:
-        _, _, tag = el.tag.rpartition("}")
-        credentials[tag] = el.text
-    return credentials
+        log.warning("sts: request failed: http=%s code=%s message=%s request_id=%s", r.status_code,
+                    err.findtext("ns:Code", namespaces=ns), err.findtext("ns:Message", namespaces=ns),
+                    root.findtext(".//ns:RequestId", namespaces=ns) or "-")
+    else:                                   # ni credenciales ni un error de STS (p. ej. la página de un proxy)
+        log.warning("sts: unexpected response: http=%s body=%s", r.status_code,
+                    " ".join(r.text.split())[:_LOGGED_BODY])
+    return None
 
 
 def configure_rclone(
@@ -85,27 +74,23 @@ def configure_rclone(
     if config_path.exists():
         config.read(config_path)
 
-    if profilename in config:
-        section = config[profilename]
-        section["endpoint"]          = endpoint
-        section["access_key_id"]     = aws_access_key_id
-        section["secret_access_key"] = aws_secret_access_key
-        section["session_token"]     = aws_session_token
-    else:
+    if profilename not in config:
         config[profilename] = {
-            "type":              "s3",
-            "provider":          "Minio",
-            "endpoint":          endpoint,
-            "acl":               "bucket-owner-full-control",
-            "env_auth":          "false",
-            "access_key_id":     aws_access_key_id,
-            "secret_access_key": aws_secret_access_key,
-            "session_token":     aws_session_token,
+            "type":     "s3",
+            "provider": "Minio",
+            "acl":      "bucket-owner-full-control",
+            "env_auth": "false",
         }
-
-    if extra_config:
-        for key, value in extra_config.items():
-            config[profilename][key] = str(value)
+    section = config[profilename]
+    section["endpoint"]          = endpoint
+    section["access_key_id"]     = aws_access_key_id
+    section["secret_access_key"] = aws_secret_access_key
+    section["session_token"]     = aws_session_token
+    # No comprobar ni crear el bucket antes de escribir: los buckets los crea ITS y los usuarios no tienen
+    # permiso para crearlos. Se escribe siempre para que también lo tengan los perfiles creados sin esta opción.
+    section["no_check_bucket"]   = "true"
+    for key, value in (extra_config or {}).items():
+        section[key] = str(value)
 
     with open(config_path, "w") as f:
         config.write(f)
@@ -149,23 +134,36 @@ def get_session_info(profile_name: str) -> SessionInfo | None:
         config = configparser.ConfigParser(interpolation=None)
         config.read(obtener_ruta_rclone_conf())   # read() ignora ficheros inexistentes
     except Exception as e:
-        print(f"[token] No pude leer rclone.conf: {e}")
+        log.warning("credentials: could not read rclone.conf: %s", e)
         return None
 
     token = config[profile_name].get("session_token", "") if profile_name in config else ""
     if not token:
-        print(f"[token] Sin session_token para el perfil '{profile_name}'")
+        log.debug("credentials: no session token for profile %s", profile_name)
         return None
 
     try:
         payload = jwt.decode(token, options={"verify_signature": False})
     except Exception as e:
-        print(f"[token] Error decodificando token: {e}")
+        log.warning("credentials: could not decode the session token of profile %s: %s", profile_name, e)
         return SessionInfo()
 
     exp = payload.get("exp")
     remaining = datetime.fromtimestamp(exp, tz=timezone.utc) - datetime.now(timezone.utc) if exp else None
     return SessionInfo(usuario=payload.get("ldapUsername") or payload.get("sub"), remaining=remaining)
+
+
+def hay_que_renovar_credenciales(perfil: str, usuario: str, umbral_dias: int = STS_RENEWAL_THRESHOLD_DAYS) -> bool:
+    """True si hay que pedir a MinIO credenciales nuevas para `perfil`: no hay token, es de otro usuario, no se puede
+    leer o caduca en `umbral_dias` o menos. Deja la decisión en el log técnico."""
+    info = get_session_info(perfil)
+    if info is None:
+        log.info("credentials: profile=%s no token → renewal needed", perfil)
+        return True
+    renew = info.needs_renewal(usuario, umbral_dias)
+    log.info("credentials: profile=%s token_user=%s login_user=%s expiry=%s → %s", perfil, info.usuario, usuario,
+             info.remaining_text(), "renewal needed" if renew else "valid")
+    return renew
 
 
 def validar_credenciales_ldap(credenciales_ldap: dict | None) -> tuple[bool, str | None]:
@@ -189,24 +187,23 @@ def validar_credenciales_ldap(credenciales_ldap: dict | None) -> tuple[bool, str
     try:
         conn = Connection(server, auto_bind=True, receive_timeout=LDAP_TIMEOUT)
         conn.search(LDAP_BASE_DN, f"(cn={escape_filter_chars(usuario)})", SUBTREE, attributes=["dn"])
-        print(f"[debug] - LDAP: Search for user '{usuario}' returned {len(conn.entries)} entries.")
         if not conn.entries:
-            print("[debug] - LDAP: No se encontró el usuario.")
+            log.debug("ldap: user %s not found", usuario)
             return False, "user_not_found"
         user_dn = conn.entries[0].entry_dn
+        log.debug("ldap: user found dn=%s", user_dn)
         conn_auth = Connection(server, user=user_dn, password=password,
                                authentication=SIMPLE, receive_timeout=LDAP_TIMEOUT)
-        print(f"[debug] - LDAP: Validating credentials for user: {conn_auth}")
         if conn_auth.bind():
             conn_auth.unbind()
             conn.unbind()
             return True, None
         return False, "invalid_password"
     except LDAPCommunicationError as e:
-        print(f"LDAP communication error: {e}")
+        log.warning("ldap: communication error: %s", e)
         if "invalid server address" in str(e).lower():
             return False, "vpn"
         return False, "network"
-    except Exception as e:
-        print(f"LDAP validation error: {type(e).__name__}: {e}")
+    except Exception:
+        log.exception("ldap: validation failed")
         return False, "error"
