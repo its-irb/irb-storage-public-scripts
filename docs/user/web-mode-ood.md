@@ -56,9 +56,12 @@ cannot do from your own computer.
 
 1. Launch **Bifrost** from **Sandbox Apps** in Open OnDemand and sign in.
 2. Choose the **source** of the data:
-   - **The Z drive**: click **Mount NetApp** to make your lab's NetApp folder
-     available first. Once mounted, you find it inside the `netapp-folder`
-     folder.
+   - **The Z drive**: click **⊞ Mount NetApp** and double-click your lab's
+     share to make it available first. Once mounted, you find it in
+     `~/netapp-mount/<your user>/<share>`. If a share cannot be mounted, a
+     window explains why and what to do, and its row shows **⚠️ Error
+     (details)** to see it again. The details file is in the `rclone` folder of
+     your session (next to `reports`).
    - **SFTP**: click **🌐 SFTP** and enter host and username (password is
      optional).
    - **Scratch or other cluster folders**: type their path.
@@ -69,8 +72,9 @@ cannot do from your own computer.
 
 ### Expected result
 
-The files appear in the MinIO destination folder, and the log panel shows how
-the copy went.
+The files appear in the MinIO destination folder, and the log panel ends with a
+summary of how the copy went (see
+[transfer-data.md](transfer-data.md#what-the-summary-of-a-copy-means)).
 
 ## If you close the browser tab
 
@@ -83,16 +87,32 @@ your connection for a moment. To go back to it:
 3. You return to the copy screen. A banner shows the current state and the
    last lines of the log appear again.
 4. If the copy is still running, the **Cancel** button is back. If it already
-   finished while you were away, you see whether it ended correctly or with an
-   error.
+   finished while you were away, you see its summary and whether it ended
+   correctly, with problems or cancelled.
 
 The password is asked again on purpose: BIFROST never saves it.
 
-## Logs
+## Logs and reports
 
 The screen only shows the **last lines** of the log. When each copy or check
-finishes, the **full log** is saved on the cluster server, in the folder
-`~/bifrost-logs/`. Look there if you need the complete history of a copy.
+finishes, BIFROST saves a **report** with what the screen showed for that
+operation in the folder of your Open OnDemand session, inside a folder called `reports` (next
+to the `output.log` file of the session). To open it:
+
+1. In Open OnDemand, open **My Interactive Sessions**.
+2. On the card of your BIFROST session, click the **Session ID** link. The
+   **Files** app opens the folder of the session.
+3. Open the `reports` folder.
+
+If the card of the session is no longer there (for example, after you clicked
+**Delete**), the folder still exists. In the **Files** app, go to your home
+folder and open `ondemand/data/sys/dashboard/batch_connect/sys/bifrost/output/`.
+There is one folder per session; the most recent ones have the latest date.
+
+If you need to keep a report, download it or copy it to another folder.
+
+> The reports contain the source and destination folders, the labels you
+> filled in and the names of the files with problems. Only share them with ITS.
 
 ## Limits
 
@@ -108,3 +128,4 @@ finishes, the **full log** is saved on the cluster server, in the folder
 | It takes long or says it is checking for updates | It is probably reconnecting. Wait for the reconnection banner to finish loading. |
 | It asks for the password again | It is expected. Type your IRB password. |
 | It cannot connect | Check that you are on the cluster network and that the Nexica VPN is on. |
+| An error shows a **code** (for example `NET501-1103-141526`) | Follow its "What you can do" line. If it keeps happening, send ITS the code and the `output.log` file of your session (see [Logs and reports](#logs-and-reports) and [Error codes](troubleshooting.md#error-codes)). |

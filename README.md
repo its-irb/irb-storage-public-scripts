@@ -42,18 +42,21 @@ This README is a quick reference for running and packaging the apps.
 ```
 bifrost-mount/            # MinIO folder mounting app
   src/
-    main.py               # GUI (Flet). Entry point.
+    main.py               # GUI (Flet). Entry point: startup, technical log, navigation, exit cleanup
+    views/                # mount.py: bucket selector + mount view
     config.py             # APP_INFO
     version.py
     assets/bin/           # Bundled binaries (rclone) — downloaded, not versioned
-    frameworks/           # fuse-t framework (macOS)
+  frameworks/             # fuse-t framework (macOS) — downloaded, not versioned
   pyproject-template.toml # Template; pyproject.toml is generated locally
   installer.iss           # Inno Setup (Windows installer)
   build-macos.sh
 
 bifrost-transfer/         # Data copy app (desktop + web)
   src/
-    main.py               # GUI (Flet). Entry point.
+    main.py               # GUI (Flet). Entry point: web-mode detection, navigation, OOD ASGI app
+    web_session.py        # Web-mode session store
+    views/                # shares, rclone_browser, local_fs, copy, tag_manager
     meta_fields.py        # Metadata profiles, lab filter
     config.py             # APP_INFO
     version.py
@@ -64,18 +67,20 @@ bifrost-transfer/         # Data copy app (desktop + web)
   build-macos.sh
 
 shared/                   # bifrost-shared package
-  bifrost_backend/backend.py    # Shared business logic (LDAP, rclone, SMB, S3)
-  bifrost_frontend/frontend.py  # Palette and shared Flet components
+  bifrost_backend/        # Shared business logic (LDAP, STS, rclone, SMB, S3)
+    backend.py            #   facade re-exporting common/, mount/ and transfer/
+  bifrost_frontend/       # Theme, shared Flet components and shared views
+    frontend.py           #   facade re-exporting theme.py, components.py and views/
   linux-assets-downloader.sh
   macos-assets-downloader.sh
   macos-rclone-downloader.sh
   windows-assets-downloader.sh
-  requirements.txt        # Shared requirements for both apps
 
 docs/                     # agent/ (English), development/ (Spanish), user/ (English)
 AGENTS.md                 # Entry point for coding agents
 old/                      # Legacy scripts (do not use)
-build-windows.ps1         # Local Windows build (flet build)
+build-windows.ps1         # Local Windows build or run (flet build / flet run with -run)
+ood-app-bifrost/          # Git submodule: Open OnDemand app that launches the bifrost-transfer job
 .github/workflows/main.yml  # CI: macOS/Windows build + release
 ```
 
@@ -92,7 +97,7 @@ Metadata tags are organized in **profiles**. Both the copy form and the Tag Mana
 
 When uploading data, select a metadata profile from the dropdown at the top of the METADATA section. Fill in the fields and the tags will be applied automatically to the uploaded objects. Switching profiles clears the current fields (a confirmation dialog appears if any field has data).
 
-Los campos de metadatos, los botones de copia/verificación y el panel de log solo aparecen una vez que se ha seleccionado un bucket destino en el navegador.
+The metadata fields, the copy/check buttons and the log panel only appear once a destination bucket has been selected in the browser.
 
 The destination bucket browser includes a **"Filter by lab…"** field that lets you filter the bucket list by laboratory acronym. Start typing a lab name or acronym to see suggestions; select one to show only that lab's buckets. The filter disappears when navigating inside a bucket and reappears when returning to the root.
 
@@ -100,9 +105,11 @@ The destination bucket browser includes a **"Filter by lab…"** field that lets
 
 The Tag Manager lets you browse buckets, folders, and files in S3 and apply metadata tags in bulk — without re-uploading any data. Select a profile, fill in the fields, and apply the tagset to a file, a folder, or an entire bucket prefix.
 
-When you select an individual file, if its existing tags match a known profile, the editor automatically switches to the profile view with the values pre-filled — so you can review and edit them using the same dropdowns, date pickers, and multi-value fields used during upload. A **"Ver tags raw"** button lets you switch back to the raw key/value list at any time.
+When you select an individual file, if its existing tags match a known profile, the editor automatically switches to the profile view with the values pre-filled — so you can review and edit them using the same dropdowns, date pickers, and multi-value fields used during upload. A **"Show raw tags"** button lets you switch back to the raw key/value list at any time.
 
 The Tag Manager bucket browser also includes the same **"Filter by lab…"** field, which works identically to the one in the copy form.
+
+Like the copy screen, it has a **LOGS** panel and saves a report of each operation (`reports/tags-<date>.log`). Errors open a window with what happened and what to do (**Try again** / **Cancel**); a folder can be stopped with **Cancel** while its tags are being applied, and a file's editor only opens once its current tags have been read.
 
 ---
 
@@ -124,7 +131,6 @@ When a new release of bifrost-mount or bifrost-transfer is available, the app as
 Steps are the same for both apps. Run from the app folder (`bifrost-mount/` or `bifrost-transfer/`).
 
 ### First time — create the virtual environment:
-Steps are the same for both apps. Run from the app folder (`bifrost-mount/` or `bifrost-transfer/`).
 
 1. Create a copy of `pyproject-template.toml` named `pyproject.toml` inside each app folder (`bifrost-mount/` and `bifrost-transfer/`).
 2. Update the `__BUILDPATH__` variable in `pyproject.toml` to point to your local absolute path:
@@ -142,13 +148,33 @@ uv sync
 
 # Activate virtual environment
 source ./.venv/bin/activate          # macOS / Linux
-.\.venv\Scripts\python.exe -m pip install build # Windows only
-.\build-windows.ps1 -app bifrost-mount  # Windows only
+```
+
+On Windows (PowerShell), generate `pyproject.toml` as UTF-8 **without BOM**
+(with `Set-Content -Encoding utf8`, PowerShell 5.1 adds a BOM and `flet run`
+fails with `TOMLDecodeError`):
+
+```powershell
+# Inside bifrost-mount\ or bifrost-transfer\
+$utf8 = New-Object System.Text.UTF8Encoding $false
+$toml = [IO.File]::ReadAllText("$PWD\pyproject-template.toml", $utf8).Replace('__BUILDPATH__', ((Resolve-Path ..).Path -replace '\\','/'))
+[IO.File]::WriteAllText("$PWD\pyproject.toml", $toml, $utf8)
+uv sync
+.\.venv\Scripts\Activate.ps1
+```
+
+On Windows, `build-windows.ps1` can do all of this for you (it also downloads
+the assets and reinstalls `bifrost-shared`). Run it from the repo root; without
+`-app` it uses `bifrost-mount`:
+
+```powershell
+.\build-windows.ps1 -app bifrost-transfer -run   # prepare the app and run it (uv run flet run)
+.\build-windows.ps1 -app bifrost-transfer        # prepare the app and build it (flet build windows)
 ```
 
 #### Downloading binaries and assets (`rclone` / `fuse-t`)
 
-Run the appropriate script from inside the target app folder (`bifrost-mount/` or `bifrost-transfer/`)[cite: 3]:
+Run the appropriate script from inside the target app folder (`bifrost-mount/` or `bifrost-transfer/`):
 
 ##### For `bifrost-mount`:
 ```bash
@@ -210,16 +236,32 @@ flet run
 ```
 
 
-Additional options (available in both apps):
+Additional option (available in both apps):
 ```bash
-flet run --customuser   # Log in as a different user
-flet run --update       # Force auto-update
+flet run --update       # Meant to force auto-update — currently has no effect
 ```
+
+`--update` currently does nothing: the test block that simulates a new version
+(`999.999.999`) is commented out in `check_update_version()`
+(`shared/bifrost_backend/common/updates.py`). Uncomment it, and reinstall the
+shared package, to test the update screen. The username field of the login is
+always editable, so no option is needed to sign in as a different user.
 
 `bifrost-transfer` also supports web mode (Open OnDemand / Linux cluster):
 ```bash
 flet run --web                              # Web mode for local development
 BIFROST_CLUSTER=1 python src/main.py --web  # Simulate OOD production mode
+```
+
+With Flet 0.84, `flet run --web` fails with
+`ModuleNotFoundError: No module named 'flet_desktop'` if `flet run` (desktop)
+has never been run in that virtual environment; it also installs extra
+packages (`flet-web`, `fastapi`, …) in it. Alternative, from
+`bifrost-transfer/`, serving on port 8000 (open `http://localhost:8000` in the
+browser; change the port with `FLET_SERVER_PORT`):
+
+```bash
+FLET_FORCE_WEB_SERVER=true python src/main.py --web
 ```
 
 ---
@@ -257,6 +299,13 @@ This means:
 - If OOD imports `main.py` as an ASGI module → `__name__ != "__main__"` → `IS_WEB = True`
 - If launched manually with `flet run --web` → `"--web" in sys.argv` → `IS_WEB = True`
 - If `BIFROST_CLUSTER=1` is set in the environment → `IS_WEB = True`
+- In addition, `main(page)` sets `IS_WEB = IS_WEB or page.web`: if Flet serves
+  the page over the web, web mode is enabled even without `--web`
+
+`IS_WEB` is computed only in `bifrost-transfer/src/main.py` (it depends on
+`__name__`). The modules that were moved out of `main.py` and read it
+(`web_session.py`, `views/shares.py`, `views/copy.py`, `views/tag_manager.py`)
+receive its value through `_propagar_is_web()`.
 
 The ASGI server Flet uses for web mode is **Hypercorn**, which runs a single asyncio event loop for the entire application. Each browser tab opens an independent WebSocket with its own `page` instance.
 
@@ -278,7 +327,7 @@ BIFROST_CLUSTER=1 python src/main.py --web
 
 In desktop mode, when the user closes the window the process dies. In web mode the Hypercorn process stays alive — the user can close the tab, the WebSocket connection breaks and Flet destroys the `page` object, but the rclone process that was running **keeps running**.
 
-To handle this, `_WEB_SESSIONS` is a global in-memory dictionary indexed by `username`:
+To handle this, `_WEB_SESSIONS` (defined in `bifrost-transfer/src/web_session.py`) is a global in-memory dictionary indexed by `username`:
 
 ```python
 _WEB_SESSIONS: dict[str, dict] = {}
@@ -295,17 +344,16 @@ Each entry contains:
 | `endpoint` | `str` | S3 endpoint URL |
 | `extra_config` | `dict\|None` | Extra rclone config (if applicable) |
 | `copy_log_buffer` | `list[str]` | All log lines since the copy started |
-| `copy_status` | `str` | `"idle"` \| `"running"` \| `"done"` \| `"error"` |
 | `copy_origen` | `str` | Source path of the last copy |
 | `copy_destino` | `str` | Destination path of the last copy |
-| `copy_proceso` | `dict` | `{"proc": Popen \| None}` — the live rclone subprocess |
+| `copy_proceso` | `dict` | `{"proc": Popen \| None, "cancelled": bool, "status": "running" \| outcome}` — the live rclone subprocess and the state of the last copy/check; shared by reference across pages |
 | `copy_log_callbacks` | `list[Callable]` | `log()` functions of currently subscribed pages |
 
 #### Session management functions
 
 - `_ws_save(usuario, state)` — saves/updates the session when navigating to the copy view
 - `_ws_load(usuario)` → `dict | None` — returns the session if complete enough to restore (has `perfil_rclone` and `endpoint`)
-- `_ws_clear(usuario)` — deletes the session on logout; also cancels any pending throttle timer and clears callbacks to avoid firing on dead pages
+- `_ws_clear(usuario)` — deletes the session; also cancels any pending throttle timer and clears callbacks to avoid firing on dead pages. There is no logout: it is used when a previous session is being restored and the user types a different username (the old session is discarded and the normal flow follows)
 
 ---
 
@@ -324,9 +372,9 @@ When the user closes and reopens the tab:
 The `_replay` thread:
 - Waits 200 ms for the control tree to stabilize
 - Shows a reconnection banner with the current status
-- Replays the last 200 lines from the buffer (the rest is in `~/bifrost-logs/`)
-- If `_active_proceso["proc"]` is still alive (`proc.poll() is None`), restores the Cancel button and launches `_watch_proc_end` to detect when it finishes
-- If the process already ended (race between `copy_status` and `proc` teardown), adjusts status to `"done"` or `"error"`
+- Replays the last 200 lines from the buffer (the full log of each operation is in its report)
+- If `copy_proceso["status"]` is `"running"`, starts the page's progress ticker, which shows the progress block, restores the Cancel button and re-enables the buttons when the operation ends
+- `copy_proceso["status"]` says whether the last copy/check is still running or how it ended (`ok`, `partial`, `differences`, `failed`, `cancelled`…); a matching message is shown
 
 ---
 
@@ -422,18 +470,13 @@ The only places where `page.update()` can be called directly without `ui_call` a
 
 ---
 
-### Log autosave
+### Reports of each copy and check
 
-At the end of each copy or check (success or error), `_autosave_log()` saves the buffer contents to:
-
-```
-~/bifrost-logs/bifrost-YYYY-MM-DD_HH-MM-SS.log
-```
-
-This is especially important in web mode because:
-- The in-memory buffer is truncated to the last 5000 lines
-- On reconnection only the last 200 lines are replayed on screen
-- The full log is always available on the OOD server filesystem
+At the end of each copy or check, the app saves a report (header, what the user saw and the full list of
+files with problems) with `report_path()`: on desktop in `<log folder>/reports/`
+(`~/Library/Logs/bifrost/transfer/reports/` on macOS), in web mode in the Open OnDemand session folder
+(`$BIFROST_SESSION_DIR/reports/`, next to `output.log`). The last 30 reports of each type are kept. See
+`docs/development/operations.md` for the technical log.
 
 ---
 
