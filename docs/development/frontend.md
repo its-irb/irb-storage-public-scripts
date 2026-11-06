@@ -25,7 +25,7 @@ al salir; el resto vive en módulos propios:
 
 | App | Módulos de `src/` además de `main.py` |
 |---|---|
-| `bifrost-mount` | `session_log.py` (log de sesión: `_write_to_log_file`, `_log_event` → `~/bifrost-mount-logs/`), `views/mount.py` (`build_rclone_browser`, que aquí es una lista de buckets, y `_build_mount_bucket`, la vista de montaje). |
+| `bifrost-mount` | `views/mount.py` (`build_rclone_browser`, que aquí es una lista de buckets, y `_build_mount_bucket`, la vista de montaje). |
 | `bifrost-transfer` | `web_session.py` (sesiones del modo web), `meta_fields.py`, `views/shares.py` (`_build_shares_content`), `views/rclone_browser.py` (`build_rclone_browser`, navegador de carpetas del destino), `views/local_fs.py` (`build_local_fs_browser`, `show_local_fs_modal`), `views/copy.py` (`_build_copy_content`), `views/tag_manager.py` (`_build_tag_manager_content`). |
 
 `build_rclone_browser` se llama igual en las dos apps pero son funciones
@@ -43,9 +43,9 @@ parámetro:
 | Vista | Firma | Qué hace |
 |---|---|---|
 | `views/update.py` | `build_update_content(page, on_continue)` | Primera pantalla: comprueba releases en GitHub e instala la actualización. |
-| `views/login.py` | `build_login_content(page, on_success, prefill_user="", *, no_ldap, is_web=False, log_event=print)` | Login LDAP. Mientras valida bloquea el botón y los dos campos (`_set_busy`), así no se puede lanzar una segunda validación con clic + Enter. El mensaje de error depende del motivo de `validar_credenciales_ldap` (`_LDAP_ERROR_MESSAGES`); si falta un campo dice cuál ("Username is required." / "Password is required."). La contraseña no se recorta con `strip()`. `log_event` recibe `LOGIN attempt`, `LOGIN bypass LDAP`, `LOGIN success` y `LOGIN failed — reason: <motivo>` (mount pasa `_log_event`, que escribe en el fichero; transfer usa `print`). `prefill_user` (modo web) rellena el usuario y muestra el aviso "Resuming previous session". |
+| `views/login.py` | `build_login_content(page, on_success, prefill_user="", *, no_ldap, is_web=False)` | Login LDAP. Mientras valida bloquea el botón y los dos campos (`_set_busy`), así no se puede lanzar una segunda validación con clic + Enter. El mensaje de error depende del motivo de `validar_credenciales_ldap` (`_LDAP_ERROR_MESSAGES`); si falta un campo dice cuál ("Username is required." / "Password is required."). La contraseña no se recorta con `strip()`. Deja en el log técnico (logger `bifrost.login`) `LOGIN attempt`, `LOGIN bypass LDAP` y `LOGIN success`, con `— user: <usuario>`, y `LOGIN failed — user: <usuario> — reason: <motivo>`; igual en las dos apps. `prefill_user` (modo web) rellena el usuario y muestra el aviso "Resuming previous session". |
 | `views/minio.py` | `build_minio_content(page, on_continue, *, no_ldap, is_web=False)` | Selección de servidor MinIO. |
-| `views/credentials.py` | `build_credentials_content(page, perfil_rclone, endpoint, credenciales_ldap, on_continue, extra_config=None, duracion_dias=None, on_back=None, *, no_ldap, is_web=False, done_message, write_log=None)` | Renovación STS con log en pantalla. `write_log` escribe además cada línea en un fichero (mount pasa `_write_to_log_file`); `done_message` es la última línea ("Loading mount interface…" en mount, "Continuing to copy interface…" en transfer). |
+| `views/credentials.py` | `build_credentials_content(page, perfil_rclone, endpoint, credenciales_ldap, on_continue, extra_config=None, duracion_dias=None, on_back=None, *, no_ldap, is_web=False, done_message)` | Renovación STS con log en pantalla. Al log técnico (logger `bifrost.auth`) no va el texto de la pantalla, sino una línea por paso (`credentials: renewing …`, `credentials: renewed …` y los fallos de la petición a MinIO); `done_message` es la última línea ("Loading mount interface…" en mount, "Continuing to copy interface…" en transfer). |
 
 Un arreglo en estas vistas se hace aquí, una vez para las dos apps; no hay que
 volver a copiarlas en las apps.

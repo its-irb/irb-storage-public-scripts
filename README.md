@@ -42,8 +42,7 @@ This README is a quick reference for running and packaging the apps.
 ```
 bifrost-mount/            # MinIO folder mounting app
   src/
-    main.py               # GUI (Flet). Entry point: startup, navigation, exit cleanup
-    session_log.py        # Persistent session log (~/bifrost-mount-logs/)
+    main.py               # GUI (Flet). Entry point: startup, technical log, navigation, exit cleanup
     views/                # mount.py: bucket selector + mount view
     config.py             # APP_INFO
     version.py
@@ -80,7 +79,8 @@ shared/                   # bifrost-shared package
 docs/                     # agent/ (English), development/ (Spanish), user/ (English)
 AGENTS.md                 # Entry point for coding agents
 old/                      # Legacy scripts (do not use)
-build-windows.ps1         # Local Windows build (flet build)
+build-windows.ps1         # Local Windows build or run (flet build / flet run with -run)
+ood-app-bifrost/          # Git submodule: Open OnDemand app that launches the bifrost-transfer job
 .github/workflows/main.yml  # CI: macOS/Windows build + release
 ```
 
@@ -97,7 +97,7 @@ Metadata tags are organized in **profiles**. Both the copy form and the Tag Mana
 
 When uploading data, select a metadata profile from the dropdown at the top of the METADATA section. Fill in the fields and the tags will be applied automatically to the uploaded objects. Switching profiles clears the current fields (a confirmation dialog appears if any field has data).
 
-Los campos de metadatos, los botones de copia/verificación y el panel de log solo aparecen una vez que se ha seleccionado un bucket destino en el navegador.
+The metadata fields, the copy/check buttons and the log panel only appear once a destination bucket has been selected in the browser.
 
 The destination bucket browser includes a **"Filter by lab…"** field that lets you filter the bucket list by laboratory acronym. Start typing a lab name or acronym to see suggestions; select one to show only that lab's buckets. The filter disappears when navigating inside a bucket and reappears when returning to the root.
 
@@ -131,7 +131,6 @@ When a new release of bifrost-mount or bifrost-transfer is available, the app as
 Steps are the same for both apps. Run from the app folder (`bifrost-mount/` or `bifrost-transfer/`).
 
 ### First time — create the virtual environment:
-Steps are the same for both apps. Run from the app folder (`bifrost-mount/` or `bifrost-transfer/`).
 
 1. Create a copy of `pyproject-template.toml` named `pyproject.toml` inside each app folder (`bifrost-mount/` and `bifrost-transfer/`).
 2. Update the `__BUILDPATH__` variable in `pyproject.toml` to point to your local absolute path:
@@ -149,13 +148,33 @@ uv sync
 
 # Activate virtual environment
 source ./.venv/bin/activate          # macOS / Linux
-.\.venv\Scripts\python.exe -m pip install build # Windows only
-.\build-windows.ps1 -app bifrost-mount  # Windows only
+```
+
+On Windows (PowerShell), generate `pyproject.toml` as UTF-8 **without BOM**
+(with `Set-Content -Encoding utf8`, PowerShell 5.1 adds a BOM and `flet run`
+fails with `TOMLDecodeError`):
+
+```powershell
+# Inside bifrost-mount\ or bifrost-transfer\
+$utf8 = New-Object System.Text.UTF8Encoding $false
+$toml = [IO.File]::ReadAllText("$PWD\pyproject-template.toml", $utf8).Replace('__BUILDPATH__', ((Resolve-Path ..).Path -replace '\\','/'))
+[IO.File]::WriteAllText("$PWD\pyproject.toml", $toml, $utf8)
+uv sync
+.\.venv\Scripts\Activate.ps1
+```
+
+On Windows, `build-windows.ps1` can do all of this for you (it also downloads
+the assets and reinstalls `bifrost-shared`). Run it from the repo root; without
+`-app` it uses `bifrost-mount`:
+
+```powershell
+.\build-windows.ps1 -app bifrost-transfer -run   # prepare the app and run it (uv run flet run)
+.\build-windows.ps1 -app bifrost-transfer        # prepare the app and build it (flet build windows)
 ```
 
 #### Downloading binaries and assets (`rclone` / `fuse-t`)
 
-Run the appropriate script from inside the target app folder (`bifrost-mount/` or `bifrost-transfer/`)[cite: 3]:
+Run the appropriate script from inside the target app folder (`bifrost-mount/` or `bifrost-transfer/`):
 
 ##### For `bifrost-mount`:
 ```bash

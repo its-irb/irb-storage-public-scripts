@@ -41,8 +41,9 @@ Cross-cutting knowledge that constrains any change. Technical details in
    `_propagar_is_web()`; otherwise it silently behaves as desktop.
 8. **Views never import `main`** (`main.py` imports the views; the reverse is a
    circular import). Shared constants (`STS_*`, `NO_LDAP`) come from
-   `bifrost_backend.common.constants`; the mount session log from
-   `session_log.py`; web sessions from `web_session.py`.
+   `bifrost_backend.common.constants`; the technical log is configured in
+   `main.py` with `backend.setup_logging(...)` and every module writes with its
+   own `logging.getLogger("bifrost.<area>")`; web sessions from `web_session.py`.
 
 ## Visible behaviour to preserve
 

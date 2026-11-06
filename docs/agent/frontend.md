@@ -19,7 +19,7 @@
 
 | App | Modules in `src/` besides `main.py` |
 |---|---|
-| `bifrost-mount` | `session_log.py` (`_write_to_log_file`, `_log_event` → `~/bifrost-mount-logs/`), `views/mount.py` (`build_rclone_browser` bucket list, `_build_mount_bucket`). |
+| `bifrost-mount` | `views/mount.py` (`build_rclone_browser` bucket list, `_build_mount_bucket`). |
 | `bifrost-transfer` | `web_session.py`, `meta_fields.py`, `views/shares.py` (`_build_shares_content`), `views/rclone_browser.py` (`build_rclone_browser` folder navigator), `views/local_fs.py` (`build_local_fs_browser`, `show_local_fs_modal`), `views/copy.py` (`_build_copy_content`), `views/tag_manager.py` (`_build_tag_manager_content`). |
 
 `build_rclone_browser` has the same name in both apps but different code: a
@@ -35,9 +35,9 @@ bucket list in mount, a folder navigator in transfer.
 | View | Signature | Notes |
 |---|---|---|
 | `views/update.py` | `build_update_content(page, on_continue)` | First screen; checks GitHub releases and installs updates. |
-| `views/login.py` | `build_login_content(page, on_success, prefill_user="", *, no_ldap, is_web=False, log_event=print)` | Locks button and fields while validating (`_set_busy`), so Enter/click cannot start a second LDAP check. Message per `validar_credenciales_ldap` reason (`_LDAP_ERROR_MESSAGES`); "Username is required." / "Password is required." for empty fields; the password is not stripped. `log_event` receives `LOGIN attempt/bypass LDAP/success/failed — reason: <reason>` (mount passes `_log_event`; transfer keeps `print`). `prefill_user` shows the "Resuming previous session" banner (transfer web). |
+| `views/login.py` | `build_login_content(page, on_success, prefill_user="", *, no_ldap, is_web=False)` | Locks button and fields while validating (`_set_busy`), so Enter/click cannot start a second LDAP check. Message per `validar_credenciales_ldap` reason (`_LDAP_ERROR_MESSAGES`); "Username is required." / "Password is required." for empty fields; the password is not stripped. Writes `LOGIN attempt/bypass LDAP/success — user: <user>` and `LOGIN failed — user: <user> — reason: <reason>` to the technical log (logger `bifrost.login`), the same in both apps. `prefill_user` shows the "Resuming previous session" banner (transfer web). |
 | `views/minio.py` | `build_minio_content(page, on_continue, *, no_ldap, is_web=False)` | MinIO server selection. |
-| `views/credentials.py` | `build_credentials_content(page, perfil_rclone, endpoint, credenciales_ldap, on_continue, extra_config=None, duracion_dias=None, on_back=None, *, no_ldap, is_web=False, done_message, write_log=None)` | STS renewal with on-screen log; `write_log` also writes each line to a file (mount passes `_write_to_log_file`); `done_message` is the last line ("Loading mount interface…" / "Continuing to copy interface…"). |
+| `views/credentials.py` | `build_credentials_content(page, perfil_rclone, endpoint, credenciales_ldap, on_continue, extra_config=None, duracion_dias=None, on_back=None, *, no_ldap, is_web=False, done_message)` | STS renewal with on-screen log; the technical log (logger `bifrost.auth`) gets one line per step (`credentials: renewing …`, `credentials: renewed …`, request failures), not the on-screen text; `done_message` is the last line ("Loading mount interface…" / "Continuing to copy interface…"). |
 
 Differences between the apps are parameters; do not copy these views back into
 an app.
