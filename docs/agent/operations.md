@@ -166,7 +166,7 @@ manually (`flet run`).
 
 | Variable | Applies to | Effect |
 |---|---|---|
-| `BIFROST_CLUSTER=1` | transfer | Enables `IS_WEB` (full web mode; OOD production signal) |
+| `BIFROST_CLUSTER=1` | transfer | Sets `IS_CLUSTER` (and so `IS_WEB`): OOD production signal; builds the FastAPI/Hypercorn `app` and server-managed shutdown. Not the same as `IS_WEB` (see `frontend.md`) |
 | `BIFROST_NO_LDAP=1` | both | Skips LDAP validation at login (machines without LDAP but with MinIO access, for example IVIS). The user still types username+password (needed for STS). Header badge: `DESKTOP (NO LDAP)`. On Windows define it as a system variable (see below). |
 | `FLET_ASSETS_DIR` | both | Set by Flet at runtime; the backend uses it to locate the bundled `rclone` |
 | `FLET_APP_STORAGE_TEMP` | both | Set by Flet; used to debug binary location |
