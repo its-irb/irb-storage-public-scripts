@@ -57,10 +57,30 @@ flet run
 Useful flags:
 
 ```bash
-flet run --customuser     # Sign in with a user different from the system one
-flet run --update         # Force autoupdate
+flet run --update         # Meant to force autoupdate — currently has no effect (see below)
 flet run --web            # (transfer only) web mode for local development
 BIFROST_CLUSTER=1 python src/main.py --web  # (transfer only) simulate OOD production
+```
+
+- `--update` currently does nothing: `check_update_version()` receives
+  `force_update`, but the test block that simulates version `999.999.999` is
+  commented out. Uncomment it in
+  `shared/bifrost_backend/common/updates.py` (and reinstall the shared package)
+  to test the update screen.
+- The username field of the login is always editable; there is no flag to sign
+  in with another user.
+- With Flet 0.84, `flet run --web` fails with
+  `ModuleNotFoundError: No module named 'flet_desktop'` if `flet run` (desktop)
+  has never been run in that venv (`flet_cli` imports `flet_desktop` even in web
+  mode). It also installs `flet-web`, `fastapi`, `uvicorn` and others in the
+  venv and can change pinned versions (it upgraded `httptools`). Alternative
+  without the Flet CLI, from `bifrost-transfer/`, serving on port 8000 (change
+  it with `FLET_SERVER_PORT`; open `http://localhost:8000` by hand). Flet also
+  installs `flet-web` automatically if it is missing (the app's dependencies
+  only include it on Linux):
+
+```bash
+FLET_FORCE_WEB_SERVER=true python src/main.py --web
 ```
 
 After changing code in `shared/`, reinstall the shared package:
@@ -76,7 +96,7 @@ Common prerequisite: local `pyproject.toml` generated from the template with
 
 | Environment | Notes |
 |---|---|
-| Local Windows | Regenerates `pyproject.toml`, downloads rclone, reinstalls `bifrost-shared` and runs `flet build windows`. The installer (Inno Setup) is packaged separately. |
+| Local Windows | `build-windows.ps1`, from the repo root: regenerates `pyproject.toml`, downloads rclone, reinstalls `bifrost-shared` and runs `flet build windows` (output in `<app>/build/windows/`; uses the `flet` on PATH, so the app's venv must be active) or, with `-run`, `uv run flet run` (always the app's venv). Default app: `bifrost-mount`. The installer (Inno Setup) is packaged separately. |
 | Local macOS | From the app folder; requires Xcode. Local version `2.0.0.dev`; in mount it copies `fuse_t.framework` into the bundle. |
 | CI | `.github/workflows/main.yml` — macOS (`.app` → DMG) and Windows (build + Inno Setup + installer signing) for both apps. **There is no Linux job.** |
 | Linux (cluster) | No packaging: `bifrost-transfer` runs from source in web mode (Open OnDemand, `BIFROST_CLUSTER=1`). |
@@ -89,8 +109,9 @@ Local builds:
 ```
 
 ```powershell
-# Windows (from the repo root)
-.\build-windows.ps1 -app bifrost-mount    # or -app bifrost-transfer
+# Windows (from the repo root; default -app bifrost-mount)
+.\build-windows.ps1 -app bifrost-transfer        # flet build windows
+.\build-windows.ps1 -app bifrost-transfer -run   # flet run (development)
 ```
 
 Windows installer (Inno Setup, separate from the build):
