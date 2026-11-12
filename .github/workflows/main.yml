@@ -370,11 +370,26 @@ jobs:
       
           Remove-Item $pfxPath -Force
       
+      # El .zip es para la descarga manual: los navegadores avisan al bajar un .exe
+      # pero no un .zip. El .exe suelto se sigue publicando porque la
+      # autoactualización (shared/bifrost_backend/common/updates.py) lo descarga
+      # directamente; no quitarlo sin cambiar antes el updater.
+      - name: Comprimir instalador en .zip
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "${{ matrix.app }}\installer\*.exe" | Select-Object -First 1
+          if (-not $installer) { throw "Installer .exe not found" }
+          $zip = Join-Path $installer.DirectoryName ($installer.BaseName + ".zip")
+          Compress-Archive -Path $installer.FullName -DestinationPath $zip
+          Write-Host "Creado: $zip"
+
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
         with:
           name: ${{ matrix.app }}-windows
-          path: ${{ matrix.app }}/installer/*.exe
+          path: |
+            ${{ matrix.app }}/installer/*.exe
+            ${{ matrix.app }}/installer/*.zip
 
   
 

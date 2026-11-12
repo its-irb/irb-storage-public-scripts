@@ -105,8 +105,35 @@ that opens a dialog to renew manually for 1–30 days (default 7).
 ## Web mode (`bifrost-transfer`, Open OnDemand) — essentials
 
 ```python
-IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or (os.environ.get("BIFROST_CLUSTER") == "1")
+IS_CLUSTER = os.environ.get("BIFROST_CLUSTER") == "1"
+IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or IS_CLUSTER
 ```
+
+**Why two variables.** `IS_WEB` answers "is there a browser?"; `IS_CLUSTER`
+answers "is Hypercorn serving this under OOD?". They are not the same:
+
+| How it starts | `IS_WEB` | `IS_CLUSTER` |
+|---|---|---|
+| Desktop (`python main.py`) | False | False |
+| Local web dev (`flet run --web`, `python main.py --web`) | True | False |
+| Cluster OOD (Hypercorn, `script.sh.erb` exports `BIFROST_CLUSTER=1`) | True | True |
+
+`IS_CLUSTER` gates what must only happen on the cluster:
+
+- The `if IS_CLUSTER:` block at the end of `main.py` that builds the `FastAPI`
+  app, mounts Flet and defines the authenticated WebSocket endpoint (the `app`
+  Hypercorn loads as `main:app`). With `IS_WEB` it would also run in local web
+  dev, where Flet starts its own server, and the two would clash.
+- `register_shutdown(..., server_managed=IS_CLUSTER)`: on the cluster the
+  server manages shutdown; in local dev the process does.
+
+`IS_WEB` cannot replace it: under Hypercorn it is already true (`__name__ !=
+"__main__"`), but so it is under `flet run`, so it does not tell the cluster
+apart. Do not remove `export BIFROST_CLUSTER=1` from
+`ood-app-bifrost/template/script.sh.erb`: without it `main:app` does not exist
+and Hypercorn fails at startup. History: this was tried in the June 2026
+simplification (single `IS_WEB`, spec in `docs/superpowers/specs/`) and
+reverted the next day (`5e6246b`).
 
 - `main(page)` also sets `IS_WEB = IS_WEB or page.web`. `IS_WEB` lives only in
   `main.py`; `_propagar_is_web()` copies it to `web_session`, `views.shares`,

@@ -4,7 +4,7 @@
 
 | Variable | Aplica a | Efecto |
 |---|---|---|
-| `BIFROST_CLUSTER=1` | transfer | Activa `IS_WEB` (modo web completo; señal de producción OOD; flujo CIFS/shares del cluster). |
+| `BIFROST_CLUSTER=1` | transfer | Activa `IS_CLUSTER` (y con ello `IS_WEB`): señal de producción OOD; crea la `app` FastAPI/Hypercorn y el cierre gestionado por el servidor; flujo CIFS/shares del cluster. No equivale a `IS_WEB` (ver `frontend.md`). |
 | `BIFROST_NO_LDAP=1` | ambas | Salta la validación LDAP en el login. Para máquinas sin acceso a LDAP pero con acceso a MinIO (p. ej. IVIS). El usuario igualmente introduce usuario+contraseña (necesarios para STS). El badge del header muestra `DESKTOP (NO LDAP)`. En Windows se define como variable de sistema (ver abajo) para que aplique a todos los usuarios. |
 | `BIFROST_LOG_LEVEL` | ambas | Nivel del log en consola (`DEBUG`, `INFO`…). Por defecto INFO en escritorio y DEBUG en web. |
 | `BIFROST_SESSION_DIR` | transfer (web) | Carpeta de la sesión de Open OnDemand (la exporta `script.sh.erb`); allí se guardan los informes (`reports/`). |
