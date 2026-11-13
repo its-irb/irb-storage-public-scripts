@@ -84,14 +84,12 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                     shutil.move(new_version, exe_path)
                     bat_path = new_version + ".bat"
                     with open(bat_path, "w") as bat:
-                        bat.write(
-                            f'@echo off\n'
-                            f'timeout /t 2 /nobreak >nul\n'
-                            f'"{exe_path}" /SILENT /SUPPRESSMSGBOXES /NOCANCEL\n'
-                            f'start "" "%ProgramFiles(x86)%\\Bifrost-{flavour}\\bifrost-{flavour}.exe"\n'
-                        )
+                        bat.write(backend.build_windows_update_script(exe_path, flavour))
                     subprocess.Popen(
                         ["cmd", "/c", bat_path],
+                        # Directorio de trabajo fuera de ...\flet\app: lo heredan el instalador y la app
+                        # relanzada, y mientras sea su directorio actual no se puede borrar (errno 32).
+                        cwd=tempfile.gettempdir(),
                         start_new_session=True,
                         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
                         close_fds=True,

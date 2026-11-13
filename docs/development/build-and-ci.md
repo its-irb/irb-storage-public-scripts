@@ -292,9 +292,10 @@ solo la hace la CI; ver abajo.)
 
 ## Política de validación
 
-**No hay suite de tests automatizada.** Los cambios se validan ejecutando las
-apps manualmente (`flet run`, y en su caso `flet run --web`). Las
-funciones críticas a probar manualmente tras un cambio:
+Los tests automáticos (pytest) cubren solo una parte del autoupdate, qué cubren y qué no, cómo
+ejecutarlos y la prueba manual del autoupdate están en [testing.md](testing.md).
+Todo lo demás se valida ejecutando las apps manualmente (`flet run`, y en su caso
+`flet run --web`). Las funciones críticas a probar manualmente tras un cambio:
 
 - login y renovación de credenciales STS;
 - copy completa + check de integridad;

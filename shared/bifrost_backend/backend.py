@@ -32,6 +32,7 @@ from .common.updates import (
     should_check_for_updates,
     get_update_file_suffix,
     download_new_binary,
+    build_windows_update_script,
     get_emoji_font_asset_path,
 )
 from .common.ui_helpers import (

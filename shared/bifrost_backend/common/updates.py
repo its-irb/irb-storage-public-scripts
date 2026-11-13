@@ -32,10 +32,6 @@ def check_update_version(force_update: bool = False) -> str | None:
     Returns:
         Tag de la versión más reciente si hay actualización, None en caso contrario.
     """
-    # Por si se quiere probar el update manualmente durante el desarrollo sin necesidad de subir una nueva release:
-    # if force_update:
-    #     return "v999.999.999"
-
     try:
         response = requests.get(f"https://api.github.com/repos/{REPO}/releases/latest", timeout=5)
         response.raise_for_status()
@@ -101,6 +97,25 @@ def download_new_binary(file_name: str) -> str:
     with tempfile.NamedTemporaryFile(delete=False, mode='wb') as tmp:
         tmp.write(r.content)
         return tmp.name
+
+
+def build_windows_update_script(exe_path: str, flavour: str) -> str:
+    """
+    Contenido del .bat que instala la actualización en Windows y relanza la app.
+
+    Está separado de la vista para poder probarlo sin interfaz gráfica.
+    """
+    return (
+        f'@echo off\n'
+        # Salir del directorio de trabajo heredado de la app (...\flet\app): mientras algún proceso lo tenga
+        # como directorio actual, Windows no deja borrarlo y la app relanzada falla al re-extraerlo (errno 32).
+        f'cd /d "%TEMP%"\n'
+        f'timeout /t 2 /nobreak >nul\n'
+        # /wait: el instalador es una app gráfica y cmd no la espera por defecto;
+        # sin esto la app se relanza antes de que termine la instalación.
+        f'start /wait "" "{exe_path}" /SILENT /SUPPRESSMSGBOXES /NOCANCEL\n'
+        f'start "" "%ProgramFiles(x86)%\\Bifrost-{flavour}\\bifrost-{flavour}.exe"\n'
+    )
 
 
 def get_emoji_font_asset_path() -> str | None:
