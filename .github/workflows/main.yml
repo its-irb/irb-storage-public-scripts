@@ -390,7 +390,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release'
+    # TEMPORAL (prueba del autoupdate): feature/update publica una prerelease. Revertir antes del merge a main.
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || github.ref == 'refs/heads/feature/update'
     steps:
       - name: Checkout código
         uses: actions/checkout@v6.0.2
@@ -471,7 +472,8 @@ jobs:
           tag_name: v1.0.${{ github.run_number }}
           name: "Release v1.0.${{ github.run_number }}"
           draft: false
-          prerelease: false
+          prerelease: ${{ github.ref == 'refs/heads/feature/update' }}   # TEMPORAL: revertir antes del merge a main
+          target_commitish: ${{ github.sha }}                          # TEMPORAL: revertir antes del merge a main
           files: dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
