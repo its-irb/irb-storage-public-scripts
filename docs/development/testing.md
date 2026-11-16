@@ -69,6 +69,9 @@ significa "pasa" en cada grupo:
   la API, respuesta sin `tag_name`, sin red, descarga correcta y 404; y que se piden las URLs
   esperadas de GitHub. Valida cómo reacciona nuestro código a esas respuestas, **no** que
   GitHub responda así (ver "Límites de sustituir `requests.get`").
+- **Extracción del `.zip`** (`test_updates.py`): `extract_windows_installer` saca el `.exe`
+  de un `.zip` creado en el test, y falla si no hay ninguno o hay varios. No comprueba que el
+  `.zip` real de la release tenga esa forma.
 - **Texto del `.bat`** (`test_updates.py`): `build_windows_update_script` genera un texto que
   contiene `cd /d`, el instalador con `start /wait` y el relanzado, en ese orden. Es una
   comprobación **del contenido de un string**: no ejecuta el `.bat`, ni el instalador, ni

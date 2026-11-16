@@ -390,8 +390,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    # TEMPORAL (prueba del autoupdate): feature/update publica una prerelease. Revertir antes del merge a main.
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || github.ref == 'refs/heads/feature/update'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release'
     steps:
       - name: Checkout código
         uses: actions/checkout@v6.0.2
@@ -453,9 +452,10 @@ jobs:
       #     done
       #     ls -lah dist/
 
-      # La release publica el instalador de Windows de dos formas: el .exe suelto, que es
-      # el que descarga el autoupdate (updates.py, sufijo -main-windows.exe), y
-      # <app>-windows.zip con ese mismo .exe dentro, que es el que descargan los usuarios.
+      # La release publica el instalador de Windows de dos formas: <app>-windows.zip con el
+      # .exe dentro, que es el que descargan los usuarios y el autoupdate (updates.py, sufijo
+      # -windows.zip), y el .exe suelto, que lo siguen pidiendo las versiones anteriores
+      # (sufijo -main-windows.exe). No cambiar estos nombres: romperían el autoupdate.
       - name: Comprimir instaladores de Windows en .zip
         shell: bash
         run: |
@@ -472,8 +472,7 @@ jobs:
           tag_name: v1.0.${{ github.run_number }}
           name: "Release v1.0.${{ github.run_number }}"
           draft: false
-          prerelease: ${{ github.ref == 'refs/heads/feature/update' }}   # TEMPORAL: revertir antes del merge a main
-          target_commitish: ${{ github.sha }}                          # TEMPORAL: revertir antes del merge a main
+          prerelease: false
           files: dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

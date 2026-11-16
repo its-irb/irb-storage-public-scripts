@@ -284,9 +284,11 @@ solo la hace la CI; ver abajo.)
   - macOS: `bifrost-<flavour>-macos.dmg` (Apple Silicon) y
     `bifrost-<flavour>-macos-intel.dmg` (Intel, stopgap hasta nov-2026)
   - Windows: `bifrost-<flavour>-<rama>-windows.exe` (instalador firmado) y
-    `bifrost-<flavour>-windows.zip` (el mismo instalador comprimido, para la
-    descarga manual de los usuarios; lo crea el propio job `release` con `zip`).
-    El autoupdate sigue descargando el `.exe`, no el `.zip`
+    `bifrost-<flavour>-windows.zip` (el mismo instalador comprimido; lo crea el
+    propio job `release` con `zip`). El `.zip` es el que descargan los usuarios
+    y el autoupdate, que extrae el `.exe` de dentro
+    (`extract_windows_installer()`). El `.exe` suelto se mantiene porque las
+    versiones anteriores lo siguen pidiendo (`-main-windows.exe`)
 
   De estas releases descarga el autoupdate de las apps
   (`backend.download_new_binary()`): en macOS elige el sufijo según la

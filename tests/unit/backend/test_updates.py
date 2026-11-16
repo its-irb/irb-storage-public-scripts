@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import platform
 import sys
+import zipfile
 
 import pytest
 
@@ -28,7 +29,7 @@ def test_parse_version_compares_numerically_not_alphabetically():
 
 @pytest.mark.parametrize("plat, machine, expected", [
     ("linux", "x86_64", "-linux"),
-    ("win32", "AMD64", "-main-windows.exe"),
+    ("win32", "AMD64", "-windows.zip"),
     ("darwin", "arm64", "-macos.dmg"),
     ("darwin", "x86_64", "-macos-intel.dmg"),
     ("freebsd", "x86_64", ""),
@@ -71,6 +72,33 @@ def test_should_not_check_cluster_binary(monkeypatch, clean_env):
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "argv", ["bifrost-mount_linux_cluster"])
     assert updates.should_check_for_updates() is False
+
+
+def _make_zip(path, names):
+    with zipfile.ZipFile(path, "w") as z:
+        for name in names:
+            z.writestr(name, "contenido")
+    return path
+
+
+def test_extract_windows_installer_returns_the_exe_inside_the_zip(tmp_path):
+    zip_path = _make_zip(tmp_path / "update.zip", ["bifrost-test-main-windows.exe"])
+    dest = tmp_path / "out"
+    exe = updates.extract_windows_installer(str(zip_path), str(dest))
+    assert exe.endswith("bifrost-test-main-windows.exe")
+    assert (dest / "bifrost-test-main-windows.exe").read_text() == "contenido"
+
+
+def test_extract_windows_installer_fails_without_exe(tmp_path):
+    zip_path = _make_zip(tmp_path / "update.zip", ["leeme.txt"])
+    with pytest.raises(RuntimeError):
+        updates.extract_windows_installer(str(zip_path), str(tmp_path / "out"))
+
+
+def test_extract_windows_installer_fails_with_several_exe(tmp_path):
+    zip_path = _make_zip(tmp_path / "update.zip", ["a.exe", "b.exe"])
+    with pytest.raises(RuntimeError):
+        updates.extract_windows_installer(str(zip_path), str(tmp_path / "out"))
 
 
 def test_windows_script_waits_for_installer_before_relaunch():
