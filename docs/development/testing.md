@@ -147,6 +147,145 @@ Instala la última release real sobre tu instalación, así que usa un equipo do
 moleste. Si `flet build` no funciona en tu equipo, el build podría hacerse con GitHub
 Actions, pero no se ha probado.
 
+Esta forma solo sirve si la última release ya contiene el fichero que pide tu código. Si tu
+cambio toca **lo que se publica** (nombres de los assets, el job `release` del CI) o **lo
+que descarga el updater**, la última release todavía no lo tiene: usa la forma siguiente.
+
+### Cómo probarlo: contra una prerelease de tu rama (antes del merge a `main`)
+
+Sirve para probar de punta a punta, **sin hacer merge a `main` y sin que los usuarios lo
+noten**, un cambio que afecta a la release o a la descarga del update. Se hizo así para pasar
+el autoupdate de Windows del `.exe` al `.zip` (rama `feature/update`, prerelease `v1.0.330`).
+
+**Por qué funciona y por qué es seguro:**
+
+- El job `release` del CI solo se ejecuta en `main` y `release`, así que desde una rama
+  normal no hay ninguna release que probar. Se habilita temporalmente para tu rama.
+- La release de la rama se publica como **prerelease**. GitHub nunca marca una prerelease
+  como `latest`, y las apps de los usuarios solo consultan `releases/latest`: no la ven y no
+  se actualizan a ella.
+- Tu build local se apunta a esa prerelease concreta (por su tag) en vez de a `latest`. Ese
+  cambio solo existe en tu equipo y no se commitea.
+- Se prueban así a la vez el CI nuevo (qué publica y con qué nombres) y el updater nuevo
+  (qué descarga y cómo lo instala).
+
+Lo que **no** queda aislado en tu rama: las releases y los tags son del repositorio, así que
+la prerelease es visible en la página de *Releases* hasta que la borres.
+
+#### 1. Publicar una prerelease desde tu rama
+
+En `.github/workflows/main.yml`, job `release`, cambia temporalmente tres cosas (marca cada
+línea con un comentario `TEMPORAL` para encontrarlas luego):
+
+```yaml
+  release:
+    # TEMPORAL: <tu-rama> publica una prerelease. Revertir antes del merge a main.
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || github.ref == 'refs/heads/<tu-rama>'
+    ...
+      - name: Crear GitHub Release
+        with:
+          ...
+          prerelease: ${{ github.ref == 'refs/heads/<tu-rama>' }}   # TEMPORAL
+          target_commitish: ${{ github.sha }}                       # TEMPORAL
+```
+
+- `if`: deja que el job `release` se ejecute en tu rama.
+- `prerelease`: es lo que impide que la release sea `latest`. En `main` sigue valiendo `false`.
+- `target_commitish`: sin él, GitHub crea el tag sobre la rama principal y no sobre tu
+  commit, lo que confunde.
+
+Haz un commit **solo con este cambio** (así se revierte fácil) y súbelo. Si usas PowerShell
+5.1, escribe el mensaje en un fichero y usa `git commit -F fichero`: con varios `-m`,
+PowerShell puede meterlos todos en el título.
+
+#### 2. Comprobar la prerelease
+
+Cuando termine la ejecución en *Actions* (todos los jobs en verde, incluido `release`):
+
+1. En *Releases* debe aparecer `Release v1.0.<n>` con la etiqueta **Pre-release**. El número
+   es el de la ejecución del workflow.
+2. Revisa sus assets: deben estar los ficheros con los nombres que espera tu código (para
+   Windows: `bifrost-<app>-<rama>-windows.exe` y `bifrost-<app>-windows.zip`). Si publicas un
+   `.zip`, descárgalo y comprueba que contiene lo que debe.
+3. Comprueba que `latest` **no** ha cambiado (debe salir la release anterior, no la tuya):
+
+   ```powershell
+   (Invoke-RestMethod https://api.github.com/repos/its-irb/irb-storage-public-scripts/releases/latest).tag_name
+   ```
+
+#### 3. Apuntar tu build local a la prerelease (sin commit)
+
+- `bifrost-<flavour>/src/version.py`: una versión menor que la de la prerelease, p. ej.
+  `0.0.1`. **Por qué:** el updater solo ofrece actualizar si la versión publicada es mayor
+  que la instalada. Ojo: `2.0.0` es mayor que `1.0.<n>`, así que con la versión del repo no
+  ofrecería nada.
+- `shared/bifrost_backend/common/updates.py`: cambia `releases/latest` por el tag de tu
+  prerelease en las dos URLs, y marca las líneas con `# PRUEBA LOCAL, no commitear`:
+
+  ```python
+  # check_update_version()
+  requests.get(f"https://api.github.com/repos/{REPO}/releases/tags/v1.0.<n>", timeout=5)
+  # download_new_binary()
+  url = f"https://github.com/{REPO}/releases/download/v1.0.<n>/{file_name}{sufijo}"
+  ```
+
+  **Por qué:** `releases/latest` ignora las prereleases, así que sin este cambio tu build
+  nunca la encontraría. Si el nombre del fichero que descarga el updater lleva la rama (como
+  el `.exe` antiguo, `-main-windows.exe`), cambia también el sufijo en
+  `get_update_file_suffix()` por el de tu rama. Con el `.zip` no hace falta: su nombre no
+  lleva la rama.
+- Comprueba que las URLs responden antes de compilar (deben dar `200` o `206`):
+
+  ```bash
+  curl -s -o /dev/null -w "%{http_code}\n" -L -r 0-0 https://github.com/its-irb/irb-storage-public-scripts/releases/download/v1.0.<n>/bifrost-mount-windows.zip
+  ```
+
+#### 4. Compilar, comprobar e instalar
+
+Compila como en "Compilar e instalar" (borrando antes la caché de Flet, ver "Trampas
+conocidas"). Antes de instalar, comprueba que el build lleva tu código de prueba:
+
+```powershell
+Get-ChildItem $src -Recurse -Filter updates.py | Select-String "v1.0.<n>"
+```
+
+donde `$src` es `dist` o, si tuviste que usar el CMake de 64 bits,
+`build\flutter\build\windows\x64\runner\Release`. Si no sale nada, estás a punto de probar
+código viejo.
+
+Instala con la app cerrada:
+
+```powershell
+Stop-Process -Name bifrost-<flavour> -ErrorAction SilentlyContinue
+sudo robocopy "$src" "C:\Program Files (x86)\Bifrost-<flavour>" /MIR /NFL /NDL /NJH
+```
+
+`/MIR` deja la carpeta idéntica al build y borra lo que sobra, lo que evita la "instalación
+mezclada". En robocopy, los códigos de salida de 0 a 7 son correctos.
+
+#### 5. Probar la actualización
+
+1. Abre la app desde el acceso directo. Debe ofrecer `New version available: v1.0.<n>`.
+2. Pulsa *Update* y **no abras la app a mano**.
+3. Debe instalarse y relanzarse sola, en la pantalla de inicio de sesión y con `1.0.<n>`
+   arriba a la derecha.
+
+Si el updater descarga un `.zip`, puedes confirmar que pasó por él: en `%TEMP%` debe quedar
+una carpeta `bifrost-update-*` con el `.exe` extraído
+(`Get-ChildItem $env:TEMP -Directory -Filter "bifrost-update-*" | Get-ChildItem`).
+
+#### 6. Deshacer todo (no te lo saltes)
+
+1. Quita las líneas `# PRUEBA LOCAL` de `updates.py` y restaura `version.py`
+   (`git checkout -- bifrost-<flavour>/src/version.py`). Si `updates.py` también tiene
+   cambios buenos sin commitear, no uses `git checkout` con él: deshaz solo esas líneas.
+2. Quita del workflow las líneas `TEMPORAL` (o `git revert <commit del paso 1>`) **antes del
+   merge a `main`**. Si llegaran a `main`, el `if` no haría daño, pero el workflow quedaría
+   con código de prueba.
+3. Borra la prerelease en *Releases* (icono de papelera) y después su tag, que no se borra
+   con ella: `git push origin --delete v1.0.<n>`.
+4. Comprueba que `latest` sigue siendo la release anterior.
+
 ### Compilar e instalar (Windows)
 
 Requisitos: **Modo de desarrollador** activado (Flutter necesita enlaces simbólicos),
@@ -161,7 +300,12 @@ uv run flet build windows --output dist --no-rich-output
 
 La app se instala en `C:\Program Files (x86)\Bifrost-<flavour>\` (es la ruta que relanza el
 `.bat`): copia el **contenido** de la carpeta de salida, no la carpeta en sí, de modo que
-`bifrost-<flavour>.exe` quede en la raíz. Necesita permisos de administrador.
+`bifrost-<flavour>.exe` quede en la raíz. Necesita permisos de administrador. Con la app
+cerrada:
+
+```powershell
+sudo robocopy "<carpeta de salida>" "C:\Program Files (x86)\Bifrost-<flavour>" /MIR /NFL /NDL /NJH
+```
 
 ### Trampas conocidas
 
