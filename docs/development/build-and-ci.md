@@ -274,15 +274,21 @@ solo la hace la CI; ver abajo.)
   `/DBranchSuffix`, `/DAppVersion=1.0.<run_number>`, `/DAppName=<app>`) →
   `installer/*.exe`, y **firma el instalador** con `signtool` (certificado
   PFX desde los secrets del repo `IRBCODESIGNING` /
-  `IRBCODESIGNING_PASSWORD`, con timestamp de Digicert).
+  `IRBCODESIGNING_PASSWORD`, con timestamp de Digicert), y por último
+  comprime el instalador firmado en un `.zip` con el mismo nombre
+  (`Compress-Archive`). Sube dos artefactos: `<app>-windows` (`.exe`) y
+  `<app>-windows-zip` (`.zip`).
 - **Job `release`** (solo en `main` y `release`): descarga los artefactos de
   los tres jobs de build (por eso su `needs` incluye también
   `build-macos-intel`) y publica una release de GitHub con tag
   `v1.0.<run_number>` que contiene:
   - macOS: `bifrost-<flavour>-macos.dmg` (Apple Silicon) y
     `bifrost-<flavour>-macos-intel.dmg` (Intel, stopgap hasta nov-2026)
-  - Windows: `bifrost-<flavour>/installer/bifrost-<flavour>-<rama>-windows.exe`
-    (firmado)
+  - Windows: `bifrost-<flavour>-<rama>-windows.exe` (instalador firmado) y
+    `bifrost-<flavour>-<rama>-windows.zip` (el mismo instalador comprimido; es
+    el que descarga el autoupdate y el que se recomienda para la descarga
+    manual). El `.exe` suelto se mantiene para que las versiones antiguas, que
+    aún piden `-main-windows.exe`, puedan actualizarse
 
   De estas releases descarga el autoupdate de las apps
   (`backend.download_new_binary()`): en macOS elige el sufijo según la

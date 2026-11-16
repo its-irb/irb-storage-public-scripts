@@ -369,12 +369,27 @@ jobs:
             $installer
       
           Remove-Item $pfxPath -Force
-      
-      - name: Subir artefacto
+
+      # El .zip contiene el instalador ya firmado y es el que descarga el autoupdate
+      # (updates.py, sufijo -main-windows.zip). El .exe suelto se sigue publicando para que
+      # las versiones antiguas, que aún piden -main-windows.exe, puedan actualizarse.
+      - name: Comprimir instalador en .zip
+        shell: pwsh
+        run: |
+          $exe = "${{ matrix.app }}\installer\${{ matrix.app }}-${{ steps.clean_branch.outputs.name }}-windows.exe"
+          Compress-Archive -Path $exe -DestinationPath ([System.IO.Path]::ChangeExtension($exe, ".zip"))
+
+      - name: Subir artefacto (.exe)
         uses: actions/upload-artifact@v7.0.0
         with:
           name: ${{ matrix.app }}-windows
           path: ${{ matrix.app }}/installer/*.exe
+
+      - name: Subir artefacto (.zip)
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: ${{ matrix.app }}-windows-zip
+          path: ${{ matrix.app }}/installer/*.zip
 
   
 

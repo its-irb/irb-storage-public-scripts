@@ -8,6 +8,7 @@ import platform
 import requests
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 from config import APP_INFO
@@ -75,7 +76,7 @@ def get_update_file_suffix() -> str:
         # (follow-up post-nov-2026).
         return "-macos.dmg" if platform.machine() == "arm64" else "-macos-intel.dmg"
     elif sistema == "win32":
-        return "-main-windows.exe"
+        return "-main-windows.zip"
     return ""
 
 
@@ -97,6 +98,20 @@ def download_new_binary(file_name: str) -> str:
     with tempfile.NamedTemporaryFile(delete=False, mode='wb') as tmp:
         tmp.write(r.content)
         return tmp.name
+
+
+def extract_windows_installer(zip_path: str, dest_dir: str) -> str:
+    """
+    Extrae el instalador .exe del .zip de la release de Windows y devuelve su ruta.
+
+    Raises:
+        RuntimeError: Si el .zip no contiene exactamente un .exe.
+    """
+    with zipfile.ZipFile(zip_path) as z:
+        exes = [n for n in z.namelist() if n.lower().endswith(".exe")]
+        if len(exes) != 1:
+            raise RuntimeError(f"Expected one .exe in the update zip, found {len(exes)}")
+        return z.extract(exes[0], dest_dir)
 
 
 def build_windows_update_script(exe_path: str, flavour: str) -> str:
