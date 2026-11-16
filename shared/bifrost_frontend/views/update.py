@@ -2,10 +2,12 @@
 
 import logging
 import os
+import shutil
 import stat
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 from typing import Callable
 
 import flet as ft
@@ -78,8 +80,8 @@ def build_update_content(page: ft.Page, on_continue: Callable) -> ft.Control:
                 flavour = APP_INFO["flavour"]
                 new_version = backend.download_new_binary("bifrost-{0:s}".format(flavour))
                 if sys.platform == "win32":
-                    # La release de Windows es un .zip que lleva dentro el instalador .exe
-                    exe_path = backend.extract_windows_installer(new_version, tempfile.mkdtemp(prefix="bifrost-update-"))
+                    exe_path = str(Path(tempfile.gettempdir()) / "bifrost-{0:s}.exe".format(APP_INFO["flavour"]))
+                    shutil.move(new_version, exe_path)
                     bat_path = new_version + ".bat"
                     with open(bat_path, "w") as bat:
                         bat.write(backend.build_windows_update_script(exe_path, flavour))

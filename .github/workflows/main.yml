@@ -370,26 +370,14 @@ jobs:
       
           Remove-Item $pfxPath -Force
 
-      # El .zip contiene el instalador ya firmado y es el que descarga el autoupdate
-      # (updates.py, sufijo -main-windows.zip). El .exe suelto se sigue publicando para que
-      # las versiones antiguas, que aún piden -main-windows.exe, puedan actualizarse.
-      - name: Comprimir instalador en .zip
-        shell: pwsh
-        run: |
-          $exe = "${{ matrix.app }}\installer\${{ matrix.app }}-${{ steps.clean_branch.outputs.name }}-windows.exe"
-          Compress-Archive -Path $exe -DestinationPath ([System.IO.Path]::ChangeExtension($exe, ".zip"))
-
-      - name: Subir artefacto (.exe)
+      # GitHub entrega cada artefacto comprimido en un .zip con su nombre: este se descarga
+      # como <app>-windows.zip con el instalador .exe dentro. El .zip de la release se crea
+      # en el job release.
+      - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
         with:
           name: ${{ matrix.app }}-windows
           path: ${{ matrix.app }}/installer/*.exe
-
-      - name: Subir artefacto (.zip)
-        uses: actions/upload-artifact@v7.0.0
-        with:
-          name: ${{ matrix.app }}-windows-zip
-          path: ${{ matrix.app }}/installer/*.zip
 
   
 
@@ -463,6 +451,19 @@ jobs:
       #       fi
       #     done
       #     ls -lah dist/
+
+      # La release publica el instalador de Windows de dos formas: el .exe suelto, que es
+      # el que descarga el autoupdate (updates.py, sufijo -main-windows.exe), y
+      # <app>-windows.zip con ese mismo .exe dentro, que es el que descargan los usuarios.
+      - name: Comprimir instaladores de Windows en .zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          for APP in bifrost-transfer bifrost-mount; do
+            exe=$(ls dist/${APP}-*-windows.exe)
+            zip -j "dist/${APP}-windows.zip" "$exe"
+          done
+          ls -lah dist/
 
       - name: Crear GitHub Release
         uses: softprops/action-gh-release@v2
