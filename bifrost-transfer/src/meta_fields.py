@@ -94,6 +94,7 @@ WORM_BUCKET_SUFFIX = "-worm"
 WORM_ROOT_PREFIXES: list[str] = ["facility_data", "internal", "external"]
 
 WORM_FACILITY_DATA_SUBFOLDERS: list[str] = [
+    "adm",
     "biostats",
     "cryoservice",
     "drugsp",
