@@ -107,7 +107,9 @@ además renovarlas a mano (botón "🔑 Renew credentials", de 1 a 30 días).
 - **`TAG_PROFILES`/`LAB_ACRONYMS` en `meta_fields.py` (solo transfer)**:
   formulario de copia y Tag Manager derivan de ahí y `LAB_ACRONYMS` debe
   coincidir con los tags `acronym` reales de los buckets; duplicar o divergir
-  rompe el filtro por laboratorio y la detección de perfil.
+  rompe el filtro por laboratorio y la detección de perfil. El nombre del
+  perfil es además el valor del tag `provider`, y la validación de tags de las
+  vistas está unificada en `validate_profile_tagset`.
 - **Perfiles rclone con prefijo `sftp-src-`**: son efímeros por diseño y se
   barren tras cada login; cualquier código nuevo que cree perfiles debe
   garantizar un ciclo de vida equivalente.

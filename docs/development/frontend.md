@@ -128,8 +128,30 @@ Fuente canónica de los perfiles y campos de metadatos, compartida por el
 formulario de copia y el Tag Manager:
 
 - `FieldType` — tipos de campo del formulario.
-- `TAG_PROFILES` — definición de perfiles (IRB Standard, Histopathology) y
-  sus campos.
+- `TAG_PROFILES` — definición de perfiles (`IRB Standard`, `Histopathology IRB
+  Core Facility`, `Advanced Genomic Technologies IRB Core Facility`) y sus
+  campos. Cada campo es `(label, key, FieldType, allow_custom, options,
+  helper[, required])`; con `required` el label se muestra con ` *`. **El nombre
+  del perfil es el valor del tag `provider`**: así se identifica sin ambigüedad
+  qué perfil se usó, y también es el criterio de detección. `provider` no se
+  declara en `TAG_PROFILES`, lo añade `profile_fields`.
+- `profile_fields(name)` — campos del perfil con el Provider primero, bloqueado
+  (su única opción es el nombre del perfil).
+- `apply_provider(name, values)` — devuelve `values` con `provider` forzado al
+  nombre del perfil. Se aplica al pre-rellenar para que un objeto con un
+  provider antiguo o ajeno no se reescriba tal cual: al guardar queda corregido.
+- `missing_required(name, values)` — labels de los campos obligatorios vacíos
+  (interna).
+- `validate_profile_tagset(name, tags)` — **única** validación que llaman las
+  vistas en Copy, Aplicar y Guardar fichero: caracteres y longitud
+  (`validate_tagset`) más `Missing required fields: ...`, en un solo diálogo
+  "Invalid tags". La longitud no se bloquea al teclear en los selectores
+  múltiples; se valida aquí. Importa porque `application` y `library_kit` se
+  unen con `:` y la suma puede superar los 256 caracteres.
+- `check_tag_value(text, max_len=TAG_VALUE_MAX)`, `validate_tagset`,
+  `TAG_KEY_MAX` (128) y `TAG_VALUE_MAX` (256) — límites de los tags de S3 y
+  caracteres permitidos (`^[\w\s.:/=+\-@]*$`). Los valores de las opciones están
+  saneados (sin `'` ni paréntesis) porque MinIO los rechaza.
 - `build_meta_fields(..., prefill_values: dict[str, str] | None)` — construye
   los controles del formulario; `prefill_values` pre-rellena controles con
   valores existentes (usado por el Tag Manager).
@@ -140,10 +162,27 @@ formulario de copia y el Tag Manager:
   `backend.get_bucket_tags` en paralelo (`ThreadPoolExecutor`); se oculta al
   navegar dentro de un bucket y reaparece en la raíz. Solo aplica a nivel root.
 - `detect_profile(tags: dict[str, str])` — detecta qué perfil encaja con un
-  dict de tags (lo usa el Tag Manager para pre-cargar el editor).
+  dict de tags (lo usa el Tag Manager para pre-cargar el editor). Primero por
+  `provider` (== nombre del perfil); si el objeto no lo tiene o no coincide con
+  ningún perfil (objetos antiguos), por subconjunto de keys.
 
 Regla: cualquier cambio de campos, perfiles o labs se hace **solo** en
 `meta_fields.py`, nunca en las vistas ni en `main.py`.
+
+Restricciones a preservar:
+
+- **10 tags por objeto como máximo** (incluido `provider`): IRB Standard usa 8,
+  Genomics 9 e Histopathology 10, así que Histopathology no admite otro campo
+  sin quitar uno.
+- **Renombrar un perfil** cambia el valor de `provider` en los objetos nuevos;
+  los ya etiquetados con el nombre anterior se detectan por keys.
+- Las vistas no validan por su cuenta: todo pasa por `validate_profile_tagset`.
+
+Tests: `bifrost-transfer/tests/test_meta_fields.py` cubre la validación, el
+provider y los perfiles; `tests/conftest.py` añade `src` al `sys.path`. Se
+ejecutan desde `bifrost-transfer/` con
+`uv run --no-sync --with pytest python -m pytest tests -q` (pytest no es una
+dependencia declarada del proyecto).
 
 ## Modo web (`bifrost-transfer` — Open OnDemand)
 
