@@ -1,0 +1,327 @@
+"""Logging técnico común a bifrost-mount y bifrost-transfer.
+
+Un solo punto de configuración: consola (stdout) y, en escritorio, un fichero por sesión en la carpeta
+estándar del sistema operativo (en la app empaquetada la consola solo recibe avisos y errores, ver _PACKAGED).
+El código de BIFROST escribe con un logger por módulo y nunca con print(); lo que otras librerías impriman en
+stdout/stderr se redirige al logger como red de seguridad, para que nada se pierda.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import platform
+import re
+import subprocess
+import sys
+import threading
+import zipfile
+from datetime import datetime
+from importlib import metadata
+from pathlib import Path
+
+_FORMAT = "%(asctime)s.%(msecs)03d %(levelname)-7s [%(name)s] %(message)s"
+_DATEFMT = "%Y-%m-%d %H:%M:%S"
+KEEP_SESSIONS = 30
+EXPORTED_SESSIONS = 5        # sesiones que lleva el zip de "Export logs…"
+# `flet run` pasa este prefijo a la app y espera una línea "PAGE_URL_…" sin modificar en stdout.
+_PASSTHROUGH_PREFIX = os.environ.get("FLET_DISPLAY_URL_PREFIX")
+# App empaquetada con `flet build`: su arranque (serious_python) define esta variable y manda stdout/stderr a
+# un console.log propio, que se vacía en cada arranque y que su sys.exit cierra. Flet solo lo usa para mostrar
+# la pantalla "Error running app" si la app falla al arrancar, así que ahí solo hacen falta avisos y errores.
+_PACKAGED = "FLET_PYTHON_CALLBACK_SOCKET_ADDR" in os.environ
+_state: dict = {"app": None, "is_web": False}   # lo rellena setup_logging
+# Fecha y hora en el nombre de los logs de sesión y de los informes: ordena por antigüedad.
+_STAMP = re.compile(r"\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d")
+
+log = logging.getLogger("bifrost.logs")
+
+
+def log_dir(app: str) -> Path:
+    """Carpeta estándar de logs del SO para la app ('mount' | 'transfer')."""
+    system = platform.system()
+    if system == "Darwin":
+        base = Path.home() / "Library" / "Logs"
+    elif system == "Windows":
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    else:
+        base = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
+    return base / "bifrost" / app
+
+
+def _prune(folder: Path, pattern: str, keep: int) -> None:
+    def mtime(p: Path) -> float:
+        try:
+            return p.stat().st_mtime
+        except OSError:                      # borrado entre el glob y el stat
+            return 0.0
+    for old in sorted(folder.glob(pattern), key=mtime, reverse=True)[keep:]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
+
+
+def _folder(name: str) -> Path:
+    """<base>/<name>, creada. La base es la carpeta de la sesión en Open OnDemand ($BIFROST_SESSION_DIR, junto a
+    output.log) y, en escritorio o en web sin esa variable, la carpeta de logs de la app. Puede lanzar OSError."""
+    session_dir = os.environ.get("BIFROST_SESSION_DIR")
+    base = Path(session_dir) if (_state["is_web"] and session_dir) else log_dir(_state["app"] or "bifrost")
+    folder = base / name
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def _unique_path(folder: Path, stem: str, ext: str) -> Path:
+    """<folder>/<stem>.<ext>, o <stem>-2.<ext>, -3… si ya existe (dos ficheros en el mismo segundo)."""
+    path, n = folder / f"{stem}.{ext}", 2
+    while path.exists():
+        path, n = folder / f"{stem}-{n}.{ext}", n + 1
+    return path
+
+
+def _new_file(folder_name: str, kind: str, ext: str) -> Path:
+    """Ruta nueva <base>/<folder_name>/<kind>-<fecha>.<ext>, sin pisar ninguna. Conserva 30 por tipo."""
+    folder = _folder(folder_name)
+    _prune(folder, f"{kind}-*.{ext}", KEEP_SESSIONS - 1)
+    return _unique_path(folder, f"{kind}-{datetime.now():%Y-%m-%d_%H-%M-%S}", ext)
+
+
+def report_path(kind: str, ext: str = "log") -> Path:
+    """Ruta nueva para el informe de una operación ('copy', 'check', 'tags'…), en reports/."""
+    return _new_file("reports", kind, ext)
+
+
+def rclone_log_path(kind: str, name: str) -> Path:
+    """Fichero temporal para el --log-file de un montaje ('mount', 'netapp'), en rclone/. Siempre el mismo para el
+    mismo `name` (bucket o share): así se encuentra el de un montaje que quedó de una sesión anterior. Sus errores
+    pasan al log técnico y se borra al desmontar (rclone_mount.drain_rclone_log)."""
+    label = re.sub(r"[^\w.-]+", "_", name).strip("_")[:60] or "x"
+    return _folder("rclone") / f"{kind}-{label}.log"
+
+
+def write_report(kind: str, lines: list[str], problems: list[str] | None = None) -> Path:
+    """Escribe el informe de una operación: lo que mostró el panel (`lines`, con sus saltos de línea) y, si los
+    hay, los ficheros con problemas. Devuelve la ruta. Puede lanzar OSError."""
+    path = report_path(kind)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("".join(lines).lstrip("\n"))
+        if problems:
+            fh.write("\n--- Files with problems ---\n")
+            fh.writelines(line + "\n" for line in problems)
+    return path
+
+
+def open_in_file_browser(path: str | Path, select: bool = False) -> None:
+    """Abre la carpeta en Finder / Explorador / gestor de archivos de Linux; con `select`, muestra el fichero
+    seleccionado dentro de su carpeta. No lanza excepciones: si no se puede, lo deja en el log técnico."""
+    path = Path(path)
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            subprocess.Popen(["open", "-R", str(path)] if select else ["open", str(path)])
+        elif system == "Windows":
+            if select:
+                subprocess.Popen(["explorer", f"/select,{path}"])
+            else:
+                os.startfile(path)
+        else:
+            subprocess.Popen(["xdg-open", str(path.parent if select else path)])
+    except Exception as ex:
+        log.warning("could not open %s in the file browser: %s", path, ex)
+
+
+def export_logs_zip(sessions: int = EXPORTED_SESSIONS) -> Path:
+    """Guarda en Descargas un zip para ITS con los logs de las `sessions` últimas sesiones de esta app (escritorio)
+    y los informes de copy, check y Tag Manager de esas sesiones, y devuelve su ruta. Puede lanzar OSError.
+
+    El log de la sesión actual se escribe línea a línea, así que lleva todo hasta este momento. Los informes tienen
+    nombres de ficheros y valores de etiquetas: la pantalla lo avisa antes de exportar. rclone/ no entra: son
+    ficheros temporales y sus errores ya están en el log.
+    """
+    app = _state["app"]
+    folder = log_dir(app)
+    session_logs = sorted(folder.glob(f"bifrost-{app}-*.log"))[-sessions:]
+    since = _stamp(session_logs[0]) if session_logs else ""
+    reports = sorted(path for kind in ("copy", "check", "tags")
+                     for path in (folder / "reports").glob(f"{kind}-*.log") if _stamp(path) >= since)
+    target = Path.home() / "Downloads"
+    target.mkdir(exist_ok=True)
+    zip_path = _unique_path(target, f"BIFROST-{app}-logs-{datetime.now():%Y-%m-%d_%H-%M-%S}", "zip")
+    # Antes de comprimir, para que el log de esta sesión diga hasta dónde llega.
+    log.info("exporting logs to %s: sessions=%d reports=%d", zip_path, len(session_logs), len(reports))
+    fd = os.open(zip_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)    # solo el usuario puede leerlo
+    with os.fdopen(fd, "wb") as fh, zipfile.ZipFile(fh, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in [*session_logs, *reports]:
+            zf.write(path, path.relative_to(folder))
+    return zip_path
+
+
+def _stamp(path: Path) -> str:
+    """La fecha y hora del nombre de un log de sesión o de un informe ("" si no la tiene)."""
+    match = _STAMP.search(path.name)
+    return match[0] if match else ""
+
+
+class _RedactFilter(logging.Filter):
+    """Enmascara secretos aunque alguien los registre por error."""
+
+    _RULES = [
+        (re.compile(r"eyJ[\w-]+\.[\w-]+\.[\w-]+"), "<jwt>"),
+        (re.compile(r"(?i)\b(password|passwd|secret_access_key|secretaccesskey|session_token|sessiontoken)"
+                    r"(\s*[=:]\s*)\S+"), r"\1\2<redacted>"),
+    ]
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage().rstrip()   # sin líneas en blanco al final (p. ej. warnings)
+        for rx, repl in self._RULES:
+            msg = rx.sub(repl, msg)
+        record.msg, record.args = msg, None
+        return True
+
+
+class _ConsoleHandler(logging.StreamHandler):
+    """StreamHandler que no escribe si la consola ya está cerrada (en la app empaquetada, el sys.exit de Flet
+    cierra su console.log al terminar y cualquier registro posterior acabaría en '--- Logging error ---')."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if not getattr(self.stream, "closed", False):
+            super().emit(record)
+
+
+class _StreamToLogger:
+    """Sustituye a sys.stdout/sys.stderr: cada línea impresa pasa a ser un registro del logger."""
+
+    def __init__(self, logger: logging.Logger, level: int, original, handlers: list[logging.Handler]) -> None:
+        self._logger, self._level, self._original = logger, level, original
+        self._handlers = handlers        # los del logger "bifrost" (misma lista, no una copia)
+        # Reentrante: un manejador de señal (common/shutdown.py) puede escribir mientras el hilo principal
+        # está dentro de write(); con un Lock normal se bloquearía a sí mismo.
+        self._buf, self._lock = "", threading.RLock()
+        self._busy = threading.local()   # evita bucles si un handler falla y escribe en stderr
+
+    def write(self, data: str) -> int:
+        if getattr(self._busy, "on", False):
+            try:
+                self._original.write(data)
+            except Exception:
+                pass
+            return len(data)
+        with self._lock:
+            self._buf += data
+            lines = self._buf.split("\n")
+            self._buf = lines.pop()
+        self._emit(lines)
+        return len(data)
+
+    def flush(self) -> None:
+        with self._lock:
+            rest, self._buf = self._buf, ""
+        self._emit([rest])
+
+    def _emit(self, lines: list[str]) -> None:
+        self._busy.on = True
+        try:
+            for line in lines:
+                if _PASSTHROUGH_PREFIX and line.startswith(_PASSTHROUGH_PREFIX):
+                    # Protocolo de `flet run`: lee esta línea tal cual del stdout para abrir la ventana.
+                    self._original.write(line + "\n")
+                    self._original.flush()
+                elif line.strip():
+                    self._dispatch(line.rstrip())
+        finally:
+            self._busy.on = False
+
+    def _dispatch(self, msg: str) -> None:
+        # Se entrega el registro a los handlers sin pasar por Logger.handle(): algunas versiones de Python
+        # (p. ej. 3.13.5, la del cluster) descartan los registros creados mientras otro registro se procesa
+        # en el mismo hilo, y así se perdía lo que Hypercorn escribe en stderr desde su propio handler.
+        record = self._logger.makeRecord(self._logger.name, self._level, "(stream)", 0, msg, None, None)
+        for handler in self._handlers:
+            if record.levelno >= handler.level:
+                handler.handle(record)
+
+    def isatty(self) -> bool:
+        return False                      # sin colores ANSI en el log
+
+    def __getattr__(self, name):          # encoding, errors, fileno, buffer… del stream original
+        if name.startswith("_"):
+            raise AttributeError(name)    # evita recursión si _original aún no existe (copy/pickle)
+        return getattr(self._original, name)
+
+
+def setup_logging(app: str, *, is_web: bool, version: str) -> Path | None:
+    """Configura el log técnico de la app ('mount' | 'transfer'). Idempotente.
+
+    Devuelve la ruta del fichero de la sesión (None en web, donde solo se escribe en stdout).
+    """
+    root = logging.getLogger("bifrost")
+    if root.handlers:
+        return None
+    _state.update(app=app, is_web=is_web)
+    root.setLevel(logging.DEBUG)
+    root.propagate = False
+    formatter, redact = logging.Formatter(_FORMAT, _DATEFMT), _RedactFilter()
+    level_name = os.environ.get("BIFROST_LOG_LEVEL", "DEBUG" if is_web else "INFO").upper()
+
+    def _add_handler(handler: logging.Handler, level: int) -> None:
+        handler.setLevel(level)
+        handler.setFormatter(formatter)
+        handler.addFilter(redact)
+        root.addHandler(handler)
+
+    log_file, file_error = None, None
+    if not is_web:
+        d = log_dir(app)
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            _prune(d, f"bifrost-{app}-*.log", KEEP_SESSIONS - 1)
+            log_file = d / f"bifrost-{app}-{datetime.now():%Y-%m-%d_%H-%M-%S}.log"
+            _add_handler(logging.FileHandler(log_file, encoding="utf-8"), logging.DEBUG)
+        except OSError as ex:
+            log_file, file_error = None, f"Cannot create log file in {d}: {ex}"
+
+    console = sys.stdout                     # main.py ya lo ha reenvuelto en UTF-8
+    if console is not None:
+        console_level = getattr(logging, level_name, logging.INFO)
+        if _PACKAGED and log_file:           # el resto ya está en el fichero de sesión (ver _PACKAGED)
+            console_level = max(console_level, logging.WARNING)
+        _add_handler(_ConsoleHandler(console), console_level)
+    if file_error:
+        root.warning(file_error)
+
+    # warnings.warn (DeprecationWarning…) → un único registro con su línea de código, no dos líneas sueltas
+    logging.captureWarnings(True)
+    py_warnings = logging.getLogger("py.warnings")
+    py_warnings.handlers = list(root.handlers)
+    py_warnings.propagate = False
+
+    if console is not None:
+        sys.stdout = _StreamToLogger(logging.getLogger("bifrost.print"), logging.INFO, console, root.handlers)
+    if sys.stderr is not None:
+        sys.stderr = _StreamToLogger(logging.getLogger("bifrost.stderr"), logging.WARNING, sys.stderr, root.handlers)
+
+    def _excepthook(exc_type, exc, tb):
+        root.critical("Unhandled exception", exc_info=(exc_type, exc, tb))
+
+    def _thread_excepthook(args):
+        name = args.thread.name if args.thread else "?"
+        root.critical("Unhandled exception in thread %s", name,
+                      exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+
+    sys.excepthook = _excepthook
+    threading.excepthook = _thread_excepthook
+
+    try:
+        flet_version = metadata.version("flet")
+    except metadata.PackageNotFoundError:
+        flet_version = "?"
+    root.info("==== BIFROST %s %s — session start ====", app, version)
+    root.info("mode=%s no_ldap=%s pid=%s", "web" if is_web else "desktop",
+              os.environ.get("BIFROST_NO_LDAP") == "1", os.getpid())
+    root.info("os=%s arch=%s python=%s flet=%s", platform.platform(), platform.machine(),
+              platform.python_version(), flet_version)
+    root.info("log_file=%s", log_file or "stdout")
+    if is_web:
+        root.info("session_dir=%s", os.environ.get("BIFROST_SESSION_DIR") or "(not set)")
+    return log_file

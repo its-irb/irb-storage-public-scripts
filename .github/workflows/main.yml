@@ -52,7 +52,7 @@ jobs:
   # macOS — flet build macos → .app
   # ─────────────────────────────────────────────────────────────────────────────
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-26
     strategy:
       matrix:
         app: [bifrost-transfer, bifrost-mount]
@@ -152,10 +152,7 @@ jobs:
   # macOS Intel — stopgap hasta nov-2026 (macos-14 es el último runner Intel)
   # ─────────────────────────────────────────────────────────────────────────────
   build-macos-intel:
-    runs-on: macos-14
-    # Tras el 2-nov-2026 (macos-14 retirado) este job fallará: no debe bloquear
-    # la release. Eliminar el job por completo en el follow-up post-nov-2026.
-    continue-on-error: true
+    runs-on: macos-15-intel
     strategy:
       matrix:
         app: [bifrost-transfer, bifrost-mount]
@@ -373,11 +370,26 @@ jobs:
       
           Remove-Item $pfxPath -Force
       
+      # El .zip es para la descarga manual: los navegadores avisan al bajar un .exe
+      # pero no un .zip. El .exe suelto se sigue publicando porque la
+      # autoactualización (shared/bifrost_backend/common/updates.py) lo descarga
+      # directamente; no quitarlo sin cambiar antes el updater.
+      - name: Comprimir instalador en .zip
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "${{ matrix.app }}\installer\*.exe" | Select-Object -First 1
+          if (-not $installer) { throw "Installer .exe not found" }
+          $zip = Join-Path $installer.DirectoryName ($installer.BaseName + ".zip")
+          Compress-Archive -Path $installer.FullName -DestinationPath $zip
+          Write-Host "Creado: $zip"
+
       - name: Subir artefacto
         uses: actions/upload-artifact@v7.0.0
         with:
           name: ${{ matrix.app }}-windows
-          path: ${{ matrix.app }}/installer/*.exe
+          path: |
+            ${{ matrix.app }}/installer/*.exe
+            ${{ matrix.app }}/installer/*.zip
 
   
 
@@ -451,6 +463,20 @@ jobs:
       #       fi
       #     done
       #     ls -lah dist/
+
+      # La release publica el instalador de Windows de dos formas: <app>-windows.zip con el
+      # .exe dentro, que es el que descargan los usuarios y el autoupdate (updates.py, sufijo
+      # -windows.zip), y el .exe suelto, que lo siguen pidiendo las versiones anteriores
+      # (sufijo -main-windows.exe). No cambiar estos nombres: romperían el autoupdate.
+      - name: Comprimir instaladores de Windows en .zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          for APP in bifrost-transfer bifrost-mount; do
+            exe=$(ls dist/${APP}-*-windows.exe)
+            zip -j "dist/${APP}-windows.zip" "$exe"
+          done
+          ls -lah dist/
 
       - name: Crear GitHub Release
         uses: softprops/action-gh-release@v2

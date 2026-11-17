@@ -10,6 +10,7 @@ documentación antigua de la raíz. Está organizada por áreas:
 | [frontend.md](frontend.md) | Apps Flet: inicialización, flujos de vistas, modo web (sesiones, reconexión, throttle de logs), `meta_fields.py`, el bug `IndexError` y su solución. |
 | [build-and-ci.md](build-and-ci.md) | Entorno de desarrollo, empaquetado por plataforma e integración continua. |
 | [operations.md](operations.md) | Variables de entorno, autoupdate, logs y política de validación (tests). |
+| [testing.md](testing.md) | Punto de partida (sin pautas definidas aún): los tests automáticos del autoupdate (pytest), qué cubren y qué no, y la prueba manual del autoupdate en Windows. |
 
 ## Audiencia y alcance
 

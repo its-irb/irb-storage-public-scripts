@@ -1,0 +1,3 @@
+[submodule "ood-app-bifrost"]
+	path = ood-app-bifrost
+	url = https://github.com/its-irb/ood-app-bifrost.git
