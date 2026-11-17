@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Añadir el perfil de tags S3 "Genomics" con campos obligatorios, validación unificada de caracteres y longitud, y autodetección de perfil por `provider`.
+**Goal:** Añadir el perfil de tags S3 "Genomics" con campos obligatorios, validación unificada de caracteres y longitud, y perfiles cuyo nombre es el valor de su tag `provider` (también usado para autodetectarlos).
 
-**Architecture:** Todo el modelo de perfiles vive en `bifrost-transfer/src/meta_fields.py` (`TAG_PROFILES`, `build_meta_fields`, `detect_profile`, validación). Las vistas `views/copy.py` y `views/tag_manager.py` solo iteran sobre `TAG_PROFILES` y llaman a `validate_tagset` al pulsar Copy o Aplicar. Se centraliza la validación en `check_tag_value` y se añade un 7º elemento `required` a las tuplas de campo sin romper los perfiles existentes.
+**Architecture:** Todo el modelo de perfiles vive en `bifrost-transfer/src/meta_fields.py` (`TAG_PROFILES`, `build_meta_fields`, `detect_profile`, validación). Las vistas `views/copy.py` y `views/tag_manager.py` solo iteran sobre `TAG_PROFILES` y, al pulsar Copy o Aplicar, hacen una única llamada a `validate_profile_tagset` (formato, longitud y obligatorios, un solo diálogo). El campo `provider` no se declara en cada perfil: lo añade `profile_fields(name)` con el nombre del perfil como único valor, `build_meta_fields` lo fuerza siempre a ese valor (ignora el `provider` del prefill) y `detect_profile` lo usa como criterio principal. Se centraliza la validación en `check_tag_value` y se añade un 7º elemento `required` a las tuplas de campo sin romper los perfiles existentes.
 
 **Tech Stack:** Python 3, Flet, pytest (nuevo, solo para la lógica pura de `meta_fields.py`).
 
@@ -12,23 +12,28 @@
 
 ## Global Constraints
 
-- Límites de S3: key de 128 caracteres como máximo, valor de 256 como máximo; 10 tags por objeto como máximo (Genomics tiene 9 campos).
-- Caracteres permitidos en keys y valores: el regex existente `_TAG_VALUE_RE = ^[\w\s.:/=+\-@]*$` (unicode). No admite apóstrofes, paréntesis, comas ni comillas.
+- Límites de S3: key de 128 caracteres como máximo, valor de 256 como máximo; 10 tags por objeto como máximo (con el `provider` automático: IRB Standard 8, Genomics 9, Histopathology 10).
+- Caracteres permitidos en keys y valores: el regex existente `_TAG_VALUE_RE = ^[\w\s.:/=+\-@]*$` (unicode). No admite apóstrofes, paréntesis, comas ni comillas. Los nombres de perfil también son tags, así que deben cumplirlo.
 - Los multiselect y multifreetext guardan el valor uniendo con `:` las opciones ordenadas (`":".join(sorted(...))`).
-- Valores de `provider`: Histopathology = `Histopathology IRB Core Facility`; Genomics = `Advanced Genomic Technologies IRB Core Facility`.
+- Nombres de perfil = valor de `provider`: `IRB Standard`, `Histopathology IRB Core Facility` (antes `Histopathology`), `Advanced Genomic Technologies IRB Core Facility`.
 - Opciones saneadas (sin `'` ni paréntesis): `scRNA-seq 3prime`, `scRNA-seq 5prime/VDJ`, `10x GEM-X 3prime`, `SMART-Seq Total RNA Takara`, `Qubit+Tapestation`, `DNA purification`.
-- Los perfiles "IRB Standard" e "Histopathology" no cambian de comportamiento visible (sin `*`, sin bloqueos nuevos).
-- No añadir contenido a `CLAUDE.md` (está marcado "Moved"); la documentación va en `docs/agent/`, `docs/development/` y `docs/wiki/`.
+- IRB Standard conserva sus 7 campos tal cual están en el working tree (`project_name`, `compute_node`, `sample_type`, `input_data_type`, `output_data_type`, `requested_by`, `research_group`) y su nombre; solo gana el tag `provider`. No se tocan en este plan.
+- Una sola función de validación para las vistas: `validate_profile_tagset`. `validate_tagset` y `missing_required` son piezas internas; las vistas no las llaman por separado.
+- La validación de longitud total (256) se hace solo en `validate_profile_tagset` al pulsar Copy o Aplicar. El inline de multiselect y multifreetext solo comprueba caracteres de cada opción con `check_tag_value`, sin bloqueo por longitud.
+- Fuera del alcance: la coma que falta tras `"adm"` en `WORM_FACILITY_DATA_SUBFOLDERS` (`meta_fields.py:97`, concatena `"admbiostats"`). Se corrige aparte, en su propio commit.
+- No añadir contenido a `CLAUDE.md` (está marcado "Moved"); la documentación va en `docs/agent/`, `docs/development/`, `docs/user/`, `README.md` y `docs/wiki/`.
 - Mensajes de commit en español, formato `tipo(ámbito): descripción`, como el historial del repo.
 - Trabajar en la rama `feature/genomics-profile`.
 
 ## Review Focus
 
 1. Valor de exactamente 256 caracteres válido y de 257 inválido; key de 128 válida y de 129 inválida (Task 1).
-2. Application con las 26 opciones juntas (355 caracteres): la opción que supere 256 no se añade y se ve el error inline (Task 4, comprobación manual).
-3. Campo obligatorio ausente del diccionario o vacío cuenta como faltante; uno relleno no (Task 2).
-4. Objeto con `provider` de Genomics y un tag extra que no es de ningún perfil se detecta como Genomics (Task 3).
-5. Objeto Histopathology antiguo sin `provider`, y objeto con `provider` desconocido, siguen detectándose por subconjunto de keys (Task 3).
+2. Objeto con solo las keys comunes entre perfiles (owner, users, date, species, sample_type) más su `provider`: el perfil lo decide `provider`, no el orden (Tasks 2 y 4).
+3. Objetos antiguos sin `provider` (IRB Standard e Histopathology antiguos) y objetos con un `provider` desconocido siguen detectándose por keys; `{}` devuelve `None` (Task 2).
+4. Campo obligatorio ausente del diccionario o vacío cuenta como faltante; uno relleno no (Task 3).
+5. Application con las 26 opciones juntas supera 256 caracteres: `validate_profile_tagset` lo rechaza al pulsar Copy o Aplicar y nombra el campo (Tasks 3 y 4).
+6. Un objeto detectado por fallback con un `provider` desconocido se abre con el provider forzado al nombre del perfil, no con el valor antiguo (Task 2).
+7. Las vistas llaman solo a `validate_profile_tagset`, no a `validate_tagset` ni a `missing_required` (Task 3).
 
 ---
 
@@ -36,9 +41,9 @@
 
 | Archivo | Responsabilidad |
 |---|---|
-| `bifrost-transfer/src/meta_fields.py` | Constantes y validación, `TAG_PROFILES`, `build_meta_fields`, `missing_required`, `detect_profile` |
-| `bifrost-transfer/src/views/copy.py` | Bloquea Copy si faltan obligatorios |
-| `bifrost-transfer/src/views/tag_manager.py` | Bloquea Aplicar si faltan obligatorios; `max_length` leyendo constantes |
+| `bifrost-transfer/src/meta_fields.py` | Constantes y validación, `TAG_PROFILES`, `profile_fields`, `build_meta_fields`, `missing_required` (interna), `validate_profile_tagset`, `detect_profile` |
+| `bifrost-transfer/src/views/copy.py` | Una llamada a `validate_profile_tagset` en Copy; ancho del desplegable de perfil |
+| `bifrost-transfer/src/views/tag_manager.py` | Una llamada a `validate_profile_tagset` en Aplicar; `max_length` leyendo constantes; ancho de los desplegables de perfil |
 | `bifrost-transfer/tests/conftest.py` (nuevo) | Pone `src/` en `sys.path` |
 | `bifrost-transfer/tests/test_meta_fields.py` (nuevo) | Tests de lógica pura |
 
@@ -50,7 +55,7 @@ Comando de tests (desde `bifrost-transfer/`): `uv run --no-sync --with pytest py
 
 **Files:**
 - Create: `bifrost-transfer/tests/conftest.py`, `bifrost-transfer/tests/test_meta_fields.py`
-- Modify: `bifrost-transfer/src/meta_fields.py` (`_validate_tag_value`, `check_tag_value`, `validate_tagset`), `bifrost-transfer/src/views/tag_manager.py` (`_build_file_editor_row`)
+- Modify: `bifrost-transfer/src/meta_fields.py` (`_validate_tag_value`, `check_tag_value`, `validate_tagset`, ramas multiselect y multifreetext de `build_meta_fields`), `bifrost-transfer/src/views/tag_manager.py` (`_build_file_editor_row`)
 
 **Interfaces:**
 - Produces: `TAG_KEY_MAX: int = 128`, `TAG_VALUE_MAX: int = 256`, `check_tag_value(text: str, max_len: int = TAG_VALUE_MAX) -> str | None` (mensaje de error o `None`), `validate_tagset(tags: dict[str, str]) -> list[str]` (misma firma que hoy).
@@ -87,7 +92,11 @@ def test_validate_tagset_reports_key_and_value():
 
 - [ ] **Step 6: En `tag_manager.py`**, importar `TAG_KEY_MAX, TAG_VALUE_MAX` y usarlos como `max_length` de los dos `TextField` (key y value); en `on_key_change` llamar a `check_tag_value(key_tf.value or "", TAG_KEY_MAX)`.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Eliminar las copias inline del regex en `build_meta_fields`** (multiselect `_add_custom` y multifreetext `_add`): sustituir `_TAG_VALUE_RE.match(val)` por `err = check_tag_value(val)` y mostrar `err` en el `Text` de error que ya existe. Es solo comprobación de caracteres de cada opción; la longitud del valor unido la valida `validate_profile_tagset` al pulsar Copy o Aplicar (Task 3). No se crean controles nuevos ni se bloquea por longitud al añadir.
+
+- [ ] **Step 8: Comprobar que ya no queda `_TAG_VALUE_RE.match` fuera de `check_tag_value`** (`Grep` sobre `meta_fields.py`).
+
+- [ ] **Step 9: Commit**
 
 ```bash
 git add bifrost-transfer/tests bifrost-transfer/src/meta_fields.py bifrost-transfer/src/views/tag_manager.py
@@ -96,138 +105,171 @@ git commit -m "refactor(tags): unifica la validación de caracteres y longitud e
 
 ---
 
-### Task 2: Campos obligatorios (`required`)
+### Task 2: El nombre del perfil es el valor de `provider`
 
 **Files:**
-- Modify: `bifrost-transfer/src/meta_fields.py` (`build_meta_fields`, nueva `missing_required`), `bifrost-transfer/src/views/copy.py` (`do_copy`), `bifrost-transfer/src/views/tag_manager.py` (`do_apply`, `_on_save_file_tags`)
+- Modify: `bifrost-transfer/src/meta_fields.py` (`TAG_PROFILES`, nueva `profile_fields`, `build_meta_fields`, `detect_profile`), `bifrost-transfer/src/views/copy.py` (desplegable `profile_dd`), `bifrost-transfer/src/views/tag_manager.py` (`profile_dd` y `prefill_profile_dd`)
 - Test: `bifrost-transfer/tests/test_meta_fields.py`
 
 **Interfaces:**
-- Consumes: `TAG_PROFILES`, `validate_tagset` (Task 1).
-- Produces: tuplas de campo con 7º elemento opcional `required: bool` (ausente = `False`); `missing_required(profile_name: str, values: dict[str, str]) -> list[str]` devuelve los labels (sin `*`) de los campos `required` vacíos o ausentes.
+- Consumes: `check_tag_value` (Task 1).
+- Produces: `profile_fields(profile_name: str) -> list[tuple]` (provider bloqueado primero + los campos del perfil); `apply_provider(profile_name: str, values: dict[str, str]) -> dict[str, str]`; `detect_profile(tags: dict[str, str]) -> str | None`; la clave `"Histopathology"` de `TAG_PROFILES` pasa a ser `"Histopathology IRB Core Facility"`. Constantes de test: `IRB = "IRB Standard"`, `HISTO = "Histopathology IRB Core Facility"`.
 
-- [ ] **Step 1: Escribir el test fallido.** Monkeypatchear `TAG_PROFILES` con un perfil de prueba de dos campos (`("A", "a", FieldType.TEXT, False, None, None, True)` y `("B", "b", FieldType.TEXT, False, None, None)`):
+- [ ] **Step 1: Escribir los tests fallidos:**
+
+```python
+COMMON = {"owner": "bbg", "users": "u", "date": "2026-01-01", "species": "human", "sample_type": "RNA"}
+
+@pytest.mark.parametrize("name", list(TAG_PROFILES))
+def test_profile_name_is_valid_tag_value(name):
+    assert check_tag_value(name) is None
+
+@pytest.mark.parametrize("name", list(TAG_PROFILES))
+def test_provider_is_automatic_and_locked_to_name(name):
+    assert "provider" not in [f[1] for f in TAG_PROFILES[name]]
+    first = profile_fields(name)[0]
+    assert first[1] == "provider" and first[4] == [name]
+
+def test_detect_by_provider_ignores_key_order():
+    assert detect_profile({**COMMON, "provider": HISTO}) == HISTO
+    assert detect_profile({"project_name": "p", "provider": IRB}) == IRB
+
+def test_detect_falls_back_to_keys():
+    assert detect_profile({"instrument": "Phenoimager"}) == HISTO      # antiguo sin provider
+    assert detect_profile({"project_name": "p"}) == IRB                # antiguo sin provider
+    assert detect_profile({"provider": "Unknown", "instrument": "Nanozoomer"}) == HISTO
+    assert detect_profile({}) is None
+```
+
+La lógica de prefill del provider se extrae a una función pura para poder testearla sin Flet:
+
+```python
+def test_prefill_forces_provider_to_profile_name():
+    assert apply_provider(HISTO, {"provider": "Unknown", "instrument": "Nanozoomer"}) == \
+        {"provider": HISTO, "instrument": "Nanozoomer"}
+    assert apply_provider(IRB, {"project_name": "p"}) == {"project_name": "p", "provider": IRB}
+```
+
+- [ ] **Step 2: Ejecutar los tests y comprobar que fallan** (`ImportError` de `profile_fields`).
+
+- [ ] **Step 3: Implementar `profile_fields(profile_name: str) -> list[tuple]`** en `meta_fields.py`: `[("Provider", "provider", FieldType.UNISELECT, False, [profile_name], None, True)] + TAG_PROFILES[profile_name]`. La tupla ya lleva el 7º elemento `required` que formaliza la Task 3; hasta entonces `build_meta_fields` lo ignora.
+
+- [ ] **Step 4: Cambiar `TAG_PROFILES`:** renombrar la clave `"Histopathology"` a `"Histopathology IRB Core Facility"` y quitar su tupla `Provider` (las demás tuplas no cambian). IRB Standard no cambia sus tuplas.
+
+- [ ] **Step 5: En `build_meta_fields`**, iterar `profile_fields(profile_name)` en lugar de `TAG_PROFILES[profile_name]` y, en la rama UNISELECT, poner `dd.disabled = True` cuando `_single` sea `True`. Al empezar, `_pre = apply_provider(profile_name, prefill_values or {})`, con `apply_provider(profile_name, values) -> dict` (nueva en `meta_fields.py`, devuelve una copia con `provider = profile_name`). Así un objeto detectado por fallback con un provider antiguo o desconocido se abre con el provider del perfil, nunca como opción extra `valor *`, y se corrige al guardar. Actualizar el docstring.
+
+- [ ] **Step 6: Reescribir `detect_profile`:** si `tags.get("provider")` es una clave de `TAG_PROFILES`, devolverla; si no, aplicar la lógica actual de subconjunto de keys sobre `{f[1] for f in profile_fields(name)}`. Actualizar el docstring.
+
+- [ ] **Step 7: Ejecutar toda la suite y comprobar que pasa.**
+
+- [ ] **Step 8: Anchos de los desplegables.** El nombre más largo mide 47 caracteres: ensanchar `profile_dd` y `prefill_profile_dd` de `tag_manager.py` (hoy `width=220`) y `profile_dd` de `copy.py` hasta que el nombre completo se lea sin recortar.
+
+- [ ] **Step 9: Verificación manual** (`uv run flet run` en `bifrost-transfer`, con el venv de la app): en Copy y Tag Manager, IRB Standard e Histopathology IRB Core Facility aparecen con el nombre legible y Provider sale primero, bloqueado y relleno con el nombre del perfil. Abrir un objeto Histopathology ya etiquetado lo detecta por su provider. Abrir uno con `provider` desconocido detectado por keys muestra el provider del perfil, bloqueado.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add bifrost-transfer/src bifrost-transfer/tests
+git commit -m "feat(tags): el nombre del perfil es el valor de provider y detect_profile lo usa"
+```
+
+---
+
+### Task 3: Campos obligatorios (`required`)
+
+**Files:**
+- Modify: `bifrost-transfer/src/meta_fields.py` (`build_meta_fields`, nuevas `missing_required` y `validate_profile_tagset`), `bifrost-transfer/src/views/copy.py` (`do_copy`), `bifrost-transfer/src/views/tag_manager.py` (`do_apply`, `_on_save_file_tags`)
+- Test: `bifrost-transfer/tests/test_meta_fields.py`
+
+**Interfaces:**
+- Consumes: `TAG_PROFILES`, `profile_fields` (Task 2), `validate_tagset` (Task 1).
+- Produces: tuplas de campo con 7º elemento opcional `required: bool` (ausente = `False`); `missing_required(profile_name: str, values: dict[str, str]) -> list[str]` (interna) devuelve los labels (sin `*`) de los campos `required` vacíos o ausentes; `validate_profile_tagset(profile_name: str, tags: dict[str, str]) -> list[str]` es la única entrada de validación para las vistas: concatena los errores de `validate_tagset` y, si faltan obligatorios, un mensaje `Missing required fields: A, B`.
+
+- [ ] **Step 1: Escribir el test fallido.** Monkeypatchear `TAG_PROFILES` con un perfil de prueba `"T"` de dos campos (`("A", "a", FieldType.TEXT, False, None, None, True)` y `("B", "b", FieldType.TEXT, False, None, None)`). El `provider` automático se pasa relleno:
 
 ```python
 def test_missing_required(monkeypatch):
     monkeypatch.setitem(TAG_PROFILES, "T", [A_REQUIRED, B_OPTIONAL])
-    assert missing_required("T", {"a": "", "b": ""}) == ["A"]
-    assert missing_required("T", {"b": "x"}) == ["A"]      # ausente
-    assert missing_required("T", {"a": "x", "b": ""}) == []
+    assert missing_required("T", {"provider": "T", "a": "", "b": ""}) == ["A"]
+    assert missing_required("T", {"provider": "T", "b": "x"}) == ["A"]     # ausente
+    assert missing_required("T", {"provider": "T", "a": "x", "b": ""}) == []
+
+def test_validate_profile_tagset_combines_all_errors(monkeypatch):
+    monkeypatch.setitem(TAG_PROFILES, "T", [A_REQUIRED, B_OPTIONAL])
+    errs = validate_profile_tagset("T", {"provider": "T", "a": "", "b": "x" * 257})
+    assert any("Missing required fields" in e and "A" in e for e in errs)
+    assert any("b" in e for e in errs)                                  # longitud
+    assert validate_profile_tagset("T", {"provider": "T", "a": "x", "b": ""}) == []
 ```
 
 - [ ] **Step 2: Ejecutar el test y comprobar que falla** (`ImportError`).
 
-- [ ] **Step 3: Implementar `missing_required`** en `meta_fields.py`; en `build_meta_fields` leer `required = item[6] if len(item) > 6 else False` y usar un `shown_label` con ` *` añadido cuando sea `True` en los cinco sitios que pintan el label (uniselect, multiselect, multifreetext, date y `styled_field(label)` del TEXT).
+- [ ] **Step 3: Implementar `missing_required` y `validate_profile_tagset`** en `meta_fields.py`; `missing_required` itera `profile_fields(profile_name)`; en `build_meta_fields` leer `required = item[6] if len(item) > 6 else False` y usar un `shown_label` con ` *` añadido cuando sea `True` en los cinco sitios que pintan el label (uniselect, multiselect, multifreetext, date y `styled_field(label)` del TEXT).
 
 - [ ] **Step 4: Ejecutar el test y comprobar que pasa.**
 
-- [ ] **Step 5: Enforcement.** En `copy.py` `do_copy`, tras el bloque de `validate_tagset`: `missing = missing_required(active_copy_profile["name"], metadatos)`; si hay, `show_dialog(page, "Missing required fields", ", ".join(missing), C_ERROR)` y `return`. En `tag_manager.py`, lo mismo en `do_apply` con `active_profile["name"]` y en `_on_save_file_tags` solo cuando `file_editor_mode["mode"] == "profile"`. No tocar el editor manual de key/value. Importar `missing_required` en ambos ficheros.
+- [ ] **Step 5: Enforcement con una sola llamada.** En `copy.py` `do_copy`, sustituir `validate_tagset(metadatos)` por `validate_profile_tagset(active_copy_profile["name"], metadatos)` y mantener el bloque `show_dialog` y `return` existentes (un solo diálogo con todos los errores). En `tag_manager.py`, lo mismo en `do_apply` con `active_profile["name"]`. En `_on_save_file_tags`, usar `validate_profile_tagset` cuando `file_editor_mode["mode"] == "profile"` y `validate_tagset` en el editor manual de key/value (no es de perfil). Importar `validate_profile_tagset` en ambos ficheros y quitar `validate_tagset` de `copy.py`.
 
-- [ ] **Step 6: Verificación manual:** con "IRB Standard" e "Histopathology" no aparece `*` ni diálogo nuevo.
+- [ ] **Step 6: Verificación manual:** en IRB Standard e Histopathology IRB Core Facility, solo Provider lleva `*` (ya está relleno) y Copy no se bloquea.
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add bifrost-transfer/src bifrost-transfer/tests
-git commit -m "feat(tags): añade el flag required a los campos de perfil y bloquea Copy/Aplicar si faltan"
+git commit -m "feat(tags): añade el flag required y validate_profile_tagset como única validación de Copy/Aplicar"
 ```
 
 ---
 
-### Task 3: Perfil Genomics, `provider` fijo y detección por `provider`
+### Task 4: Perfil Genomics
 
 **Files:**
-- Modify: `bifrost-transfer/src/meta_fields.py` (`TAG_PROFILES`, `build_meta_fields` rama UNISELECT, `detect_profile`)
+- Modify: `bifrost-transfer/src/meta_fields.py` (`TAG_PROFILES`)
 - Test: `bifrost-transfer/tests/test_meta_fields.py`
 
 **Interfaces:**
-- Consumes: `check_tag_value`, tuplas con `required` (Tasks 1 y 2).
-- Produces: `TAG_PROFILES["Genomics"]` con las keys `owner, users, date, provider, application, library_kit, species, sample_type, comments`; `detect_profile(tags: dict[str, str]) -> str | None` mira primero `provider`.
+- Consumes: `check_tag_value` (Task 1), `profile_fields` y `detect_profile` (Task 2), tuplas con `required` (Task 3).
+- Produces: `TAG_PROFILES["Advanced Genomic Technologies IRB Core Facility"]` con las keys `owner, users, date, application, library_kit, species, sample_type, comments` (el `provider` lo añade `profile_fields`). Constante de test: `GENO = "Advanced Genomic Technologies IRB Core Facility"`.
 
 - [ ] **Step 1: Escribir los tests fallidos:**
 
 ```python
-GENOMICS_PROVIDER = "Advanced Genomic Technologies IRB Core Facility"
-HISTO_PROVIDER = "Histopathology IRB Core Facility"
-
 def test_genomics_profile_shape():
-    keys = [f[1] for f in TAG_PROFILES["Genomics"]]
-    assert keys == ["owner","users","date","provider","application",
-                    "library_kit","species","sample_type","comments"]
-    required = {f[1] for f in TAG_PROFILES["Genomics"] if len(f) > 6 and f[6]}
+    keys = [f[1] for f in profile_fields(GENO)]
+    assert keys == ["provider", "owner", "users", "date", "application",
+                    "library_kit", "species", "sample_type", "comments"]
+    required = {f[1] for f in profile_fields(GENO) if len(f) > 6 and f[6]}
     assert required == set(keys) - {"comments"}
 
 def test_genomics_options_are_valid_s3_values():
-    for f in TAG_PROFILES["Genomics"]:
+    for f in profile_fields(GENO):
         for opt in (f[4] or []):
             value = opt[0] if isinstance(opt, tuple) else opt
             assert check_tag_value(value) is None, (f[1], value)
 
 def test_application_all_joined_exceeds_limit():
-    app = next(f for f in TAG_PROFILES["Genomics"] if f[1] == "application")[4]
+    app = next(f for f in profile_fields(GENO) if f[1] == "application")[4]
     assert len(app) == 26
     assert check_tag_value(":".join(sorted(app))) is not None
 
-def test_detect_by_provider_with_shared_keys_only():
-    common = {"owner":"bbg","users":"u","date":"2026-01-01","species":"human","sample_type":"RNA"}
-    assert detect_profile({**common, "provider": GENOMICS_PROVIDER}) == "Genomics"
-    assert detect_profile({**common, "provider": HISTO_PROVIDER}) == "Histopathology"
-
-def test_detect_genomics_with_extra_tag():
-    assert detect_profile({"provider": GENOMICS_PROVIDER, "custom_tag": "x"}) == "Genomics"
-
-def test_detect_falls_back_to_keys():
-    assert detect_profile({"instrument": "Phenoimager"}) == "Histopathology"   # sin provider
-    assert detect_profile({"provider": "Other", "instrument": "Nanozoomer"}) == "Histopathology"
-    assert detect_profile({"project_name": "p"}) == "IRB Standard"
-    assert detect_profile({}) is None
+def test_detect_genomics_by_provider():
+    assert detect_profile({**COMMON, "provider": GENO}) == GENO
+    assert detect_profile({"provider": GENO, "custom_tag": "x"}) == GENO
 ```
 
-- [ ] **Step 2: Ejecutar los tests y comprobar que fallan** (`KeyError: 'Genomics'`).
+- [ ] **Step 2: Ejecutar los tests y comprobar que fallan** (`KeyError` del perfil).
 
-- [ ] **Step 3: Añadir el perfil `"Genomics"`** a `TAG_PROFILES` con las tuplas del spec (todas `required=True` salvo `comments`; `allow_custom=False` en todos los selects; `comments` es TEXT con helper `"Incidents, QC deviations, notes"`; `date` DATE; `users` MULTIFREETEXT). Opciones de Application y Library Kit exactamente como en el spec, ya saneadas. Para no duplicar con Histopathology, extraer a constantes de módulo `_OWNER_OPTIONS` (la lista `(acr, f"{name} ({acr})")` ordenada por nombre) y `_USERS_HELPER` (el texto de ayuda de `users`) y usarlas en ambos perfiles.
+- [ ] **Step 3: Añadir el perfil** a `TAG_PROFILES` con las tuplas del spec (todas `required=True` salvo `comments`; `allow_custom=False` en todos los selects; `comments` es TEXT con helper `"Incidents, QC deviations, notes"`; `date` DATE; `users` MULTIFREETEXT). Opciones de Application y Library Kit exactamente como en el spec, ya saneadas. Para no duplicar con Histopathology, extraer a constantes de módulo `_OWNER_OPTIONS` (la lista `(acr, f"{name} ({acr})")` ordenada por nombre) y `_USERS_HELPER` (el texto de ayuda de `users`) y usarlas en ambos perfiles.
 
-- [ ] **Step 4: Ejecutar los tests de forma y opciones** (`shape`, `options_are_valid`, `all_joined`) y comprobar que pasan.
+- [ ] **Step 4: Ejecutar toda la suite y comprobar que pasa.**
 
-- [ ] **Step 5: `provider` fijo.** En la rama UNISELECT de `build_meta_fields`, cuando `_single` sea `True`, poner `dd.disabled = True`.
+- [ ] **Step 5: Verificación manual:** el perfil aparece en los selectores de Copy y Tag Manager con `*` en los obligatorios y Provider bloqueado. Con campos vacíos, Copy muestra "Missing required fields" con los labels.
 
-- [ ] **Step 6: Reescribir `detect_profile`:** si `tags.get("provider")` coincide con alguna opción del campo `provider` de un perfil (mapa derivado de `TAG_PROFILES`, sin tabla aparte), devolver ese perfil; si no, aplicar la lógica actual de subconjunto de keys sin cambios.
-
-- [ ] **Step 7: Ejecutar toda la suite y comprobar que pasa.**
-
-- [ ] **Step 8: Verificación manual** (`uv run flet run` del `bifrost-transfer`, con el venv de la app): "Genomics" aparece en los selectores de Copy y Tag Manager, con `*` en los obligatorios, y Provider aparece bloqueado y ya relleno. Con Genomics seleccionado, Copy con campos vacíos muestra "Missing required fields" con los labels.
-
-- [ ] **Step 9: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add bifrost-transfer/src/meta_fields.py bifrost-transfer/tests
-git commit -m "feat(tags): añade el perfil Genomics y detecta el perfil por provider"
-```
-
----
-
-### Task 4: Límite de longitud inline en multiselect y multifreetext
-
-**Files:**
-- Modify: `bifrost-transfer/src/meta_fields.py` (ramas MULTISELECT y MULTIFREETEXT de `build_meta_fields`)
-
-**Interfaces:**
-- Consumes: `check_tag_value` (Task 1). Sin interfaz nueva (cambio de UI, sin test unitario: la lógica de validación ya está cubierta en Tasks 1 y 3).
-
-- [ ] **Step 1: MULTISELECT.** Crear siempre un `ft.Text` de error (hoy solo existe con `allow_custom`) debajo de los chips. En `_on_select`, antes de añadir `val`, calcular `err = check_tag_value(":".join(sorted(sel["s"] | {val})))`; si hay error, no añadir y mostrarlo en ese `Text`; si no, ocultarlo. En `_add_custom`, sustituir el bloque con `_TAG_VALUE_RE.match(val)` por la misma comprobación sobre el valor unido y usar ese mismo `Text` (se elimina `ctf_err`).
-
-- [ ] **Step 2: MULTIFREETEXT.** En `_add`, sustituir `_TAG_VALUE_RE.match(val)` por `check_tag_value(":".join(sorted(sel["s"] | {val})))`, mostrando el error en el `err_txt` existente.
-
-- [ ] **Step 3: Comprobar que ya no queda `_TAG_VALUE_RE.match` fuera de `check_tag_value`** (`Grep` sobre `meta_fields.py`).
-
-- [ ] **Step 4: Verificación manual:** con Genomics, añadir opciones de Application hasta que las unidas pasen de 256 caracteres: la que lo supere no se añade y sale el error en rojo; quitar un chip y volver a añadir funciona. Con Histopathology (`users` multifreetext), añadir un usuario con carácter prohibido sigue mostrando el error de caracteres.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add bifrost-transfer/src/meta_fields.py
-git commit -m "feat(tags): avisa inline al superar 256 caracteres en multiselect y multifreetext"
+git commit -m "feat(tags): añade el perfil Advanced Genomic Technologies IRB Core Facility"
 ```
 
 ---
@@ -235,23 +277,24 @@ git commit -m "feat(tags): avisa inline al superar 256 caracteres en multiselect
 ### Task 5: Documentación y log
 
 **Files:**
-- Modify: `docs/agent/`, `docs/development/` (lo que proponga `docs-update`), `docs/wiki/log.md`
+- Modify: `README.md`, `docs/user/transfer-data.md`, `docs/user/tag-manager.md`, `docs/agent/frontend.md`, `docs/development/frontend.md` y lo que proponga `docs-update`; `docs/wiki/log.md`
 
-- [ ] **Step 1: Ejecutar el skill `docs-update`** y aplicar solo los cambios que el usuario confirme (describir `TAG_PROFILES` con 7º elemento `required`, `check_tag_value`/`validate_tagset`, `detect_profile` por `provider` y el nuevo perfil).
+- [ ] **Step 1: Ejecutar el skill `docs-update`** y aplicar solo los cambios que el usuario confirme. Debe cubrir: el nuevo nombre de Histopathology y el perfil de Genomics en `README.md` (l.93), `docs/user/transfer-data.md` (l.40 y l.72), `docs/user/tag-manager.md` (l.23), `docs/agent/frontend.md` (l.95) y `docs/development/frontend.md` (l.131); el 7º elemento `required`; `profile_fields`, `apply_provider` y `provider` automático y forzado; `check_tag_value`/`validate_tagset`/`validate_profile_tagset` y los límites 128/256; y `detect_profile` por `provider` con fallback por keys.
 
-- [ ] **Step 2: Añadir una entrada en `docs/wiki/log.md`** con las decisiones: valores saneados (sin `'` ni paréntesis), flag `required`, validación unificada con límites 128/256, y `provider` como criterio de detección.
+- [ ] **Step 2: Añadir una entrada en `docs/wiki/log.md`** con las decisiones: nombre del perfil = valor de `provider` (también en IRB Standard), `provider` automático y bloqueado, valores saneados (sin `'` ni paréntesis), flag `required`, validación unificada con límites 128/256 y fallback por keys para datos antiguos.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add docs
-git commit -m "docs(tags): documenta el perfil Genomics, el flag required y la validación unificada"
+git add README.md docs
+git commit -m "docs(tags): documenta el perfil Genomics, provider como nombre de perfil y la validación unificada"
 ```
 
 ---
 
 ## Self-Review
 
-- **Cobertura del spec:** §1 perfil → Task 3; §2 obligatorios → Task 2; §3 validación unificada → Tasks 1 y 4 (incluye `max_length` en UI con constantes); §4 `detect_profile` y `provider` fijo → Task 3; §5 documentación → Task 5; Notas (separador `:`, 10 tags) → Global Constraints.
-- **Consistencia de tipos:** `check_tag_value(text, max_len)`, `TAG_KEY_MAX`, `TAG_VALUE_MAX`, `missing_required(profile_name, values)` y `detect_profile(tags)` se nombran igual en todas las tareas.
-- **Orden:** Task 2 antes que Task 3 porque Genomics usa el 7º elemento de las tuplas; Task 1 antes que 3 y 4 porque ambas llaman a `check_tag_value`.
+- **Cobertura del spec:** §1 perfil → Tasks 3 y 4; §2 obligatorios → Task 3; §3 validación unificada → Tasks 1 (`check_tag_value`, sin regex inline, `max_length` con constantes) y 3 (`validate_profile_tagset`, única llamada de las vistas); §4 provider = nombre del perfil, `profile_fields`, `apply_provider`, `detect_profile`, anchos y renombrado → Task 2; §5 documentación → Task 5; Notas (separador `:`, 10 tags, nombres como tags) → Global Constraints y tests de Task 2.
+- **Consistencia de tipos:** `check_tag_value(text, max_len)`, `TAG_KEY_MAX`, `TAG_VALUE_MAX`, `profile_fields(profile_name)`, `apply_provider(profile_name, values)`, `missing_required(profile_name, values)`, `validate_profile_tagset(profile_name, tags)` y `detect_profile(tags)` se nombran igual en todas las tareas.
+- **Orden:** Task 2 antes que 3 y 4 porque `validate_profile_tagset` y el perfil Genomics usan `profile_fields`; Task 3 antes que 4 porque Genomics usa el 7º elemento; Task 1 antes que 2, 3 y 4 porque llaman a `check_tag_value`.
+- **Sin duplicación:** el regex vive solo en `check_tag_value`; las vistas validan solo con `validate_profile_tagset` (excepto el editor manual, que usa `validate_tagset`); la longitud total no se comprueba inline.
