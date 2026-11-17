@@ -69,7 +69,9 @@ used when copying. Click **Show raw tags** to switch to the plain list of
 label names and values at any moment.
 
 The profile is recognised by the **Provider** label of the file; if the file
-has no Provider (older files), it is recognised by the other labels. The
+has no Provider (older files), it is recognised by the other labels. If the
+file has labels that the profile does not include, the editor opens the plain
+list of labels instead, so that saving does not delete them. The
 Provider shown in the editor is always the one of the selected profile, and it
 is the one saved when you click **Save tags**.
 

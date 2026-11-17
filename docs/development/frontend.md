@@ -163,8 +163,11 @@ formulario de copia y el Tag Manager:
   navegar dentro de un bucket y reaparece en la raíz. Solo aplica a nivel root.
 - `detect_profile(tags: dict[str, str])` — detecta qué perfil encaja con un
   dict de tags (lo usa el Tag Manager para pre-cargar el editor). Primero por
-  `provider` (== nombre del perfil); si el objeto no lo tiene o no coincide con
-  ningún perfil (objetos antiguos), por subconjunto de keys.
+  `provider` (== nombre del perfil) siempre que todas las keys del objeto sean
+  del perfil; si hay keys ajenas devuelve `None` y el editor abre en modo raw,
+  porque guardar en modo perfil las borraría sin aviso. Si el objeto no tiene
+  `provider` o no coincide con ningún perfil (objetos antiguos), por subconjunto
+  de keys.
 
 Regla: cualquier cambio de campos, perfiles o labs se hace **solo** en
 `meta_fields.py`, nunca en las vistas ni en `main.py`.

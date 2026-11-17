@@ -595,7 +595,9 @@ def build_meta_fields(
 def detect_profile(tags: dict[str, str]) -> str | None:
     """Devuelve el perfil de un objeto a partir de sus tags.
 
-    1. Si tags["provider"] es el nombre de un perfil, devuelve ese perfil.
+    1. Si tags["provider"] es el nombre de un perfil y todas las keys de tags son de ese
+       perfil, devuelve ese perfil. Si hay keys ajenas al perfil no se detecta (el editor
+       abre en modo raw): guardar en modo perfil las borraría sin aviso.
     2. Si no (objetos antiguos sin provider o con uno desconocido), el perfil cuyas keys
        son superconjunto de las keys de tags: set(tags.keys()) ⊆ profile_keys. Si varios
        califican, el de mayor solapamiento.
@@ -603,9 +605,12 @@ def detect_profile(tags: dict[str, str]) -> str | None:
     """
     if not tags:
         return None
-    if tags.get("provider") in TAG_PROFILES:
-        return tags["provider"]
     tag_keys = set(tags.keys())
+    provider = tags.get("provider")
+    if provider in TAG_PROFILES:
+        if tag_keys <= {item[1] for item in profile_fields(provider)}:
+            return provider
+        return None
     best_name: str | None = None
     best_score = -1
     for profile_name in TAG_PROFILES:

@@ -123,4 +123,10 @@ def test_application_all_joined_exceeds_limit():
 
 def test_detect_genomics_by_provider():
     assert detect_profile({**COMMON, "provider": GENO}) == GENO
-    assert detect_profile({"provider": GENO, "custom_tag": "x"}) == GENO
+
+
+def test_provider_with_foreign_keys_is_not_a_profile():
+    # un objeto con tags que el perfil no conoce se abre en modo raw (None): guardar en
+    # modo perfil los borraría sin aviso
+    assert detect_profile({"provider": GENO, "owner": "bbg", "batch": "42"}) is None
+    assert detect_profile({"provider": GENO, "custom_tag": "x"}) is None

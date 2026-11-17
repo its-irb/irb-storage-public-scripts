@@ -115,8 +115,10 @@ that opens a dialog to renew manually for 1–30 days (default 7).
   form controls; `prefill_values` pre-fills them with existing tags.
 - `build_lab_filter_widget(...)` — the "Filter by lab…" widget of the browsers.
 - `detect_profile(tags: dict[str, str])` — detects the profile that fits a tag
-  dict: first by `provider` (== profile name), then, for objects without a
-  known provider, by key subset.
+  dict: first by `provider` (== profile name) when all the tag keys belong to
+  that profile (otherwise `None`: the file opens in raw mode, so saving in
+  profile mode never drops foreign tags); then, for objects without a known
+  provider, by key subset.
 
 ## Web mode (`bifrost-transfer`, Open OnDemand) — essentials
 
