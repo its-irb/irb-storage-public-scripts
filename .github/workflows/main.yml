@@ -464,6 +464,20 @@ jobs:
       #     done
       #     ls -lah dist/
 
+      # La release publica el instalador de Windows de dos formas: <app>-windows.zip con el
+      # .exe dentro, que es el que descargan los usuarios y el autoupdate (updates.py, sufijo
+      # -windows.zip), y el .exe suelto, que lo siguen pidiendo las versiones anteriores
+      # (sufijo -main-windows.exe). No cambiar estos nombres: romperían el autoupdate.
+      - name: Comprimir instaladores de Windows en .zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          for APP in bifrost-transfer bifrost-mount; do
+            exe=$(ls dist/${APP}-*-windows.exe)
+            zip -j "dist/${APP}-windows.zip" "$exe"
+          done
+          ls -lah dist/
+
       - name: Crear GitHub Release
         uses: softprops/action-gh-release@v2
         with:

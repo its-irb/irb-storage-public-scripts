@@ -274,15 +274,21 @@ solo la hace la CI; ver abajo.)
   `/DBranchSuffix`, `/DAppVersion=1.0.<run_number>`, `/DAppName=<app>`) →
   `installer/*.exe`, y **firma el instalador** con `signtool` (certificado
   PFX desde los secrets del repo `IRBCODESIGNING` /
-  `IRBCODESIGNING_PASSWORD`, con timestamp de Digicert).
+  `IRBCODESIGNING_PASSWORD`, con timestamp de Digicert). Sube el `.exe` como
+  artefacto `<app>-windows`; GitHub lo entrega comprimido como
+  `<app>-windows.zip` con el `.exe` dentro.
 - **Job `release`** (solo en `main` y `release`): descarga los artefactos de
   los tres jobs de build (por eso su `needs` incluye también
   `build-macos-intel`) y publica una release de GitHub con tag
   `v1.0.<run_number>` que contiene:
   - macOS: `bifrost-<flavour>-macos.dmg` (Apple Silicon) y
     `bifrost-<flavour>-macos-intel.dmg` (Intel, stopgap hasta nov-2026)
-  - Windows: `bifrost-<flavour>/installer/bifrost-<flavour>-<rama>-windows.exe`
-    (firmado)
+  - Windows: `bifrost-<flavour>-<rama>-windows.exe` (instalador firmado) y
+    `bifrost-<flavour>-windows.zip` (el mismo instalador comprimido; lo crea el
+    propio job `release` con `zip`). El `.zip` es el que descargan los usuarios
+    y el autoupdate, que extrae el `.exe` de dentro
+    (`extract_windows_installer()`). El `.exe` suelto se mantiene porque las
+    versiones anteriores lo siguen pidiendo (`-main-windows.exe`)
 
   De estas releases descarga el autoupdate de las apps
   (`backend.download_new_binary()`): en macOS elige el sufijo según la
@@ -292,9 +298,10 @@ solo la hace la CI; ver abajo.)
 
 ## Política de validación
 
-**No hay suite de tests automatizada.** Los cambios se validan ejecutando las
-apps manualmente (`flet run`, y en su caso `flet run --web`). Las
-funciones críticas a probar manualmente tras un cambio:
+Los tests automáticos (pytest) cubren solo una parte del autoupdate, qué cubren y qué no, cómo
+ejecutarlos y la prueba manual del autoupdate están en [testing.md](testing.md).
+Todo lo demás se valida ejecutando las apps manualmente (`flet run`, y en su caso
+`flet run --web`). Las funciones críticas a probar manualmente tras un cambio:
 
 - login y renovación de credenciales STS;
 - copy completa + check de integridad;
