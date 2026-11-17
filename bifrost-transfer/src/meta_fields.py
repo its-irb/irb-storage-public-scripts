@@ -13,17 +13,35 @@ from bifrost_frontend.frontend import (
 _TAG_VALUE_RE = re.compile(r'^[\w\s.:/=+\-@]*$', re.UNICODE)
 _TAG_VALUE_ERROR = "Only the following characters are allowed: letters, numbers, spaces, and _ . : / = + - @"
 
+# Límites de S3 para un tag.
+TAG_KEY_MAX = 128
+TAG_VALUE_MAX = 256
+
+
+def check_tag_value(text: str, max_len: int = TAG_VALUE_MAX) -> str | None:
+    """Devuelve el mensaje de error si text no es válido como key/valor de tag S3, o None.
+
+    Comprueba primero los caracteres y luego la longitud (max_len).
+    """
+    if text and not _TAG_VALUE_RE.match(text):
+        return _TAG_VALUE_ERROR
+    if len(text) > max_len:
+        return f"Maximum {max_len} characters ({len(text)} entered)"
+    return None
+
 
 def _validate_tag_value(tf: ft.TextField, page: ft.Page) -> bool:
     """Valida el valor de un TextField como tag S3. Muestra error inline si no es válido.
-    Devuelve True si es válido (o vacío), False si contiene caracteres prohibidos.
+    Devuelve True si es válido (o vacío), False si contiene caracteres prohibidos
+    o supera TAG_VALUE_MAX.
     """
     val = tf.value or ""
     err_ctrl: ft.Text | None = getattr(tf, "_error_ctrl", None)
-    if val and not _TAG_VALUE_RE.match(val):
+    err = check_tag_value(val)
+    if err:
         tf.border_color = C_ERROR
         if err_ctrl:
-            err_ctrl.value = _TAG_VALUE_ERROR
+            err_ctrl.value = err
             err_ctrl.visible = True
         page.update()
         return False
@@ -35,24 +53,20 @@ def _validate_tag_value(tf: ft.TextField, page: ft.Page) -> bool:
     return True
 
 
-def check_tag_value(val: str) -> str | None:
-    """Devuelve mensaje de error si val contiene caracteres prohibidos en S3, o None si es válido."""
-    if val and not _TAG_VALUE_RE.match(val):
-        return _TAG_VALUE_ERROR
-    return None
-
-
 def validate_tagset(tags: dict[str, str]) -> list[str]:
-    """Comprueba que todas las keys y values de un tagset sean válidas para S3/boto3.
+    """Comprueba que todas las keys y values de un tagset sean válidas para S3/boto3
+    (caracteres permitidos y longitud máxima: TAG_KEY_MAX / TAG_VALUE_MAX).
 
     Devuelve lista de mensajes de error (vacía si todo es correcto).
     """
     errors: list[str] = []
     for k, v in tags.items():
-        if k and not _TAG_VALUE_RE.match(k):
-            errors.append(f"Key «{k}»: {_TAG_VALUE_ERROR}")
-        if v and not _TAG_VALUE_RE.match(v):
-            errors.append(f"Field «{k}»: the value «{v}» contains invalid characters")
+        key_err = check_tag_value(k, TAG_KEY_MAX)
+        if key_err:
+            errors.append(f"Key «{k}»: {key_err}")
+        val_err = check_tag_value(v)
+        if val_err:
+            errors.append(f"Field «{k}»: {val_err}")
     return errors
 
 
@@ -324,9 +338,10 @@ def build_meta_fields(
                         val = ctf.value.strip()
                         if not val:
                             return
-                        if not _TAG_VALUE_RE.match(val):
+                        err = check_tag_value(val)
+                        if err:
                             ctf.border_color = C_ERROR
-                            ctf_err.value = _TAG_VALUE_ERROR
+                            ctf_err.value = err
                             ctf_err.visible = True
                             page.update()
                             return
@@ -406,9 +421,10 @@ def build_meta_fields(
                     val = input_tf.value.strip()
                     if not val:
                         return
-                    if not _TAG_VALUE_RE.match(val):
+                    err = check_tag_value(val)
+                    if err:
                         input_tf.border_color = C_ERROR
-                        err_txt.value = _TAG_VALUE_ERROR
+                        err_txt.value = err
                         err_txt.visible = True
                         page.update()
                         return

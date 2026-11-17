@@ -13,7 +13,10 @@ from bifrost_backend import backend
 from bifrost_backend.common.constants import NO_LDAP
 from bifrost_frontend.frontend import *
 
-from meta_fields import TAG_PROFILES, build_lab_filter_widget, build_meta_fields, check_tag_value, detect_profile, validate_tagset
+from meta_fields import (
+    TAG_KEY_MAX, TAG_PROFILES, TAG_VALUE_MAX, build_lab_filter_widget, build_meta_fields,
+    check_tag_value, detect_profile, validate_tagset,
+)
 
 log = logging.getLogger("bifrost.tags")
 
@@ -688,7 +691,7 @@ def _build_tag_manager_content(
             hint_style=ft.TextStyle(color=C_TEXT_DIM),
             border_radius=6,
             content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
-            text_size=12, max_length=128, expand=1,
+            text_size=12, max_length=TAG_KEY_MAX, expand=1,
         )
 
         val_container = ft.Container(expand=2)
@@ -704,7 +707,7 @@ def _build_tag_manager_content(
                 hint_style=ft.TextStyle(color=C_TEXT_DIM),
                 border_radius=6,
                 content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
-                text_size=12, max_length=256, expand=True
+                text_size=12, max_length=TAG_VALUE_MAX, expand=True
             )
             def _on_val_change(e):
                 err = check_tag_value(row_dict["val_tf"].value or "")
@@ -719,7 +722,7 @@ def _build_tag_manager_content(
         update_value_field_type(value)
 
         def on_key_change(e):
-            err = check_tag_value(key_tf.value or "")
+            err = check_tag_value(key_tf.value or "", TAG_KEY_MAX)
             key_tf.border_color = C_ERROR if err else C_BORDER
             key_err.value = err or ""
             key_err.visible = bool(err)
