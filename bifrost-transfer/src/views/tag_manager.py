@@ -15,7 +15,7 @@ from bifrost_frontend.frontend import *
 
 from meta_fields import (
     TAG_KEY_MAX, TAG_PROFILES, TAG_VALUE_MAX, build_lab_filter_widget, build_meta_fields,
-    check_tag_value, detect_profile, validate_tagset,
+    check_tag_value, detect_profile, validate_profile_tagset, validate_tagset,
 )
 
 log = logging.getLogger("bifrost.tags")
@@ -563,9 +563,9 @@ def _build_tag_manager_content(
         if sel["type"] != "prefix":
             return
         tagset = {k: (tf.value or "").strip() for k, tf in tag_fields.items()}
-        tag_errors = validate_tagset(tagset)
+        tag_errors = validate_profile_tagset(active_profile["name"], tagset)
         if tag_errors:
-            show_dialog(page, "Invalid characters in tags", "\n".join(tag_errors), C_ERROR)
+            show_dialog(page, "Invalid tags", "\n".join(tag_errors), C_ERROR)
             return
         _run_folder_apply(nav["bucket"], sel["key"] or "", tagset, active_profile["name"])
 
@@ -820,9 +820,12 @@ def _build_tag_manager_content(
                 if rd["key_tf"].value.strip()
             }
 
-        tag_errors = validate_tagset(tagset)
+        if file_editor_mode["mode"] == "profile":
+            tag_errors = validate_profile_tagset(active_profile["name"], tagset)
+        else:
+            tag_errors = validate_tagset(tagset)
         if tag_errors:
-            show_dialog(page, "Invalid characters in tags", "\n".join(tag_errors), C_ERROR)
+            show_dialog(page, "Invalid tags", "\n".join(tag_errors), C_ERROR)
             return
 
         bucket, key, before = nav["bucket"], sel["key"], dict(_current_file_tags["tags"])

@@ -179,6 +179,31 @@ def profile_fields(profile_name: str) -> list[tuple]:
     ] + TAG_PROFILES[profile_name]
 
 
+def missing_required(profile_name: str, values: dict[str, str]) -> list[str]:
+    """Labels (sin ` *`) de los campos `required` del perfil que están vacíos o ausentes en values.
+
+    Interna: las vistas usan validate_profile_tagset.
+    """
+    return [
+        item[0]
+        for item in profile_fields(profile_name)
+        if len(item) > 6 and item[6] and not (values.get(item[1]) or "").strip()
+    ]
+
+
+def validate_profile_tagset(profile_name: str, tags: dict[str, str]) -> list[str]:
+    """Única validación de las vistas al pulsar Copy o Aplicar con un perfil.
+
+    Devuelve los errores de validate_tagset (caracteres y longitud) y, si faltan campos
+    obligatorios, un mensaje final `Missing required fields: A, B`. Vacía si todo es correcto.
+    """
+    errors = validate_tagset(tags)
+    missing = missing_required(profile_name, tags)
+    if missing:
+        errors.append(f"Missing required fields: {', '.join(missing)}")
+    return errors
+
+
 def apply_provider(profile_name: str, values: dict[str, str]) -> dict[str, str]:
     """Copia de values con provider = profile_name.
 
@@ -208,6 +233,8 @@ def build_meta_fields(
 
     for item in profile_fields(profile_name):
         label        = item[0]
+        required     = item[6] if len(item) > 6 else False
+        shown_label  = f"{label} *" if required else label
         key          = item[1]
         field_type   = item[2]
         allow_custom = item[3]
@@ -295,7 +322,7 @@ def build_meta_fields(
                 hidden_tf.value = v
             fields_dict[key] = hidden_tf
             col.controls.append(ft.Column(
-                [ft.Text(label, size=12, color=C_TEXT_DIM), dd, custom_tf, hidden_tf],
+                [ft.Text(shown_label, size=12, color=C_TEXT_DIM), dd, custom_tf, hidden_tf],
                 spacing=4,
             ))
 
@@ -388,7 +415,7 @@ def build_meta_fields(
             custom_tf2, custom_tf2_err, add_custom_fn, sync_fn = make_multiselect(
                 selected_vals, chips_row, options_dd, hidden_tf, options_list, allow_custom
             )
-            col_controls = [ft.Text(label, size=12, color=C_TEXT_DIM), options_dd, chips_row]
+            col_controls = [ft.Text(shown_label, size=12, color=C_TEXT_DIM), options_dd, chips_row]
             if allow_custom and custom_tf2:
                 col_controls.insert(2, ft.Row([
                     custom_tf2,
@@ -462,7 +489,7 @@ def build_meta_fields(
 
             input_tf, add_fn, sync_fn, err_txt = make_multifreetext(selected_vals, chips_row, hidden_tf)
             field_col = ft.Column([
-                ft.Text(label, size=12, color=C_TEXT_DIM),
+                ft.Text(shown_label, size=12, color=C_TEXT_DIM),
                 ft.Row([
                     input_tf,
                     ft.IconButton(icon=ft.Icons.ADD, icon_color=C_PRIMARY,
@@ -508,7 +535,7 @@ def build_meta_fields(
             date_tf.on_click = open_fn
             fields_dict[key] = date_tf
             col.controls.append(ft.Column([
-                ft.Text(label, size=12, color=C_TEXT_DIM),
+                ft.Text(shown_label, size=12, color=C_TEXT_DIM),
                 ft.Row([
                     date_tf,
                     ft.IconButton(icon=ft.Icons.CALENDAR_MONTH, icon_color=C_PRIMARY,
@@ -519,7 +546,7 @@ def build_meta_fields(
                 date_tf.value = _pre[key]
 
         else:  # TEXT (y NUMBER, actualmente sin usar)
-            tf, c = styled_field(label)
+            tf, c = styled_field(shown_label)
             fields_dict[key] = tf
             tf.expand = True
             err_txt = ft.Text("", size=11, color=C_ERROR, visible=False)

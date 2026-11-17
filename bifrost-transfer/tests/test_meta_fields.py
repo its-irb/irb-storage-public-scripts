@@ -3,10 +3,13 @@ import pytest
 from meta_fields import (
     TAG_KEY_MAX,
     TAG_PROFILES,
+    FieldType,
     apply_provider,
     check_tag_value,
     detect_profile,
+    missing_required,
     profile_fields,
+    validate_profile_tagset,
     validate_tagset,
 )
 
@@ -69,3 +72,24 @@ def test_prefill_forces_provider_to_profile_name():
     assert apply_provider(HISTO, {"provider": "Unknown", "instrument": "Nanozoomer"}) == \
         {"provider": HISTO, "instrument": "Nanozoomer"}
     assert apply_provider(IRB, {"project_name": "p"}) == {"project_name": "p", "provider": IRB}
+
+
+# ── Task 3: campos obligatorios ─────────────────────────────────────────────
+
+A_REQUIRED = ("A", "a", FieldType.TEXT, False, None, None, True)
+B_OPTIONAL = ("B", "b", FieldType.TEXT, False, None, None)
+
+
+def test_missing_required(monkeypatch):
+    monkeypatch.setitem(TAG_PROFILES, "T", [A_REQUIRED, B_OPTIONAL])
+    assert missing_required("T", {"provider": "T", "a": "", "b": ""}) == ["A"]
+    assert missing_required("T", {"provider": "T", "b": "x"}) == ["A"]     # ausente
+    assert missing_required("T", {"provider": "T", "a": "x", "b": ""}) == []
+
+
+def test_validate_profile_tagset_combines_all_errors(monkeypatch):
+    monkeypatch.setitem(TAG_PROFILES, "T", [A_REQUIRED, B_OPTIONAL])
+    errs = validate_profile_tagset("T", {"provider": "T", "a": "", "b": "x" * 257})
+    assert any("Missing required fields" in e and "A" in e for e in errs)
+    assert any("b" in e for e in errs)                                  # longitud
+    assert validate_profile_tagset("T", {"provider": "T", "a": "x", "b": ""}) == []
