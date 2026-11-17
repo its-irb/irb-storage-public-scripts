@@ -37,8 +37,9 @@ Use something else if:
      drive, or an SFTP server);
    - the **destination**: the MinIO folder where it should go (see
      [minio-permissions-and-folders.md](minio-permissions-and-folders.md));
-   - the **metadata profile**: the type of data you are copying (IRB Standard
-     or Histopathology).
+   - the **metadata profile**: the type of data you are copying (IRB Standard,
+     Histopathology IRB Core Facility or Advanced Genomic Technologies IRB
+     Core Facility).
 
 ## Choose the source
 
@@ -71,11 +72,26 @@ In the **METADATA** section, pick the profile from the drop-down list:
 
 - **IRB Standard**: general data: project, machine, sample type, data types,
   requester, research group.
-- **Histopathology**: owner, users, date, provider, instrument, species, sample
-  type, magnification, channels.
+- **Histopathology IRB Core Facility**: owner, users, date, instrument,
+  species, sample type, sample origin, magnification, channels.
+- **Advanced Genomic Technologies IRB Core Facility**: owner, users, date,
+  application, library kit, species, sample type and comments (optional).
+
+The **Provider** field is filled in automatically with the name of the profile
+and you cannot change it; it records which profile the labels belong to.
+Fields marked with **\*** are required.
 
 Fill in the fields. The labels are attached to the files copied in this run
 (files already in MinIO with the same content keep the labels they had).
+
+A label value can have at most **256 characters**. In the Genomics profile,
+the options you select in **Application** or **Library Kit** are joined into
+one value, so selecting many of them can go over the limit.
+
+If something is wrong when you click copy (a required field is empty, a value
+is too long or has characters MinIO does not accept), the copy does not start
+and an **Invalid tags** window lists the problems. Correct those fields and
+click copy again.
 
 > If you change the profile, the fields you have filled in are cleared. If any
 > field has data, the app asks you to confirm first.

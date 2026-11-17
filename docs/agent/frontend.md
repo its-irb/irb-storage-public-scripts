@@ -92,15 +92,33 @@ that opens a dialog to renew manually for 1–30 days (default 7).
 
 ## `meta_fields.py` (bifrost-transfer only)
 
-- `TAG_PROFILES` — metadata profiles (IRB Standard, Histopathology); canonical
-  source used by the copy form and Tag Manager.
+- `TAG_PROFILES` — metadata profiles (`IRB Standard`, `Histopathology IRB Core
+  Facility`, `Advanced Genomic Technologies IRB Core Facility`); canonical
+  source used by the copy form and Tag Manager. Field tuple:
+  `(label, key, FieldType, allow_custom, options, helper[, required])`; when
+  `required` is true the label is shown with ` *`. **The profile name is the
+  value of the `provider` tag**; `provider` is not declared in `TAG_PROFILES`.
+- `profile_fields(name)` — fields of a profile with the locked Provider first
+  (its only option is the profile name).
+- `apply_provider(name, values)` — copy of `values` with `provider` forced to
+  the profile name (used on prefill).
+- `missing_required(name, values)` — labels of empty required fields (internal).
+- `validate_profile_tagset(name, tags)` — the **only** validation the views call
+  on Copy/Apply/Save: characters and length (`validate_tagset`) plus
+  `Missing required fields: ...`. Returns a list of errors.
+- `check_tag_value(text, max_len=TAG_VALUE_MAX)`, `validate_tagset`,
+  `TAG_KEY_MAX` (128) and `TAG_VALUE_MAX` (256) — S3 tag limits and allowed
+  characters.
 - `LAB_ACRONYMS` — exact acronyms that appear in the `acronym` tag of MinIO
   buckets.
 - `build_meta_fields(..., prefill_values: dict[str, str] | None)` — builds the
   form controls; `prefill_values` pre-fills them with existing tags.
 - `build_lab_filter_widget(...)` — the "Filter by lab…" widget of the browsers.
 - `detect_profile(tags: dict[str, str])` — detects the profile that fits a tag
-  dict.
+  dict: first by `provider` (== profile name) when all the tag keys belong to
+  that profile (otherwise `None`: the file opens in raw mode, so saving in
+  profile mode never drops foreign tags); then, for objects without a known
+  provider, by key subset.
 
 ## Web mode (`bifrost-transfer`, Open OnDemand) — essentials
 

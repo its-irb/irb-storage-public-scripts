@@ -13,7 +13,7 @@ from bifrost_backend import backend
 from bifrost_backend.common.constants import NO_LDAP, STS_AUTO_RENEWAL_DAYS, STS_RENEWAL_THRESHOLD_DAYS
 from bifrost_frontend.frontend import *
 
-from meta_fields import TAG_PROFILES, build_meta_fields, validate_tagset
+from meta_fields import TAG_PROFILES, build_meta_fields, validate_profile_tagset
 from views.local_fs import show_local_fs_modal
 from views.rclone_browser import build_rclone_browser
 
@@ -222,7 +222,7 @@ def _build_copy_content(
         text_size=13,
         border_radius=6,
         content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-        width=220,
+        width=400,
     )
 
     def _on_profile_change(e):
@@ -912,9 +912,9 @@ def _build_copy_content(
         if not _flags_or_warn(flags):
             return
 
-        tag_errors = validate_tagset(metadatos)
+        tag_errors = validate_profile_tagset(active_copy_profile["name"], metadatos)
         if tag_errors:
-            show_dialog(page, "Invalid characters in tags",
+            show_dialog(page, "Invalid tags",
                         "\n".join(tag_errors), C_ERROR)
             return
 

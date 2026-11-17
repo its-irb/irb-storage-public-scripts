@@ -91,7 +91,10 @@ ood-app-bifrost/          # Git submodule: Open OnDemand app that launches the b
 Metadata tags are organized in **profiles**. Both the copy form and the Tag Manager use the same profiles:
 
 - **IRB Standard** — general metadata fields: project, host machine, sample type, data types, requester, research group.
-- **Histopathology** — specialized fields for histopathology data: owner, users, date, provider, instrument, species, sample type, magnification, channels.
+- **Histopathology IRB Core Facility** — specialized fields for histopathology data: owner, users, date, instrument, species, sample type, sample origin, magnification, channels.
+- **Advanced Genomic Technologies IRB Core Facility** — specialized fields for genomics data: owner, users, date, application, library kit, species, sample type and comments (optional).
+
+The name of the profile is stored in the `provider` tag of every object, so the profile in use is always identifiable. The Provider field is filled in automatically and cannot be edited. Fields marked with `*` are required: the copy or the tag application does not start until they are filled in.
 
 ### Copy form
 

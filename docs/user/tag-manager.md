@@ -20,7 +20,9 @@ without copying the data again.
 
 - The Nexica VPN is on and you have signed in.
 - You know the **folder** or **file** you want to label.
-- You know which **metadata profile** applies (IRB Standard or Histopathology).
+- You know which **metadata profile** applies (IRB Standard, Histopathology
+  IRB Core Facility or Advanced Genomic Technologies IRB Core Facility). The
+  profile fields are described in [transfer-data.md](transfer-data.md#choose-the-metadata-profile).
 
 ## How to do it
 
@@ -29,9 +31,14 @@ without copying the data again.
    whole **folder tree** inside a bucket. At the top level, the **Filter by
    lab…** box helps you find your lab's folders.
 3. Choose the **profile** and fill in the fields. All the fields of the
-   profile are written on the files, also the empty ones.
+   profile are written on the files, also the empty ones. The **Provider**
+   field is filled in automatically with the name of the profile and cannot be
+   changed. Fields marked with **\*** are required.
 4. For a folder, click **Apply tags →**; for a single file, **Save tags**. The
    labels are written on the existing files; the data itself is not touched.
+   If a required field is empty, or a value is too long (more than 256
+   characters) or has characters MinIO does not accept, nothing is written and
+   an **Invalid tags** window lists the problems; correct them and try again.
 
 While the labels of a folder are being applied, the line next to the button
 shows the progress ("Setting tags: N files done so far"). Click **Cancel** to
@@ -60,6 +67,13 @@ the editor switches to that profile and **fills in the current values**. You
 can review and correct them with the same drop-down lists and date pickers
 used when copying. Click **Show raw tags** to switch to the plain list of
 label names and values at any moment.
+
+The profile is recognised by the **Provider** label of the file; if the file
+has no Provider (older files), it is recognised by the other labels. If the
+file has labels that the profile does not include, the editor opens the plain
+list of labels instead, so that saving does not delete them. The
+Provider shown in the editor is always the one of the selected profile, and it
+is the one saved when you click **Save tags**.
 
 Under the file name, the editor shows when the file was **uploaded to MinIO**
 ("Uploaded to MinIO: …", in your local time). Changing labels does not change

@@ -90,7 +90,7 @@ docs/superpowers/         # Historical feature specs and plans
 - `src/views/` — the app's own views (`mount.py` in mount; `shares.py`,
   `rclone_browser.py`, `local_fs.py`, `copy.py`, `tag_manager.py` in transfer).
 - `src/web_session.py` (**transfer only**) — web-mode session store.
-- `src/meta_fields.py` — **`bifrost-transfer` only**: `FieldType`, `TAG_PROFILES`, `build_meta_fields`, `LAB_ACRONYMS`, `build_lab_filter_widget`, `detect_profile`. Canonical source of profiles and fields.
+- `src/meta_fields.py` — **`bifrost-transfer` only**: `FieldType`, `TAG_PROFILES`, `profile_fields`, `apply_provider`, `missing_required`, `validate_profile_tagset`, `check_tag_value`, `validate_tagset`, `TAG_KEY_MAX`, `TAG_VALUE_MAX`, `build_meta_fields`, `LAB_ACRONYMS`, `build_lab_filter_widget`, `detect_profile`. Canonical source of profiles and fields.
 - `src/config.py` — only `APP_INFO`. The backend reads `APP_INFO["flavour"]` to resolve asset paths in dev.
 - `src/version.py` — written by CI/build (`__version__ = "1.0.<run_number>"`).
 - `installer.iss`, `build-macos.sh`, `pyproject-template.toml` (frozen deps per app).
