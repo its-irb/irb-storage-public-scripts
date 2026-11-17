@@ -150,8 +150,35 @@ Regla: cualquier cambio de campos, perfiles o labs se hace **solo** en
 ### Detección
 
 ```python
-IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or (os.environ.get("BIFROST_CLUSTER") == "1")
+IS_CLUSTER = os.environ.get("BIFROST_CLUSTER") == "1"
+IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or IS_CLUSTER
 ```
+
+**Por qué hay dos variables.** `IS_WEB` responde a «¿hay navegador?» e
+`IS_CLUSTER` a «¿me sirve Hypercorn en OOD?». No son lo mismo:
+
+| Cómo se arranca | `IS_WEB` | `IS_CLUSTER` |
+|---|---|---|
+| Escritorio (`python main.py`) | False | False |
+| Desarrollo web local (`flet run --web`, `python main.py --web`) | True | False |
+| Cluster OOD (Hypercorn; `script.sh.erb` exporta `BIFROST_CLUSTER=1`) | True | True |
+
+`IS_CLUSTER` controla lo que solo debe pasar en el cluster:
+
+- El bloque `if IS_CLUSTER:` del final de `main.py`, que crea la app `FastAPI`,
+  monta Flet y define el endpoint WebSocket con token (la `app` que Hypercorn
+  carga como `main:app`). Con `IS_WEB` se ejecutaría también en desarrollo web
+  local, donde Flet arranca su propio servidor, y chocarían.
+- `register_shutdown(..., server_managed=IS_CLUSTER)`: en el cluster el cierre
+  lo gestiona el servidor; en local, el propio proceso.
+
+`IS_WEB` no puede sustituirla: bajo Hypercorn ya es True (`__name__ !=
+"__main__"`), pero también lo es con `flet run`, así que no distingue el
+cluster. **No quites `export BIFROST_CLUSTER=1`** de
+`ood-app-bifrost/template/script.sh.erb`: sin él no existe `main:app` y
+Hypercorn falla al arrancar. Historia: se intentó en la simplificación de
+junio de 2026 (una sola `IS_WEB`, spec en `docs/superpowers/specs/`) y se
+revirtió al día siguiente (`5e6246b`).
 
 - OOD importa `main.py` como módulo ASGI → `__name__ != "__main__"` → modo web.
 - `flet run --web` activa el modo web en desarrollo local (con Flet 0.84 puede
@@ -347,7 +374,7 @@ tareas asyncio.
 
 | Variable | Aplica a | Efecto |
 |---|---|---|
-| `BIFROST_CLUSTER=1` | transfer | Fuerza `IS_WEB=True` (flujo CIFS/shares del cluster Linux) |
+| `BIFROST_CLUSTER=1` | transfer | Activa `IS_CLUSTER` e `IS_WEB` (app FastAPI/Hypercorn y flujo CIFS/shares del cluster Linux); ver «Por qué hay dos variables» |
 | `BIFROST_NO_LDAP=1` | ambas | Salta la validación LDAP en el login (`NO_LDAP`, en `bifrost_backend.common.constants`); el badge muestra `DESKTOP (NO LDAP)` |
 | `FLET_ASSETS_DIR` | ambas | La setea Flet en runtime; el backend la usa para localizar `rclone` y, en mount/macOS en desarrollo, `fuse_t.framework` |
 | `FLET_FORCE_WEB_SERVER=true` | transfer (desarrollo) | Hace que `ft.run(main)` sirva la app por web (puerto 8000) en lugar de abrir una ventana; alternativa a `flet run --web` (ver [build-and-ci.md](build-and-ci.md)) |
