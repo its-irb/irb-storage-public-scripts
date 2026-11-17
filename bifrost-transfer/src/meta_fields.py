@@ -112,6 +112,7 @@ WORM_FACILITY_DATA_SUBFOLDERS: list[str] = [
     "biostats",
     "cryoservice",
     "drugsp",
+    "flowcytometry",
     "genomics",
     "histopathology",
     "masspe",
