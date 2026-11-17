@@ -129,6 +129,11 @@ class FieldType(Enum):
     NUMBER        = "number"
 
 
+_OWNER_OPTIONS = [
+    (acr, f"{name} ({acr})") for acr, name in sorted(LAB_ACRONYMS.items(), key=lambda x: x[1])
+]
+_USERS_HELPER = "Enter Linux usernames, add each one separately"
+
 TAG_PROFILES: dict[str, list[tuple]] = {
     "IRB Standard": [
         ("Project",          "project_name",     FieldType.TEXT, False, None, None),
@@ -140,13 +145,10 @@ TAG_PROFILES: dict[str, list[tuple]] = {
         ("Research group",   "research_group",    FieldType.TEXT, False, None, None),
     ],
     "Histopathology IRB Core Facility": [
-        ("Owner", "owner", FieldType.UNISELECT, False, [
-            (acr, f"{name} ({acr})") for acr, name in sorted(LAB_ACRONYMS.items(), key=lambda x: x[1])
-        ], None),
-        ("Users",         "users",         FieldType.MULTIFREETEXT, False, None,
-         "Enter Linux usernames, add each one separately"),
+        ("Owner", "owner", FieldType.UNISELECT, False, _OWNER_OPTIONS, None),
+        ("Users",         "users",         FieldType.MULTIFREETEXT, False, None, _USERS_HELPER),
         ("Date",          "date",          FieldType.DATE,      False, None, None),
-        ("Instrument",    "instrument",    FieldType.UNISELECT, False,
+        ("Instrument",   "instrument",    FieldType.UNISELECT, False,
          ["Phenoimager", "Nanozoomer"], None),
         ("Species",       "species",       FieldType.UNISELECT, False,
          ["mouse", "human", "rat", "pig", "cow"], None),
@@ -164,6 +166,31 @@ TAG_PROFILES: dict[str, list[tuple]] = {
             "DAPI + 488 + 568", "DAPI + 488 + 647", "DAPI + 568 + 647",
             "DAPI + 488 + 568 + 647", "4plex", "5plex", "6plex",
         ], None),
+    ],
+    "Advanced Genomic Technologies IRB Core Facility": [
+        ("Owner",       "owner",       FieldType.UNISELECT,     False, _OWNER_OPTIONS, None, True),
+        ("Users",       "users",       FieldType.MULTIFREETEXT, False, None, _USERS_HELPER, True),
+        ("Date",        "date",        FieldType.DATE,          False, None, None, True),
+        ("Application", "application", FieldType.MULTISELECT,   False, [
+            "Qubit", "Bioanalyzer", "Tapestation", "Qubit+Bioanalyzer", "Qubit+Tapestation",
+            "RNA extraction", "DNA extraction", "RNA purification", "DNA purification",
+            "Bulk RNA-seq", "Low-input RNA-seq", "ChIP-seq", "ATAC-seq",
+            "scRNA-seq 3prime", "scRNA-seq 3prime OCM", "scRNA-seq 5prime/VDJ",
+            "scRNA-seq 5prime/TCR", "scRNA-seq 5prime/BCR", "scRNA-seq Flex",
+            "scATAC-seq", "Multiome", "Xenium", "Sequencing", "RIP-seq", "Ribo-seq", "Other",
+        ], None, True),
+        ("Library Kit", "library_kit", FieldType.MULTISELECT,   False, [
+            "Illumina Stranded mRNA", "NEBNext mRNA", "SMART-Seq Total RNA Takara",
+            "10x GEM-X 3prime", "10x GEM-X 5prime", "10x Flex", "10x ATAC", "10x Multiome",
+            "Xenium panel", "Other",
+        ], None, True),
+        ("Species",     "species",     FieldType.UNISELECT,     False,
+         ["human", "mouse", "rat", "Drosophila", "zebrafish", "other"], None, True),
+        ("Sample Type", "sample_type", FieldType.UNISELECT,     False, [
+            "cells", "nuclei", "fresh frozen tissue", "FFPE tissue", "RNA", "DNA", "organoids",
+        ], None, True),
+        ("Comments",    "comments",    FieldType.TEXT,          False, None,
+         "Incidents, QC deviations, notes"),
     ],
 }
 

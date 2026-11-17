@@ -93,3 +93,34 @@ def test_validate_profile_tagset_combines_all_errors(monkeypatch):
     assert any("Missing required fields" in e and "A" in e for e in errs)
     assert any("b" in e for e in errs)                                  # longitud
     assert validate_profile_tagset("T", {"provider": "T", "a": "x", "b": ""}) == []
+
+
+# ── Task 4: perfil Genomics ─────────────────────────────────────────────────
+
+GENO = "Advanced Genomic Technologies IRB Core Facility"
+
+
+def test_genomics_profile_shape():
+    keys = [f[1] for f in profile_fields(GENO)]
+    assert keys == ["provider", "owner", "users", "date", "application",
+                    "library_kit", "species", "sample_type", "comments"]
+    required = {f[1] for f in profile_fields(GENO) if len(f) > 6 and f[6]}
+    assert required == set(keys) - {"comments"}
+
+
+def test_genomics_options_are_valid_s3_values():
+    for f in profile_fields(GENO):
+        for opt in (f[4] or []):
+            value = opt[0] if isinstance(opt, tuple) else opt
+            assert check_tag_value(value) is None, (f[1], value)
+
+
+def test_application_all_joined_exceeds_limit():
+    app = next(f for f in profile_fields(GENO) if f[1] == "application")[4]
+    assert len(app) == 26
+    assert check_tag_value(":".join(sorted(app))) is not None
+
+
+def test_detect_genomics_by_provider():
+    assert detect_profile({**COMMON, "provider": GENO}) == GENO
+    assert detect_profile({"provider": GENO, "custom_tag": "x"}) == GENO
