@@ -139,15 +139,13 @@ TAG_PROFILES: dict[str, list[tuple]] = {
         ("Requested by",     "requested_by",      FieldType.TEXT, False, None, None),
         ("Research group",   "research_group",    FieldType.TEXT, False, None, None),
     ],
-    "Histopathology": [
+    "Histopathology IRB Core Facility": [
         ("Owner", "owner", FieldType.UNISELECT, False, [
             (acr, f"{name} ({acr})") for acr, name in sorted(LAB_ACRONYMS.items(), key=lambda x: x[1])
         ], None),
         ("Users",         "users",         FieldType.MULTIFREETEXT, False, None,
          "Enter Linux usernames, add each one separately"),
         ("Date",          "date",          FieldType.DATE,      False, None, None),
-        ("Provider",      "provider",      FieldType.UNISELECT, False,
-         ["Histopathology IRB Core Facility"], None),
         ("Instrument",    "instrument",    FieldType.UNISELECT, False,
          ["Phenoimager", "Nanozoomer"], None),
         ("Species",       "species",       FieldType.UNISELECT, False,
@@ -170,23 +168,45 @@ TAG_PROFILES: dict[str, list[tuple]] = {
 }
 
 
+def profile_fields(profile_name: str) -> list[tuple]:
+    """Campos de un perfil: el provider (bloqueado, con el nombre del perfil como único
+    valor) primero, seguido de los campos declarados en TAG_PROFILES.
+
+    El provider no se declara en TAG_PROFILES: el nombre del perfil es su valor.
+    """
+    return [
+        ("Provider", "provider", FieldType.UNISELECT, False, [profile_name], None, True),
+    ] + TAG_PROFILES[profile_name]
+
+
+def apply_provider(profile_name: str, values: dict[str, str]) -> dict[str, str]:
+    """Copia de values con provider = profile_name.
+
+    Se aplica al prefill para que el provider (bloqueado) sea siempre el del perfil, aunque
+    el objeto traiga uno antiguo o desconocido; al guardar queda corregido.
+    """
+    return {**values, "provider": profile_name}
+
+
 def build_meta_fields(
     profile_name: str,
     page: ft.Page,
     fields_dict: dict,
     prefill_values: dict[str, str] | None = None,
 ) -> ft.Column:
-    """Builds Flet controls for TAG_PROFILES[profile_name].
+    """Builds Flet controls for profile_fields(profile_name).
 
+    El provider va primero, bloqueado y con el nombre del perfil (se fuerza también
+    sobre prefill_values).
     Clears and repopulates fields_dict in-place: key → control with .value.
     Returns a ft.Column ready to insert into the widget tree.
     Does NOT call page.update() — that is the caller's responsibility.
     """
-    _pre = prefill_values or {}
+    _pre = apply_provider(profile_name, prefill_values or {})
     fields_dict.clear()
     col = ft.Column(spacing=10)
 
-    for item in TAG_PROFILES[profile_name]:
+    for item in profile_fields(profile_name):
         label        = item[0]
         key          = item[1]
         field_type   = item[2]
@@ -258,6 +278,7 @@ def build_meta_fields(
                 border_radius=6,
                 content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                 expand=True,
+                disabled=_single,
             )
             make_uniselect(dd, custom_tf, hidden_tf)
             if _single and key not in _pre:
@@ -517,19 +538,23 @@ def build_meta_fields(
 
 
 def detect_profile(tags: dict[str, str]) -> str | None:
-    """Devuelve el perfil cuyas keys son superconjunto de las keys de tags.
+    """Devuelve el perfil de un objeto a partir de sus tags.
 
-    Criterio: set(tags.keys()) ⊆ profile_keys.
-    Si varios califican, devuelve el de mayor solapamiento.
+    1. Si tags["provider"] es el nombre de un perfil, devuelve ese perfil.
+    2. Si no (objetos antiguos sin provider o con uno desconocido), el perfil cuyas keys
+       son superconjunto de las keys de tags: set(tags.keys()) ⊆ profile_keys. Si varios
+       califican, el de mayor solapamiento.
     Devuelve None si ninguno encaja o si tags está vacío.
     """
     if not tags:
         return None
+    if tags.get("provider") in TAG_PROFILES:
+        return tags["provider"]
     tag_keys = set(tags.keys())
     best_name: str | None = None
     best_score = -1
-    for profile_name, fields in TAG_PROFILES.items():
-        profile_keys = {item[1] for item in fields}
+    for profile_name in TAG_PROFILES:
+        profile_keys = {item[1] for item in profile_fields(profile_name)}
         if tag_keys <= profile_keys:
             score = len(tag_keys & profile_keys)
             if score > best_score:

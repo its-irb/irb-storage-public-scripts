@@ -552,7 +552,7 @@ def _build_tag_manager_content(
         text_size=13,
         border_radius=6,
         content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-        width=220
+        width=400
     )
 
     profile_dd.on_select = _on_profile_change
@@ -885,7 +885,7 @@ def _build_tag_manager_content(
         text_size=12,
         border_radius=6,
         content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
-        width=175,
+        width=370,
     )
     prefill_profile_dd.on_change = lambda e: active_profile.update({"name": e.control.value})
     prefill_btn   = btn_secondary("Pre-fill", on_click=_on_prefill_from_profile)

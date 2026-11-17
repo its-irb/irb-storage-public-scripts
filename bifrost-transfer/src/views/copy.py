@@ -222,7 +222,7 @@ def _build_copy_content(
         text_size=13,
         border_radius=6,
         content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-        width=220,
+        width=400,
     )
 
     def _on_profile_change(e):

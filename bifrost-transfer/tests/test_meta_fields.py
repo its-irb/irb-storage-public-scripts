@@ -1,5 +1,21 @@
-from meta_fields import TAG_KEY_MAX, check_tag_value, validate_tagset
+import pytest
 
+from meta_fields import (
+    TAG_KEY_MAX,
+    TAG_PROFILES,
+    apply_provider,
+    check_tag_value,
+    detect_profile,
+    profile_fields,
+    validate_tagset,
+)
+
+IRB = "IRB Standard"
+HISTO = "Histopathology IRB Core Facility"
+COMMON = {"owner": "bbg", "users": "u", "date": "2026-01-01", "species": "human", "sample_type": "RNA"}
+
+
+# ── Task 1: validación unificada ────────────────────────────────────────────
 
 def test_value_length_boundary():
     assert check_tag_value("a" * 256) is None
@@ -21,3 +37,35 @@ def test_validate_tagset_reports_key_and_value():
     errs = validate_tagset({"k" * 129: "ok", "good": "v" * 257, "x": "ok"})
     assert len(errs) == 2
     assert any("good" in e for e in errs)
+
+
+# ── Task 2: el nombre del perfil es el valor de provider ────────────────────
+
+@pytest.mark.parametrize("name", list(TAG_PROFILES))
+def test_profile_name_is_valid_tag_value(name):
+    assert check_tag_value(name) is None
+
+
+@pytest.mark.parametrize("name", list(TAG_PROFILES))
+def test_provider_is_automatic_and_locked_to_name(name):
+    assert "provider" not in [f[1] for f in TAG_PROFILES[name]]
+    first = profile_fields(name)[0]
+    assert first[1] == "provider" and first[4] == [name]
+
+
+def test_detect_by_provider_ignores_key_order():
+    assert detect_profile({**COMMON, "provider": HISTO}) == HISTO
+    assert detect_profile({"project_name": "p", "provider": IRB}) == IRB
+
+
+def test_detect_falls_back_to_keys():
+    assert detect_profile({"instrument": "Phenoimager"}) == HISTO      # antiguo sin provider
+    assert detect_profile({"project_name": "p"}) == IRB                # antiguo sin provider
+    assert detect_profile({"provider": "Unknown", "instrument": "Nanozoomer"}) == HISTO
+    assert detect_profile({}) is None
+
+
+def test_prefill_forces_provider_to_profile_name():
+    assert apply_provider(HISTO, {"provider": "Unknown", "instrument": "Nanozoomer"}) == \
+        {"provider": HISTO, "instrument": "Nanozoomer"}
+    assert apply_provider(IRB, {"project_name": "p"}) == {"project_name": "p", "provider": IRB}
