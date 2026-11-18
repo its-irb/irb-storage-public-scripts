@@ -34,6 +34,17 @@ Cross-cutting knowledge that constrains any change. Technical details in
    MinIO buckets. `detect_profile(tags)` finds which profile fits a
    `dict[str, str]` of tags; `build_meta_fields` accepts the optional
    `prefill_values: dict[str, str]` to pre-fill controls.
+   - The profile name **is** the value of the `provider` tag. `provider` is not
+     declared in `TAG_PROFILES`: `profile_fields` adds it (locked) and
+     `apply_provider` forces it on prefill. Renaming a profile changes the value
+     written on new objects; already-tagged objects fall back to key-subset
+     detection.
+   - Views validate **only** with `validate_profile_tagset` (characters, length
+     of key ≤128 / value ≤256, required fields). Do not add validations in the
+     views.
+   - An object holds at most 10 tags: IRB Standard uses 8, Genomics 9 and
+     Histopathology 10 (including `provider`), so Histopathology cannot get
+     another field without removing one.
 7. **`IS_WEB` lives only in `bifrost-transfer/src/main.py`** (it depends on
    `__name__ != "__main__"`, and `main()` updates it with `page.web`). Modules
    that read it declare `IS_WEB = False` and receive the real value from

@@ -8,6 +8,7 @@ import platform
 import requests
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 from config import APP_INFO
@@ -32,10 +33,6 @@ def check_update_version(force_update: bool = False) -> str | None:
     Returns:
         Tag de la versión más reciente si hay actualización, None en caso contrario.
     """
-    # Por si se quiere probar el update manualmente durante el desarrollo sin necesidad de subir una nueva release:
-    # if force_update:
-    #     return "v999.999.999"
-
     try:
         response = requests.get(f"https://api.github.com/repos/{REPO}/releases/latest", timeout=5)
         response.raise_for_status()
@@ -79,7 +76,9 @@ def get_update_file_suffix() -> str:
         # (follow-up post-nov-2026).
         return "-macos.dmg" if platform.machine() == "arm64" else "-macos-intel.dmg"
     elif sistema == "win32":
-        return "-main-windows.exe"
+        # .zip con el instalador .exe dentro (lo crea el job release del CI). El .exe suelto
+        # (-main-windows.exe) se sigue publicando para las versiones que aún lo piden.
+        return "-windows.zip"
     return ""
 
 
@@ -101,6 +100,39 @@ def download_new_binary(file_name: str) -> str:
     with tempfile.NamedTemporaryFile(delete=False, mode='wb') as tmp:
         tmp.write(r.content)
         return tmp.name
+
+
+def extract_windows_installer(zip_path: str, dest_dir: str) -> str:
+    """
+    Extrae el instalador .exe del .zip de la release de Windows y devuelve su ruta.
+
+    Raises:
+        RuntimeError: Si el .zip no contiene exactamente un .exe.
+    """
+    with zipfile.ZipFile(zip_path) as z:
+        exes = [n for n in z.namelist() if n.lower().endswith(".exe")]
+        if len(exes) != 1:
+            raise RuntimeError(f"Expected one .exe in the update zip, found {len(exes)}")
+        return z.extract(exes[0], dest_dir)
+
+
+def build_windows_update_script(exe_path: str, flavour: str) -> str:
+    """
+    Contenido del .bat que instala la actualización en Windows y relanza la app.
+
+    Está separado de la vista para poder probarlo sin interfaz gráfica.
+    """
+    return (
+        f'@echo off\n'
+        # Salir del directorio de trabajo heredado de la app (...\flet\app): mientras algún proceso lo tenga
+        # como directorio actual, Windows no deja borrarlo y la app relanzada falla al re-extraerlo (errno 32).
+        f'cd /d "%TEMP%"\n'
+        f'timeout /t 2 /nobreak >nul\n'
+        # /wait: el instalador es una app gráfica y cmd no la espera por defecto;
+        # sin esto la app se relanza antes de que termine la instalación.
+        f'start /wait "" "{exe_path}" /SILENT /SUPPRESSMSGBOXES /NOCANCEL\n'
+        f'start "" "%ProgramFiles(x86)%\\Bifrost-{flavour}\\bifrost-{flavour}.exe"\n'
+    )
 
 
 def get_emoji_font_asset_path() -> str | None:

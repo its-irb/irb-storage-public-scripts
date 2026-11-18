@@ -128,8 +128,30 @@ Fuente canónica de los perfiles y campos de metadatos, compartida por el
 formulario de copia y el Tag Manager:
 
 - `FieldType` — tipos de campo del formulario.
-- `TAG_PROFILES` — definición de perfiles (IRB Standard, Histopathology) y
-  sus campos.
+- `TAG_PROFILES` — definición de perfiles (`IRB Standard`, `Histopathology IRB
+  Core Facility`, `Advanced Genomic Technologies IRB Core Facility`) y sus
+  campos. Cada campo es `(label, key, FieldType, allow_custom, options,
+  helper[, required])`; con `required` el label se muestra con ` *`. **El nombre
+  del perfil es el valor del tag `provider`**: así se identifica sin ambigüedad
+  qué perfil se usó, y también es el criterio de detección. `provider` no se
+  declara en `TAG_PROFILES`, lo añade `profile_fields`.
+- `profile_fields(name)` — campos del perfil con el Provider primero, bloqueado
+  (su única opción es el nombre del perfil).
+- `apply_provider(name, values)` — devuelve `values` con `provider` forzado al
+  nombre del perfil. Se aplica al pre-rellenar para que un objeto con un
+  provider antiguo o ajeno no se reescriba tal cual: al guardar queda corregido.
+- `missing_required(name, values)` — labels de los campos obligatorios vacíos
+  (interna).
+- `validate_profile_tagset(name, tags)` — **única** validación que llaman las
+  vistas en Copy, Aplicar y Guardar fichero: caracteres y longitud
+  (`validate_tagset`) más `Missing required fields: ...`, en un solo diálogo
+  "Invalid tags". La longitud no se bloquea al teclear en los selectores
+  múltiples; se valida aquí. Importa porque `application` y `library_kit` se
+  unen con `:` y la suma puede superar los 256 caracteres.
+- `check_tag_value(text, max_len=TAG_VALUE_MAX)`, `validate_tagset`,
+  `TAG_KEY_MAX` (128) y `TAG_VALUE_MAX` (256) — límites de los tags de S3 y
+  caracteres permitidos (`^[\w\s.:/=+\-@]*$`). Los valores de las opciones están
+  saneados (sin `'` ni paréntesis) porque MinIO los rechaza.
 - `build_meta_fields(..., prefill_values: dict[str, str] | None)` — construye
   los controles del formulario; `prefill_values` pre-rellena controles con
   valores existentes (usado por el Tag Manager).
@@ -140,18 +162,65 @@ formulario de copia y el Tag Manager:
   `backend.get_bucket_tags` en paralelo (`ThreadPoolExecutor`); se oculta al
   navegar dentro de un bucket y reaparece en la raíz. Solo aplica a nivel root.
 - `detect_profile(tags: dict[str, str])` — detecta qué perfil encaja con un
-  dict de tags (lo usa el Tag Manager para pre-cargar el editor).
+  dict de tags (lo usa el Tag Manager para pre-cargar el editor). Primero por
+  `provider` (== nombre del perfil) siempre que todas las keys del objeto sean
+  del perfil; si hay keys ajenas devuelve `None` y el editor abre en modo raw,
+  porque guardar en modo perfil las borraría sin aviso. Si el objeto no tiene
+  `provider` o no coincide con ningún perfil (objetos antiguos), por subconjunto
+  de keys.
 
 Regla: cualquier cambio de campos, perfiles o labs se hace **solo** en
 `meta_fields.py`, nunca en las vistas ni en `main.py`.
+
+Restricciones a preservar:
+
+- **10 tags por objeto como máximo** (incluido `provider`): IRB Standard usa 8,
+  Genomics 9 e Histopathology 10, así que Histopathology no admite otro campo
+  sin quitar uno.
+- **Renombrar un perfil** cambia el valor de `provider` en los objetos nuevos;
+  los ya etiquetados con el nombre anterior se detectan por keys.
+- Las vistas no validan por su cuenta: todo pasa por `validate_profile_tagset`.
+
+Tests: `bifrost-transfer/tests/test_meta_fields.py` cubre la validación, el
+provider y los perfiles; `tests/conftest.py` añade `src` al `sys.path`. Se
+ejecutan desde `bifrost-transfer/` con
+`uv run --no-sync --with pytest python -m pytest tests -q` (pytest no es una
+dependencia declarada del proyecto).
 
 ## Modo web (`bifrost-transfer` — Open OnDemand)
 
 ### Detección
 
 ```python
-IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or (os.environ.get("BIFROST_CLUSTER") == "1")
+IS_CLUSTER = os.environ.get("BIFROST_CLUSTER") == "1"
+IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or IS_CLUSTER
 ```
+
+**Por qué hay dos variables.** `IS_WEB` responde a «¿hay navegador?» e
+`IS_CLUSTER` a «¿me sirve Hypercorn en OOD?». No son lo mismo:
+
+| Cómo se arranca | `IS_WEB` | `IS_CLUSTER` |
+|---|---|---|
+| Escritorio (`python main.py`) | False | False |
+| Desarrollo web local (`flet run --web`, `python main.py --web`) | True | False |
+| Cluster OOD (Hypercorn; `script.sh.erb` exporta `BIFROST_CLUSTER=1`) | True | True |
+
+`IS_CLUSTER` controla lo que solo debe pasar en el cluster:
+
+- El bloque `if IS_CLUSTER:` del final de `main.py`, que crea la app `FastAPI`,
+  monta Flet y define el endpoint WebSocket con token (la `app` que Hypercorn
+  carga como `main:app`). Con `IS_WEB` se ejecutaría también en desarrollo web
+  local, donde Flet arranca su propio servidor, y chocarían.
+- `register_shutdown(..., server_managed=IS_CLUSTER)`: en el cluster el cierre
+  lo gestiona el servidor; en local, el propio proceso.
+
+`IS_WEB` no puede sustituirla: bajo Hypercorn ya es True (`__name__ !=
+"__main__"`), pero también lo es con `flet run`, así que no distingue el
+cluster. **No quites `export BIFROST_CLUSTER=1`** de
+`ood-app-bifrost/template/script.sh.erb`: sin él no existe `main:app` y
+Hypercorn falla al arrancar. Historia: se intentó en la simplificación de
+junio de 2026 (una sola `IS_WEB`, spec en `docs/superpowers/specs/`) y se
+revirtió al día siguiente (`5e6246b`).
 
 - OOD importa `main.py` como módulo ASGI → `__name__ != "__main__"` → modo web.
 - `flet run --web` activa el modo web en desarrollo local (con Flet 0.84 puede
@@ -347,7 +416,7 @@ tareas asyncio.
 
 | Variable | Aplica a | Efecto |
 |---|---|---|
-| `BIFROST_CLUSTER=1` | transfer | Fuerza `IS_WEB=True` (flujo CIFS/shares del cluster Linux) |
+| `BIFROST_CLUSTER=1` | transfer | Activa `IS_CLUSTER` e `IS_WEB` (app FastAPI/Hypercorn y flujo CIFS/shares del cluster Linux); ver «Por qué hay dos variables» |
 | `BIFROST_NO_LDAP=1` | ambas | Salta la validación LDAP en el login (`NO_LDAP`, en `bifrost_backend.common.constants`); el badge muestra `DESKTOP (NO LDAP)` |
 | `FLET_ASSETS_DIR` | ambas | La setea Flet en runtime; el backend la usa para localizar `rclone` y, en mount/macOS en desarrollo, `fuse_t.framework` |
 | `FLET_FORCE_WEB_SERVER=true` | transfer (desarrollo) | Hace que `ft.run(main)` sirva la app por web (puerto 8000) en lugar de abrir una ventana; alternativa a `flet run --web` (ver [build-and-ci.md](build-and-ci.md)) |

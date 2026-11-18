@@ -27,8 +27,9 @@ https://github.com/its-irb/irb-storage-public-scripts/releases .
 
 1. Open that page and choose the latest release.
 2. Download the file for your computer and the app you need:
-   - **Windows**: the installer file ending in `.exe` (it is digitally signed).
-     Run it and follow the installer.
+   - **Windows**: the file ending in `.zip` (your browser will not warn you
+     about it). Unzip it and run the `.exe` inside, which is the installer
+     (it is digitally signed). Follow the installer.
    - **macOS**: the file ending in `.dmg`. Open it and drag the app to the
      **Applications** folder.
    - **Cluster (Linux)**: nothing to install. Bifrost transfer opens in your

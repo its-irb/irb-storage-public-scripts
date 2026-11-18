@@ -92,21 +92,66 @@ that opens a dialog to renew manually for 1–30 days (default 7).
 
 ## `meta_fields.py` (bifrost-transfer only)
 
-- `TAG_PROFILES` — metadata profiles (IRB Standard, Histopathology); canonical
-  source used by the copy form and Tag Manager.
+- `TAG_PROFILES` — metadata profiles (`IRB Standard`, `Histopathology IRB Core
+  Facility`, `Advanced Genomic Technologies IRB Core Facility`); canonical
+  source used by the copy form and Tag Manager. Field tuple:
+  `(label, key, FieldType, allow_custom, options, helper[, required])`; when
+  `required` is true the label is shown with ` *`. **The profile name is the
+  value of the `provider` tag**; `provider` is not declared in `TAG_PROFILES`.
+- `profile_fields(name)` — fields of a profile with the locked Provider first
+  (its only option is the profile name).
+- `apply_provider(name, values)` — copy of `values` with `provider` forced to
+  the profile name (used on prefill).
+- `missing_required(name, values)` — labels of empty required fields (internal).
+- `validate_profile_tagset(name, tags)` — the **only** validation the views call
+  on Copy/Apply/Save: characters and length (`validate_tagset`) plus
+  `Missing required fields: ...`. Returns a list of errors.
+- `check_tag_value(text, max_len=TAG_VALUE_MAX)`, `validate_tagset`,
+  `TAG_KEY_MAX` (128) and `TAG_VALUE_MAX` (256) — S3 tag limits and allowed
+  characters.
 - `LAB_ACRONYMS` — exact acronyms that appear in the `acronym` tag of MinIO
   buckets.
 - `build_meta_fields(..., prefill_values: dict[str, str] | None)` — builds the
   form controls; `prefill_values` pre-fills them with existing tags.
 - `build_lab_filter_widget(...)` — the "Filter by lab…" widget of the browsers.
 - `detect_profile(tags: dict[str, str])` — detects the profile that fits a tag
-  dict.
+  dict: first by `provider` (== profile name) when all the tag keys belong to
+  that profile (otherwise `None`: the file opens in raw mode, so saving in
+  profile mode never drops foreign tags); then, for objects without a known
+  provider, by key subset.
 
 ## Web mode (`bifrost-transfer`, Open OnDemand) — essentials
 
 ```python
-IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or (os.environ.get("BIFROST_CLUSTER") == "1")
+IS_CLUSTER = os.environ.get("BIFROST_CLUSTER") == "1"
+IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or IS_CLUSTER
 ```
+
+**Why two variables.** `IS_WEB` answers "is there a browser?"; `IS_CLUSTER`
+answers "is Hypercorn serving this under OOD?". They are not the same:
+
+| How it starts | `IS_WEB` | `IS_CLUSTER` |
+|---|---|---|
+| Desktop (`python main.py`) | False | False |
+| Local web dev (`flet run --web`, `python main.py --web`) | True | False |
+| Cluster OOD (Hypercorn, `script.sh.erb` exports `BIFROST_CLUSTER=1`) | True | True |
+
+`IS_CLUSTER` gates what must only happen on the cluster:
+
+- The `if IS_CLUSTER:` block at the end of `main.py` that builds the `FastAPI`
+  app, mounts Flet and defines the authenticated WebSocket endpoint (the `app`
+  Hypercorn loads as `main:app`). With `IS_WEB` it would also run in local web
+  dev, where Flet starts its own server, and the two would clash.
+- `register_shutdown(..., server_managed=IS_CLUSTER)`: on the cluster the
+  server manages shutdown; in local dev the process does.
+
+`IS_WEB` cannot replace it: under Hypercorn it is already true (`__name__ !=
+"__main__"`), but so it is under `flet run`, so it does not tell the cluster
+apart. Do not remove `export BIFROST_CLUSTER=1` from
+`ood-app-bifrost/template/script.sh.erb`: without it `main:app` does not exist
+and Hypercorn fails at startup. History: this was tried in the June 2026
+simplification (single `IS_WEB`, spec in `docs/superpowers/specs/`) and
+reverted the next day (`5e6246b`).
 
 - `main(page)` also sets `IS_WEB = IS_WEB or page.web`. `IS_WEB` lives only in
   `main.py`; `_propagar_is_web()` copies it to `web_session`, `views.shares`,

@@ -91,7 +91,10 @@ ood-app-bifrost/          # Git submodule: Open OnDemand app that launches the b
 Metadata tags are organized in **profiles**. Both the copy form and the Tag Manager use the same profiles:
 
 - **IRB Standard** — general metadata fields: project, host machine, sample type, data types, requester, research group.
-- **Histopathology** — specialized fields for histopathology data: owner, users, date, provider, instrument, species, sample type, magnification, channels.
+- **Histopathology IRB Core Facility** — specialized fields for histopathology data: owner, users, date, instrument, species, sample type, sample origin, magnification, channels.
+- **Advanced Genomic Technologies IRB Core Facility** — specialized fields for genomics data: owner, users, date, application, library kit, species, sample type and comments (optional).
+
+The name of the profile is stored in the `provider` tag of every object, so the profile in use is always identifiable. The Provider field is filled in automatically and cannot be edited. Fields marked with `*` are required: the copy or the tag application does not start until they are filled in.
 
 ### Copy form
 
@@ -292,13 +295,30 @@ OpenOnDemand starts BIFROST as a standard Python process, passing `main.py` as a
 The condition in the code is:
 
 ```python
-IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or (os.environ.get("BIFROST_CLUSTER") == "1")
+IS_CLUSTER = os.environ.get("BIFROST_CLUSTER") == "1"
+IS_WEB = ("--web" in sys.argv) or (__name__ != "__main__") or IS_CLUSTER
 ```
 
 This means:
 - If OOD imports `main.py` as an ASGI module → `__name__ != "__main__"` → `IS_WEB = True`
 - If launched manually with `flet run --web` → `"--web" in sys.argv` → `IS_WEB = True`
-- If `BIFROST_CLUSTER=1` is set in the environment → `IS_WEB = True`
+- If `BIFROST_CLUSTER=1` is set in the environment → `IS_CLUSTER = True` and `IS_WEB = True`
+
+**Why two variables.** `IS_WEB` answers "is there a browser?"; `IS_CLUSTER` answers
+"is Hypercorn serving this under OOD?". Local web development (`flet run --web`)
+is web but not the cluster:
+
+| How it starts | `IS_WEB` | `IS_CLUSTER` |
+|---|---|---|
+| Desktop (`python main.py`) | False | False |
+| Local web dev (`flet run --web`) | True | False |
+| Cluster OOD (Hypercorn) | True | True |
+
+`IS_CLUSTER` gates what must only happen on the cluster: building the `FastAPI`
+app that Hypercorn loads as `main:app` (with `IS_WEB` it would clash with the server
+Flet starts in local dev), and who manages shutdown (`server_managed`). That is why
+`ood-app-bifrost/template/script.sh.erb` exports `BIFROST_CLUSTER=1`: without it
+`main:app` does not exist and Hypercorn fails at startup.
 - In addition, `main(page)` sets `IS_WEB = IS_WEB or page.web`: if Flet serves
   the page over the web, web mode is enabled even without `--web`
 
@@ -484,5 +504,5 @@ files with problems) with `report_path()`: on desktop in `<log folder>/reports/`
 
 | Variable | Value | Effect |
 |---|---|---|
-| `BIFROST_CLUSTER` | `1` | Enables `IS_WEB` (full web mode; OOD production signal) |
+| `BIFROST_CLUSTER` | `1` | Sets `IS_CLUSTER` (and so `IS_WEB`): OOD production signal; builds the FastAPI/Hypercorn `app`. Distinct from `IS_WEB`, see "How it launches on OOD" |
 | `BIFROST_NO_LDAP` | `1` | Skips LDAP validation at login. Applies to both apps. For machines without LDAP access but with MinIO access (e.g. IVIS). The user still enters username + password (required for STS). The header badge shows `DESKTOP (NO LDAP)`. Set as a Windows system variable (`setx BIFROST_NO_LDAP 1 /M`) so it applies to all users. |

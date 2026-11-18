@@ -13,7 +13,10 @@ from bifrost_backend import backend
 from bifrost_backend.common.constants import NO_LDAP
 from bifrost_frontend.frontend import *
 
-from meta_fields import TAG_PROFILES, build_lab_filter_widget, build_meta_fields, check_tag_value, detect_profile, validate_tagset
+from meta_fields import (
+    TAG_KEY_MAX, TAG_PROFILES, TAG_VALUE_MAX, build_lab_filter_widget, build_meta_fields,
+    check_tag_value, detect_profile, validate_profile_tagset, validate_tagset,
+)
 
 log = logging.getLogger("bifrost.tags")
 
@@ -549,7 +552,7 @@ def _build_tag_manager_content(
         text_size=13,
         border_radius=6,
         content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-        width=220
+        width=400
     )
 
     profile_dd.on_select = _on_profile_change
@@ -560,9 +563,9 @@ def _build_tag_manager_content(
         if sel["type"] != "prefix":
             return
         tagset = {k: (tf.value or "").strip() for k, tf in tag_fields.items()}
-        tag_errors = validate_tagset(tagset)
+        tag_errors = validate_profile_tagset(active_profile["name"], tagset)
         if tag_errors:
-            show_dialog(page, "Invalid characters in tags", "\n".join(tag_errors), C_ERROR)
+            show_dialog(page, "Invalid tags", "\n".join(tag_errors), C_ERROR)
             return
         _run_folder_apply(nav["bucket"], sel["key"] or "", tagset, active_profile["name"])
 
@@ -688,7 +691,7 @@ def _build_tag_manager_content(
             hint_style=ft.TextStyle(color=C_TEXT_DIM),
             border_radius=6,
             content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
-            text_size=12, max_length=128, expand=1,
+            text_size=12, max_length=TAG_KEY_MAX, expand=1,
         )
 
         val_container = ft.Container(expand=2)
@@ -704,7 +707,7 @@ def _build_tag_manager_content(
                 hint_style=ft.TextStyle(color=C_TEXT_DIM),
                 border_radius=6,
                 content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
-                text_size=12, max_length=256, expand=True
+                text_size=12, max_length=TAG_VALUE_MAX, expand=True
             )
             def _on_val_change(e):
                 err = check_tag_value(row_dict["val_tf"].value or "")
@@ -719,7 +722,7 @@ def _build_tag_manager_content(
         update_value_field_type(value)
 
         def on_key_change(e):
-            err = check_tag_value(key_tf.value or "")
+            err = check_tag_value(key_tf.value or "", TAG_KEY_MAX)
             key_tf.border_color = C_ERROR if err else C_BORDER
             key_err.value = err or ""
             key_err.visible = bool(err)
@@ -817,9 +820,12 @@ def _build_tag_manager_content(
                 if rd["key_tf"].value.strip()
             }
 
-        tag_errors = validate_tagset(tagset)
+        if file_editor_mode["mode"] == "profile":
+            tag_errors = validate_profile_tagset(active_profile["name"], tagset)
+        else:
+            tag_errors = validate_tagset(tagset)
         if tag_errors:
-            show_dialog(page, "Invalid characters in tags", "\n".join(tag_errors), C_ERROR)
+            show_dialog(page, "Invalid tags", "\n".join(tag_errors), C_ERROR)
             return
 
         bucket, key, before = nav["bucket"], sel["key"], dict(_current_file_tags["tags"])
@@ -882,7 +888,7 @@ def _build_tag_manager_content(
         text_size=12,
         border_radius=6,
         content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
-        width=175,
+        width=370,
     )
     prefill_profile_dd.on_change = lambda e: active_profile.update({"name": e.control.value})
     prefill_btn   = btn_secondary("Pre-fill", on_click=_on_prefill_from_profile)

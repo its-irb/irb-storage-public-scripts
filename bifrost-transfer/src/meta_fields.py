@@ -13,17 +13,35 @@ from bifrost_frontend.frontend import (
 _TAG_VALUE_RE = re.compile(r'^[\w\s.:/=+\-@]*$', re.UNICODE)
 _TAG_VALUE_ERROR = "Only the following characters are allowed: letters, numbers, spaces, and _ . : / = + - @"
 
+# Límites de S3 para un tag.
+TAG_KEY_MAX = 128
+TAG_VALUE_MAX = 256
+
+
+def check_tag_value(text: str, max_len: int = TAG_VALUE_MAX) -> str | None:
+    """Devuelve el mensaje de error si text no es válido como key/valor de tag S3, o None.
+
+    Comprueba primero los caracteres y luego la longitud (max_len).
+    """
+    if text and not _TAG_VALUE_RE.match(text):
+        return _TAG_VALUE_ERROR
+    if len(text) > max_len:
+        return f"Maximum {max_len} characters ({len(text)} entered)"
+    return None
+
 
 def _validate_tag_value(tf: ft.TextField, page: ft.Page) -> bool:
     """Valida el valor de un TextField como tag S3. Muestra error inline si no es válido.
-    Devuelve True si es válido (o vacío), False si contiene caracteres prohibidos.
+    Devuelve True si es válido (o vacío), False si contiene caracteres prohibidos
+    o supera TAG_VALUE_MAX.
     """
     val = tf.value or ""
     err_ctrl: ft.Text | None = getattr(tf, "_error_ctrl", None)
-    if val and not _TAG_VALUE_RE.match(val):
+    err = check_tag_value(val)
+    if err:
         tf.border_color = C_ERROR
         if err_ctrl:
-            err_ctrl.value = _TAG_VALUE_ERROR
+            err_ctrl.value = err
             err_ctrl.visible = True
         page.update()
         return False
@@ -35,24 +53,20 @@ def _validate_tag_value(tf: ft.TextField, page: ft.Page) -> bool:
     return True
 
 
-def check_tag_value(val: str) -> str | None:
-    """Devuelve mensaje de error si val contiene caracteres prohibidos en S3, o None si es válido."""
-    if val and not _TAG_VALUE_RE.match(val):
-        return _TAG_VALUE_ERROR
-    return None
-
-
 def validate_tagset(tags: dict[str, str]) -> list[str]:
-    """Comprueba que todas las keys y values de un tagset sean válidas para S3/boto3.
+    """Comprueba que todas las keys y values de un tagset sean válidas para S3/boto3
+    (caracteres permitidos y longitud máxima: TAG_KEY_MAX / TAG_VALUE_MAX).
 
     Devuelve lista de mensajes de error (vacía si todo es correcto).
     """
     errors: list[str] = []
     for k, v in tags.items():
-        if k and not _TAG_VALUE_RE.match(k):
-            errors.append(f"Key «{k}»: {_TAG_VALUE_ERROR}")
-        if v and not _TAG_VALUE_RE.match(v):
-            errors.append(f"Field «{k}»: the value «{v}» contains invalid characters")
+        key_err = check_tag_value(k, TAG_KEY_MAX)
+        if key_err:
+            errors.append(f"Key «{k}»: {key_err}")
+        val_err = check_tag_value(v)
+        if val_err:
+            errors.append(f"Field «{k}»: {val_err}")
     return errors
 
 
@@ -94,9 +108,11 @@ WORM_BUCKET_SUFFIX = "-worm"
 WORM_ROOT_PREFIXES: list[str] = ["facility_data", "internal", "external"]
 
 WORM_FACILITY_DATA_SUBFOLDERS: list[str] = [
+    "adm",
     "biostats",
     "cryoservice",
     "drugsp",
+    "flowcytometry",
     "genomics",
     "histopathology",
     "masspe",
@@ -114,6 +130,11 @@ class FieldType(Enum):
     NUMBER        = "number"
 
 
+_OWNER_OPTIONS = [
+    (acr, f"{name} ({acr})") for acr, name in sorted(LAB_ACRONYMS.items(), key=lambda x: x[1])
+]
+_USERS_HELPER = "Enter Linux usernames, add each one separately"
+
 TAG_PROFILES: dict[str, list[tuple]] = {
     "IRB Standard": [
         ("Project",          "project_name",     FieldType.TEXT, False, None, None),
@@ -124,16 +145,11 @@ TAG_PROFILES: dict[str, list[tuple]] = {
         ("Requested by",     "requested_by",      FieldType.TEXT, False, None, None),
         ("Research group",   "research_group",    FieldType.TEXT, False, None, None),
     ],
-    "Histopathology": [
-        ("Owner", "owner", FieldType.UNISELECT, False, [
-            (acr, f"{name} ({acr})") for acr, name in sorted(LAB_ACRONYMS.items(), key=lambda x: x[1])
-        ], None),
-        ("Users",         "users",         FieldType.MULTIFREETEXT, False, None,
-         "Enter Linux usernames, add each one separately"),
+    "Histopathology IRB Core Facility": [
+        ("Owner", "owner", FieldType.UNISELECT, False, _OWNER_OPTIONS, None),
+        ("Users",         "users",         FieldType.MULTIFREETEXT, False, None, _USERS_HELPER),
         ("Date",          "date",          FieldType.DATE,      False, None, None),
-        ("Provider",      "provider",      FieldType.UNISELECT, False,
-         ["Histopathology IRB Core Facility"], None),
-        ("Instrument",    "instrument",    FieldType.UNISELECT, False,
+        ("Instrument",   "instrument",    FieldType.UNISELECT, False,
          ["Phenoimager", "Nanozoomer"], None),
         ("Species",       "species",       FieldType.UNISELECT, False,
          ["mouse", "human", "rat", "pig", "cow"], None),
@@ -152,7 +168,77 @@ TAG_PROFILES: dict[str, list[tuple]] = {
             "DAPI + 488 + 568 + 647", "4plex", "5plex", "6plex",
         ], None),
     ],
+    "Advanced Genomic Technologies IRB Core Facility": [
+        ("Owner",       "owner",       FieldType.UNISELECT,     False, _OWNER_OPTIONS, None, True),
+        ("Users",       "users",       FieldType.MULTIFREETEXT, False, None, _USERS_HELPER, True),
+        ("Date",        "date",        FieldType.DATE,          False, None, None, True),
+        ("Application", "application", FieldType.MULTISELECT,   False, [
+            "Qubit", "Bioanalyzer", "Tapestation", "Qubit+Bioanalyzer", "Qubit+Tapestation",
+            "RNA extraction", "DNA extraction", "RNA purification", "DNA purification",
+            "Bulk RNA-seq", "Low-input RNA-seq", "ChIP-seq", "ATAC-seq",
+            "scRNA-seq 3prime", "scRNA-seq 3prime OCM", "scRNA-seq 5prime/VDJ",
+            "scRNA-seq 5prime/TCR", "scRNA-seq 5prime/BCR", "scRNA-seq Flex",
+            "scATAC-seq", "Multiome", "Xenium", "Sequencing", "RIP-seq", "Ribo-seq", "Other",
+        ], None, True),
+        ("Library Kit", "library_kit", FieldType.MULTISELECT,   False, [
+            "Illumina Stranded mRNA", "NEBNext mRNA", "SMART-Seq Total RNA Takara",
+            "10x GEM-X 3prime", "10x GEM-X 5prime", "10x Flex", "10x ATAC", "10x Multiome",
+            "Xenium panel", "Other",
+        ], None, True),
+        ("Species",     "species",     FieldType.UNISELECT,     False,
+         ["human", "mouse", "rat", "Drosophila", "zebrafish", "other"], None, True),
+        ("Sample Type", "sample_type", FieldType.UNISELECT,     False, [
+            "cells", "nuclei", "fresh frozen tissue", "FFPE tissue", "RNA", "DNA", "organoids",
+        ], None, True),
+        ("Comments",    "comments",    FieldType.TEXT,          False, None,
+         "Incidents, QC deviations, notes"),
+    ],
 }
+
+
+def profile_fields(profile_name: str) -> list[tuple]:
+    """Campos de un perfil: el provider (bloqueado, con el nombre del perfil como único
+    valor) primero, seguido de los campos declarados en TAG_PROFILES.
+
+    El provider no se declara en TAG_PROFILES: el nombre del perfil es su valor.
+    """
+    return [
+        ("Provider", "provider", FieldType.UNISELECT, False, [profile_name], None, True),
+    ] + TAG_PROFILES[profile_name]
+
+
+def missing_required(profile_name: str, values: dict[str, str]) -> list[str]:
+    """Labels (sin ` *`) de los campos `required` del perfil que están vacíos o ausentes en values.
+
+    Interna: las vistas usan validate_profile_tagset.
+    """
+    return [
+        item[0]
+        for item in profile_fields(profile_name)
+        if len(item) > 6 and item[6] and not (values.get(item[1]) or "").strip()
+    ]
+
+
+def validate_profile_tagset(profile_name: str, tags: dict[str, str]) -> list[str]:
+    """Única validación de las vistas al pulsar Copy o Aplicar con un perfil.
+
+    Devuelve los errores de validate_tagset (caracteres y longitud) y, si faltan campos
+    obligatorios, un mensaje final `Missing required fields: A, B`. Vacía si todo es correcto.
+    """
+    errors = validate_tagset(tags)
+    missing = missing_required(profile_name, tags)
+    if missing:
+        errors.append(f"Missing required fields: {', '.join(missing)}")
+    return errors
+
+
+def apply_provider(profile_name: str, values: dict[str, str]) -> dict[str, str]:
+    """Copia de values con provider = profile_name.
+
+    Se aplica al prefill para que el provider (bloqueado) sea siempre el del perfil, aunque
+    el objeto traiga uno antiguo o desconocido; al guardar queda corregido.
+    """
+    return {**values, "provider": profile_name}
 
 
 def build_meta_fields(
@@ -161,18 +247,22 @@ def build_meta_fields(
     fields_dict: dict,
     prefill_values: dict[str, str] | None = None,
 ) -> ft.Column:
-    """Builds Flet controls for TAG_PROFILES[profile_name].
+    """Builds Flet controls for profile_fields(profile_name).
 
+    El provider va primero, bloqueado y con el nombre del perfil (se fuerza también
+    sobre prefill_values).
     Clears and repopulates fields_dict in-place: key → control with .value.
     Returns a ft.Column ready to insert into the widget tree.
     Does NOT call page.update() — that is the caller's responsibility.
     """
-    _pre = prefill_values or {}
+    _pre = apply_provider(profile_name, prefill_values or {})
     fields_dict.clear()
     col = ft.Column(spacing=10)
 
-    for item in TAG_PROFILES[profile_name]:
+    for item in profile_fields(profile_name):
         label        = item[0]
+        required     = item[6] if len(item) > 6 else False
+        shown_label  = f"{label} *" if required else label
         key          = item[1]
         field_type   = item[2]
         allow_custom = item[3]
@@ -243,6 +333,7 @@ def build_meta_fields(
                 border_radius=6,
                 content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                 expand=True,
+                disabled=_single,
             )
             make_uniselect(dd, custom_tf, hidden_tf)
             if _single and key not in _pre:
@@ -259,7 +350,7 @@ def build_meta_fields(
                 hidden_tf.value = v
             fields_dict[key] = hidden_tf
             col.controls.append(ft.Column(
-                [ft.Text(label, size=12, color=C_TEXT_DIM), dd, custom_tf, hidden_tf],
+                [ft.Text(shown_label, size=12, color=C_TEXT_DIM), dd, custom_tf, hidden_tf],
                 spacing=4,
             ))
 
@@ -323,9 +414,10 @@ def build_meta_fields(
                         val = ctf.value.strip()
                         if not val:
                             return
-                        if not _TAG_VALUE_RE.match(val):
+                        err = check_tag_value(val)
+                        if err:
                             ctf.border_color = C_ERROR
-                            ctf_err.value = _TAG_VALUE_ERROR
+                            ctf_err.value = err
                             ctf_err.visible = True
                             page.update()
                             return
@@ -351,7 +443,7 @@ def build_meta_fields(
             custom_tf2, custom_tf2_err, add_custom_fn, sync_fn = make_multiselect(
                 selected_vals, chips_row, options_dd, hidden_tf, options_list, allow_custom
             )
-            col_controls = [ft.Text(label, size=12, color=C_TEXT_DIM), options_dd, chips_row]
+            col_controls = [ft.Text(shown_label, size=12, color=C_TEXT_DIM), options_dd, chips_row]
             if allow_custom and custom_tf2:
                 col_controls.insert(2, ft.Row([
                     custom_tf2,
@@ -405,9 +497,10 @@ def build_meta_fields(
                     val = input_tf.value.strip()
                     if not val:
                         return
-                    if not _TAG_VALUE_RE.match(val):
+                    err = check_tag_value(val)
+                    if err:
                         input_tf.border_color = C_ERROR
-                        err_txt.value = _TAG_VALUE_ERROR
+                        err_txt.value = err
                         err_txt.visible = True
                         page.update()
                         return
@@ -424,7 +517,7 @@ def build_meta_fields(
 
             input_tf, add_fn, sync_fn, err_txt = make_multifreetext(selected_vals, chips_row, hidden_tf)
             field_col = ft.Column([
-                ft.Text(label, size=12, color=C_TEXT_DIM),
+                ft.Text(shown_label, size=12, color=C_TEXT_DIM),
                 ft.Row([
                     input_tf,
                     ft.IconButton(icon=ft.Icons.ADD, icon_color=C_PRIMARY,
@@ -470,7 +563,7 @@ def build_meta_fields(
             date_tf.on_click = open_fn
             fields_dict[key] = date_tf
             col.controls.append(ft.Column([
-                ft.Text(label, size=12, color=C_TEXT_DIM),
+                ft.Text(shown_label, size=12, color=C_TEXT_DIM),
                 ft.Row([
                     date_tf,
                     ft.IconButton(icon=ft.Icons.CALENDAR_MONTH, icon_color=C_PRIMARY,
@@ -481,7 +574,7 @@ def build_meta_fields(
                 date_tf.value = _pre[key]
 
         else:  # TEXT (y NUMBER, actualmente sin usar)
-            tf, c = styled_field(label)
+            tf, c = styled_field(shown_label)
             fields_dict[key] = tf
             tf.expand = True
             err_txt = ft.Text("", size=11, color=C_ERROR, visible=False)
@@ -500,19 +593,28 @@ def build_meta_fields(
 
 
 def detect_profile(tags: dict[str, str]) -> str | None:
-    """Devuelve el perfil cuyas keys son superconjunto de las keys de tags.
+    """Devuelve el perfil de un objeto a partir de sus tags.
 
-    Criterio: set(tags.keys()) ⊆ profile_keys.
-    Si varios califican, devuelve el de mayor solapamiento.
+    1. Si tags["provider"] es el nombre de un perfil y todas las keys de tags son de ese
+       perfil, devuelve ese perfil. Si hay keys ajenas al perfil no se detecta (el editor
+       abre en modo raw): guardar en modo perfil las borraría sin aviso.
+    2. Si no (objetos antiguos sin provider o con uno desconocido), el perfil cuyas keys
+       son superconjunto de las keys de tags: set(tags.keys()) ⊆ profile_keys. Si varios
+       califican, el de mayor solapamiento.
     Devuelve None si ninguno encaja o si tags está vacío.
     """
     if not tags:
         return None
     tag_keys = set(tags.keys())
+    provider = tags.get("provider")
+    if provider in TAG_PROFILES:
+        if tag_keys <= {item[1] for item in profile_fields(provider)}:
+            return provider
+        return None
     best_name: str | None = None
     best_score = -1
-    for profile_name, fields in TAG_PROFILES.items():
-        profile_keys = {item[1] for item in fields}
+    for profile_name in TAG_PROFILES:
+        profile_keys = {item[1] for item in profile_fields(profile_name)}
         if tag_keys <= profile_keys:
             score = len(tag_keys & profile_keys)
             if score > best_score:
