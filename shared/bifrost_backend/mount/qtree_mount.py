@@ -20,7 +20,7 @@
         # ruta montada
     # lo que tiene que hacer:
     # 1. a partir del nombre del shared y qtree, montar ese qtree de Netapp en windows. Condiciones:
-        # 1.1 Montarlo en la ruta: \\ ... (importante solo montar el qtree, no todo el shared)
+        # 1.1 Montarlo en la ruta: \\ ... (importante solo montar el qtree, no todo el shared) --> probar esta ip: 10.10.3.49 SI NO FUNCIONA, probar: 10.10.2.1 , 10.10.2.2 
         # 1.2 El acceso tiene que ser de lectura y escritura. Por lo tanto, tiene que tener file locking y para eso no se puede hacer con rclone (el fichero se queda corrupto si dos personas lo modifican a la vez, porque no tienen file locking)
         # 1.3 Para montar qtree, quizas usar smb mejor
 
