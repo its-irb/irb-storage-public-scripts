@@ -39,6 +39,13 @@ def test_mounts_the_whole_server_read_only_with_the_performance_options(command,
     assert cmd[6:6 + len(PERFORMANCE_OPTIONS)] == PERFORMANCE_OPTIONS
 
 
+@pytest.mark.parametrize("system", ["Windows", "Darwin", "Linux"])
+def test_volume_named_like_the_server(command, system):
+    """Sin --volname, --s3-no-head-object haría que el volumen se llamase "minio{EVwtF}"."""
+    cmd = command(system)
+    assert cmd[cmd.index("--volname") + 1] == "minio"
+
+
 def test_allow_non_empty_only_outside_windows(command):
     assert "--allow-non-empty" not in command("Windows")
     assert "--allow-non-empty" in command("Darwin")

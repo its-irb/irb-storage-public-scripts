@@ -122,7 +122,9 @@ def mount_profile(perfil: str) -> str:
 
 
 def _mount_command(perfil: str, mount_point: str) -> list[str]:
-    comando = [get_rclone_executable(), "mount", f"{perfil}:", mount_point, *_MOUNT_OPTIONS]
+    # --volname: sin él, el volumen se llamaría "minio{EVwtF}" (rclone añade ese sufijo al nombre del servidor
+    # cuando una opción de backend, aquí --s3-no-head-object, cambia su configuración).
+    comando = [get_rclone_executable(), "mount", f"{perfil}:", mount_point, *_MOUNT_OPTIONS, "--volname", perfil]
     if platform.system() != "Windows":
         comando.append("--allow-non-empty")
     return comando + _vfs_flags_from_argv()

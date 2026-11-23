@@ -28,7 +28,9 @@ cambio (decisión del 2026-11-23): lo de "la fase 2 solo añade" ya no aplica. V
   carpetas de `X:\` y el visor Java abre los ficheros.
 - **macOS (fuse-t)**: `rclone mount minio: ~/rclone-mounts/minio --read-only --links --allow-non-empty
   --vfs-cache-mode full` funciona. Java ya funcionaba antes con rutas de carpeta.
-- **`--volname` no hace falta**: sin él, rclone ya llama al volumen como el perfil (`minio`).
+- **`--volname`**: sin él, rclone llama al volumen como el perfil (`minio`)… salvo que una opción de backend cambie
+  la configuración del perfil: con `--s3-no-head-object` (opciones de rendimiento) rclone le añade un sufijo y en
+  Windows la unidad salía como `minio{EVwtF}` (2026-11-23). Por eso el comando lleva `--volname <perfil>`.
 - **`/Volumes` descartado**: es de `root`; montar ahí exige `sudo` y rclone no crea la carpeta. Se monta en
   `~/rclone-mounts/<perfil>`.
 - **El Finder enseña `fuse-t`**: es el nombre de máquina del NFS local de fuse-t (`127.0.0.1 fuse-t` en
