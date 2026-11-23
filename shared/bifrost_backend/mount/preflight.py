@@ -13,6 +13,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from ..common.rclone_mount import MountError
+from ..common.rclone_output import FUSE_MISSING_LINUX, FUSE_MISSING_MACOS
+
 log = logging.getLogger("bifrost.mount")
 
 
@@ -21,6 +24,32 @@ class WinFspMissingError(EnvironmentError):
     para que la UI pueda ofrecer auto-instalación en lugar de solo mostrar
     un link a winfsp.dev."""
     pass
+
+
+def fuse_env() -> dict:
+    """Entorno de rclone mount con el controlador de carpetas del sistema (fuse-t, WinFsp o FUSE).
+
+    Raises:
+        WinFspMissingError: Windows sin WinFsp (la pantalla ofrece instalarlo).
+        MountError: macOS sin fuse-t o Linux sin FUSE.
+    """
+    sistema = platform.system()
+    env = {**os.environ}
+    if sistema == "Darwin":
+        fuse_path = _get_fuse_macos()
+        if fuse_path is None:
+            log.error("fuse-t not found (if running from source: shared/macos-assets-downloader.sh)")
+            raise MountError(FUSE_MISSING_MACOS)
+        env["CGOFUSE_LIBFUSE_PATH"] = str(fuse_path)
+    elif sistema == "Windows":
+        if not _check_winfsp_windows():
+            raise WinFspMissingError("WinFsp not detected on this system.")
+    elif sistema == "Linux":
+        if not _check_fuse_linux():
+            raise MountError(FUSE_MISSING_LINUX)
+    else:
+        raise EnvironmentError(f"Unsupported OS: {sistema}")
+    return env
 
 
 def _check_winfsp_windows() -> bool:

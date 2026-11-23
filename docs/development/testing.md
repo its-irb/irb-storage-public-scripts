@@ -11,7 +11,8 @@ comprobar a mano lo que los tests no pueden cubrir.
 ## Estado actual
 
 - Hay **tests automáticos (pytest) solo para el autoupdate**
-  (`shared/bifrost_backend/common/updates.py`).
+  (`shared/bifrost_backend/common/updates.py`) y para el análisis de la lista de procesos
+  `rclone mount` (`shared/bifrost_backend/mount/processes.py`).
 - El resto del proyecto se valida **a mano**, ejecutando las apps (ver la política de
   validación en [build-and-ci.md](build-and-ci.md#política-de-validación)).
 - Todavía **no** hay ruff, mypy ni tests en la CI: `pytest`, `ruff` y `mypy` no figuran
@@ -29,6 +30,7 @@ tests/
     backend/
       test_updates.py              # lógica pura: versiones, sufijo por plataforma, should_check, .bat
       test_update_flow.py          # check de versión y descarga, con requests.get sustituido
+      test_processes.py            # reconocer los `rclone mount` en la salida de ps / PowerShell
 ```
 
 Decisiones tomadas hasta ahora (provisionales, se pueden cambiar cuando se defina una
@@ -77,6 +79,12 @@ significa "pasa" en cada grupo:
   comprobación **del contenido de un string**: no ejecuta el `.bat`, ni el instalador, ni
   demuestra que Windows se comporte como se espera. Protege contra que alguien borre o
   reordene esas líneas sin darse cuenta, nada más.
+- **Procesos `rclone mount`** (`test_processes.py`): `parse_mount_processes` reconoce los
+  `rclone mount` en la salida de `ps` (copiada de un macOS real, con el `go-nfsv4` de fuse-t, que
+  lleva la carpeta en su línea de comandos y no es rclone) y en la de PowerShell, y deja fuera
+  las copias; `pids_serving` distingue `…/bkt` de `…/bkt2`. La salida de PowerShell **no está
+  capturada en Windows**: tiene la forma que esperamos de `Get-CimInstance`, así que el test
+  valida nuestro análisis, no que Windows la devuelva así.
 
 ### Qué no cubren
 

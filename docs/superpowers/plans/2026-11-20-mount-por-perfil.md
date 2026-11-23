@@ -1,14 +1,17 @@
 # Plan: montar cada servidor MinIO entero (un volumen por perfil)
 
-Rama: `feature/mount-por-perfil` (desde `develop`). Última actualización: 2026-11-20.
+Rama: `feature/mount-por-perfil` (desde `develop`). Última actualización: 2026-11-23.
 
 | Fase | Contenido | Estado |
 |---|---|---|
 | 0 | Pruebas manuales con rclone (Windows y macOS) | **Hecha** |
-| 1 | `refactor(mount)`: separar procesos y puntos de montaje, sin cambiar el comportamiento | Pendiente |
+| 1 | `refactor(mount)`: separar procesos y carpeta de montaje, sin cambiar el comportamiento | **Hecha** (tests en verde; probada a mano en macOS) |
 | 2 | `feat(mount)`: API por perfil y limpieza de los montajes por bucket | Pendiente |
-| 3 | `feat(mount)`: pantalla de servidores con tarjetas y flujo en `main.py` | Pendiente |
-| 4 | `docs(mount)`: documentación de usuario, agente y desarrollo | Pendiente |
+| 3 | `feat(mount)`: pantalla de servidores con tarjetas, flujo en `main.py` y documentación de usuario | Pendiente |
+| 4 | `docs(mount)`: revisión final de la documentación con `docs-update` | Pendiente |
+
+La documentación técnica (`docs/agent/`, `docs/development/`) se actualiza en el commit de cada fase; la de
+usuario, en la fase 3, que es cuando cambia lo que ve el usuario.
 
 ## Objetivo
 
@@ -51,17 +54,22 @@ Rama: `feature/mount-por-perfil` (desde `develop`). Última actualización: 2026
 
 ```text
 mount/
-  mount_points.py  NUEVO  dónde se monta cada perfil; puro, sin procesos ni rclone
-  processes.py     NUEVO  listar y parar procesos `rclone mount` (sale de s3_mount.py)
-  legacy.py        NUEVO  desmontar los montajes por bucket de la versión anterior
-  s3_mount.py             API pública: montar, desmontar, dónde está montado
-  preflight.py            sin cambios (WinFsp, fuse-t, FUSE)
+  mount_points.py  NUEVO (fase 1)  la carpeta de montaje: dónde está y en qué estado
+  processes.py     NUEVO (fase 1)  listar y parar procesos `rclone mount` (sale de s3_mount.py)
+  legacy.py        NUEVO (fase 2)  desmontar los montajes por bucket de la versión anterior
+  s3_mount.py                      API pública: montar, desmontar, dónde está montado
+  preflight.py                     requisitos (WinFsp, fuse-t, FUSE); + `fuse_env()` (fase 1)
+common/rclone_mount.py             + `obtener_letra_unidad_disponible()` (fase 1, sale de transfer/smb.py)
 ```
+
+La letra de unidad va a `common/rclone_mount.py` y no a `mount/`: la usan los montajes de MinIO y los de NetApp
+(`transfer/smb.py`), y así `transfer/` no depende de `mount/`. En la práctica NetApp solo monta en modo web (OOD,
+Linux), pero no se duplica la función.
 
 | Módulo | API |
 |---|---|
-| `mount_points.py` | `mount_base() -> Path` (Windows `C:/rclone-mounts`, solo para los montajes antiguos; resto `~/rclone-mounts`) · `profile_folder(perfil) -> Path` (macOS/Linux) · `free_drive_letter() -> str \| None` (sale de `transfer/smb.py`, que la importa de aquí) · `drive_letter_in(command_line, perfil) -> str \| None` (la letra de un `rclone mount <perfil>: X:`) |
-| `processes.py` | `rclone_mount_processes() -> list[tuple[int, str]]` · `pids_serving(mount_point) -> list[int]` · `stop_pid(pid)` · `stop_mount_process(proc)` (taskkill del árbol en Windows) |
+| `mount_points.py` | Fase 1: `mount_base()` · `normalized(path)` · `prepare_mount_point(path) -> bool` · `wait_unmounted(path, seconds)` · `force_unmount(path)`. Fase 2: `profile_folder(perfil) -> Path` (macOS/Linux, `<base>/<perfil>`) |
+| `processes.py` | Fase 1: `rclone_mount_processes()` · `parse_mount_processes(output, windows=)` (puro, con tests) · `pids_serving(mount_point)` · `stop_pid(pid)` · `stop_mount_process(proc)`. Fase 2: `drive_letter_in(command_line, perfil) -> str \| None` (la letra de un `rclone mount <perfil>: X:`) |
 | `legacy.py` | `unmount_bucket_mounts(perfil) -> list[str]`: desmonta cada `<base>/<perfil>/<bucket>` montado y devuelve los que no se pudieron desmontar |
 | `s3_mount.py` | `mount_profile(perfil) -> str` · `unmount_profile(perfil) -> bool` · `active_mount_point(perfil, *, scan=False) -> str \| None` · `desmontar_todos_los_mounts_s3()` (mismo nombre: lo registra `main.py`) |
 
@@ -71,7 +79,7 @@ mount/
   `drive_letter_in` sobre `rclone_mount_processes()` (PowerShell, lento: solo al cargar la pantalla).
 - **`mount_profile`** mantiene lo que ya hace `mount_rclone_S3_prefix_to_folder`: si está montado y responde,
   lo devuelve; si el sistema quitó el montaje y su rclone sigue vivo (macOS tras un corte de red), lo para;
-  `_fuse_env()`, `--allow-non-empty` fuera de Windows y las opciones de caché de `_vfs_flags_from_argv()`.
+  `fuse_env()`, `--allow-non-empty` fuera de Windows y las opciones de caché de `_vfs_flags_from_argv()`.
   Comando: `rclone mount <perfil>: <destino> --read-only --links [--allow-non-empty] [vfs flags]`.
 - **Log temporal de rclone**: `rclone_log_path("mount", perfil)` (antes `mount-<perfil>-<bucket>.log`).
 - **Windows**: el punto de montaje es `"X:"` (como NetApp). Para abrirlo en el Explorador se pasa `"X:\\"`.
@@ -124,22 +132,38 @@ update → login → servers ─ Mount / doble clic ─ ¿hay que renovar? ─ s
 
 ## Fase 1 — `refactor(mount)`: separar sin cambiar el comportamiento
 
-- Crear `processes.py` con lo que hoy está en `s3_mount.py` (`_rclone_mount_processes`, `_rclone_pids_serving`,
-  `_stop_pid`, `_taskkill`, `_stop_mount_process`).
-- Crear `mount_points.py` con `_get_s3_mount_base` y `obtener_letra_unidad_disponible` (renombradas);
-  `transfer/smb.py` la importa de aquí.
-- Comprobar: la app monta y desmonta un bucket igual que antes (macOS).
+Los cuerpos de las funciones se mueven sin cambios; solo pierden el `_` las que se usan desde otro módulo. Los
+nombres públicos de `s3_mount.py` (`mount_rclone_S3_prefix_to_folder`, `desmontar_punto_montaje`…) se quedan hasta
+la fase 2, que cambia su comportamiento.
+
+- `mount/processes.py`: `_rclone_mount_processes` → `rclone_mount_processes`, con el análisis de la salida aparte en
+  `parse_mount_processes` (puro); `_rclone_pids_serving` → `pids_serving`; `_stop_pid` → `stop_pid`;
+  `_stop_mount_process` → `stop_mount_process`; `_taskkill`. El análisis de Windows usa `ntpath.normcase`, que en
+  Windows es el mismo `os.path.normcase` de antes y permite probarlo desde macOS.
+- `mount/mount_points.py`: `_get_s3_mount_base` → `mount_base`, `_normalized` → `normalized`,
+  `_prepare_mount_point` → `prepare_mount_point`, `_wait_unmounted` → `wait_unmounted`, `_force_unmount_path` →
+  `force_unmount`, `_mount_point_is_stale` → `_is_stale` (solo la usa `prepare_mount_point`).
+- `mount/preflight.py`: `_fuse_env` → `fuse_env`. `s3_mount.py` ya no importa funciones privadas de `preflight`.
+- `common/rclone_mount.py`: `obtener_letra_unidad_disponible` (desde `transfer/smb.py`, que la importa de aquí;
+  `backend.py` la sigue exportando).
+- Tests: `tests/unit/backend/test_processes.py` (salida real de `ps` en macOS, con el `go-nfsv4` de fuse-t, que
+  lleva la carpeta de montaje en su línea de comandos y no es rclone; salida con la forma de PowerShell).
+- Documentación técnica: `docs/agent/backend.md`, `docs/agent/architecture.md`, `docs/development/backend.md`,
+  `docs/development/testing.md`.
+- Comprobar: los tests pasan, y la app monta y desmonta un bucket igual que antes (macOS, tras
+  `uv sync --reinstall-package bifrost-shared`).
 
 ## Fase 2 — `feat(mount)`: API por perfil
 
-- `mount_points.py`: `profile_folder`, `drive_letter_in`.
+- `mount_points.py`: `profile_folder`. `processes.py`: `drive_letter_in`.
 - `legacy.py`: `unmount_bucket_mounts`.
 - `s3_mount.py`: `mount_profile`, `unmount_profile`, `active_mount_point`; adaptar `desmontar_todos_los_mounts_s3`
   y el log temporal; borrar las funciones por bucket.
 - `backend.py`: exportaciones.
-- Tests (`tests/unit/backend/test_mount_points.py`): `profile_folder`; `drive_letter_in` con líneas reales de
-  `Get-CimInstance` (comillas, mayúsculas, rutas con espacios, perfil que es prefijo de otro: `minio` frente a
-  `minio-archive`); detección de carpetas de montajes antiguos.
+- Tests: `drive_letter_in` en `test_processes.py`, con líneas de `Get-CimInstance` (comillas, mayúsculas, rutas
+  con espacios, perfil que es prefijo de otro: `minio` frente a `minio-archive`); `profile_folder` y la detección
+  de carpetas de montajes antiguos en `test_mount_points.py`.
+- Documentación técnica de los módulos que cambian.
 
 ## Fase 3 — `feat(mount)`: pantalla y flujo
 
@@ -156,17 +180,19 @@ update → login → servers ─ Mount / doble clic ─ ¿hay que renovar? ─ s
 - Windows y Linux: misma lista, a mano en esas máquinas (no se puede probar desde el Mac de desarrollo). Punto crítico en Windows:
   detectar la letra de una sesión anterior (`drive_letter_in`).
 
-## Fase 4 — `docs(mount)`
+- Documentación en el mismo commit: `docs/user/mount-buckets.md` (pasos, rutas `X:\<bucket>` /
+  `~/rclone-mounts/<servidor>/<bucket>`, tabla de problemas: desaparecen ⟳ y "Unmount all"), `docs/agent/frontend.md`,
+  `docs/agent/architecture.md` y la documentación de desarrollo del frontend.
 
-- `docs/user/mount-buckets.md`: pasos, rutas (`X:\<bucket>` / `~/rclone-mounts/<servidor>/<bucket>`), tabla de
-  problemas (desaparecen ⟳ y "Unmount all").
-- `docs/agent/backend.md`, `docs/agent/frontend.md`, `docs/development/backend.md` (y frontend): módulos y API.
-- Revisar `AGENTS.md` y `README.md`. Hacerlo con el skill `docs-update`.
+## Fase 4 — `docs(mount)`: revisión final
+
+- Pasar el skill `docs-update` sobre toda la rama: revisar `AGENTS.md`, `README.md` y lo que se haya quedado atrás.
 
 ## Riesgos y pendientes
 
 - **Letra de una sesión anterior en Windows**: depende de leer la línea de comandos con PowerShell; esa parte no se
-  ha probado nunca en Windows (ya anotado para `_rclone_mount_processes`).
+  ha probado nunca en Windows (ya anotado para `rclone_mount_processes`; el análisis de su salida tiene tests, pero con una salida que no se ha
+  capturado en Windows).
 - **Letras ocupadas**: hasta tres servidores más los shares de NetApp (Bifrost transfer). Si no quedan letras,
   error claro en la tarjeta.
 - **La letra cambia entre sesiones**: un acceso directo a `X:` puede no valer la próxima vez. Documentarlo.

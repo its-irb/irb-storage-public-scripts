@@ -44,7 +44,7 @@ shared/                   # bifrost-shared package (local wheel)
   bifrost_backend/
     backend.py            # Facade: re-exports the public API (backend.X)
     common/               # auth, constants, logs, rclone, rclone_mount, rclone_output, shutdown, ui_helpers, updates
-    mount/                # preflight (WinFsp/FUSE checks), s3_mount
+    mount/                # preflight (WinFsp/FUSE checks), mount_points, processes, s3_mount
     transfer/             # copy_check, ldap_groups, rclone_ops, s3_tags, sftp, smb
   bifrost_frontend/
     frontend.py           # Facade: re-exports theme, components and views

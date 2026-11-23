@@ -65,6 +65,7 @@ from .common.shutdown import (
 from .common.rclone_mount import (
     MountError,
     is_mounted,
+    obtener_letra_unidad_disponible,
 )
 from .mount.s3_mount import (
     mount_rclone_S3_prefix_to_folder,
@@ -103,7 +104,6 @@ from .transfer.smb import (
     obtener_perfiles_rclone_config,
     crear_perfil_rclone_smb,
     actualizar_password_perfiles_rclone,
-    obtener_letra_unidad_disponible,
     generar_punto_montaje,
     montar_share_rclone,
     desmontar_todos_los_shares,

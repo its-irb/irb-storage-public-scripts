@@ -13,7 +13,9 @@ from pathlib import Path
 
 from ..common.logs import rclone_log_path
 from ..common.rclone import _subprocess_kwargs, get_rclone_executable, obtener_ruta_rclone_conf
-from ..common.rclone_mount import MountError, drain_rclone_log, is_mounted, mount_and_wait
+from ..common.rclone_mount import (
+    MountError, drain_rclone_log, is_mounted, mount_and_wait, obtener_letra_unidad_disponible,
+)
 
 log = logging.getLogger("bifrost.netapp")
 
@@ -173,27 +175,6 @@ def actualizar_password_perfiles_rclone(
     with open(rclone_config_path, "w") as f:
         config.write(f)
     log.info("netapp: password updated in %d SMB profile(s) of %s", len(perfiles), usuario)
-
-
-def obtener_letra_unidad_disponible() -> str | None:
-    """Devuelve la primera letra de unidad disponible en Windows, o None."""
-    import string
-    if platform.system() != "Windows":
-        return None
-    try:
-        import ctypes
-        drives_mask = ctypes.windll.kernel32.GetLogicalDrives()
-        letras_en_uso = {
-            f"{l}:"
-            for i, l in enumerate(string.ascii_uppercase)
-            if drives_mask & (1 << i)
-        }
-        for letra in [f"{l}:" for l in string.ascii_uppercase[3:]]:
-            if letra not in letras_en_uso:
-                return letra
-    except Exception as e:
-        log.warning("netapp: could not list the Windows drive letters: %s", e)
-    return None
 
 
 def generar_punto_montaje(usuario_actual: str, nombre_share: str) -> str:
