@@ -106,23 +106,29 @@ Detalle y decisiones: `docs/superpowers/plans/PLAN-logging-improvements.md`.
   etiquetas anteriores y nuevas; una carpeta: lo del panel + hasta 100 ficheros que fallaron) y deja la ruta
   completa en LOGS. El log técnico: `tags finished: outcome=… total=… ok=… failed=… stopped=… duration=…`,
   errores una vez por tipo y sin nombres, y de las etiquetas solo los nombres de los campos.
-- **Montajes** (buckets en Bifrost Mount, shares de la NetApp en OOD): mientras monta, rclone escribe solo sus
-  errores, en JSON, en un fichero temporal en `rclone/` junto a `reports/` (`rclone_log_path()`:
-  `mount-<perfil>-<bucket>.log`, `netapp-<share>.log`, siempre el mismo por bucket o share; en OOD, la carpeta
-  de la sesión; `--use-json-log --log-level ERROR --log-file-max-size 10M --log-file-max-backups 1`). BIFROST lo
-  lee para elegir el pop-up y, cuando el montaje falla o se desmonta (también un resto de una sesión anterior,
-  un montaje perdido o al cerrar la app), pasa sus errores al log técnico con `[bifrost.rclone]`
+- **Montajes** (servidores de MinIO en Bifrost Mount, shares de la NetApp en OOD): mientras monta, rclone
+  escribe solo sus errores, en JSON, en un fichero temporal en `rclone/` junto a `reports/` (`rclone_log_path()`:
+  `mount-<perfil>.log` por servidor, `mount-<perfil>-<bucket>.log` para los montajes por bucket de la versión
+  anterior que se desmontan, `netapp-<share>.log`; siempre el mismo por servidor, bucket o share; en OOD, la
+  carpeta de la sesión; `--use-json-log --log-level ERROR --log-file-max-size 10M --log-file-max-backups 1`).
+  BIFROST lo lee para elegir el pop-up y, cuando el montaje falla o se desmonta (también un resto de una sesión
+  anterior, un montaje perdido o al cerrar la app), pasa sus errores al log técnico con `[bifrost.rclone]`
   (`drain_rclone_log`: cada error distinto una vez, con el `RequestID` de la primera vez para buscarlo en el log
-  de MinIO, sin nombres de ficheros, hasta 100) y lo borra. Un montaje
-  normal no deja ninguna línea de rclone. Si un montaje falla, el pop-up da el código del error (ver abajo), no
-  rutas. El log técnico registra `mount ok: <carpeta> (rclone pid
-  N, N s)` / `mount failed: <carpeta> code=…` (debajo, los errores de rclone), `already mounted` si la carpeta ya estaba montada (no se lanza otro rclone), `no longer mounted`
-  si el sistema quitó el montaje (al recargar la lista o al pulsar el bucket, que se vuelve a montar: `mounting
-  again` y `stopping rclone pid N of the lost mount`, porque su rclone sigue vivo),
-  `mounted from a previous session: <carpeta>` por cada bucket que la pantalla encuentra montado al abrirse y cada
-  desmontaje con el PID que se para (`unmount <carpeta>: stopping rclone pid N` o, si es un resto de una
-  sesión anterior, `rclone from a previous session, PIDs [N]` … `done (N s)`). Si la lista de buckets no se
-  puede cargar: `bucket list failed: profile=… code=…` y, con `[bifrost.rclone]`, el texto de rclone.
+  de MinIO, sin nombres de ficheros, hasta 100) y lo borra. Un montaje normal no deja ninguna línea de rclone. Si
+  un montaje falla, el pop-up da el código del error (ver abajo), no rutas. El log técnico de Bifrost Mount
+  registra:
+  - al abrir la pantalla, `mount: <servidor> is mounted at <letra o carpeta>` por cada servidor que ya estaba
+    montado (por esta sesión, una anterior u otra ventana);
+  - al montar, `mount: server=… profile=…`, `mounting <perfil>: at <destino>` y `mount ok: <destino> (rclone pid
+    N, N s)` / `mount failed: <destino> code=…` (debajo, los errores de rclone); `mount <perfil>: already mounted
+    at …` si ya estaba montado (no se lanza otro rclone; desde la pantalla, `mount: <servidor> is already mounted,
+    opening …`);
+  - antes de montar, `stopping rclone pid N of the lost mount` / `… of a lost mount from another session` si un
+    rclone de ese servidor seguía vivo sin montaje (el sistema quitó el montaje al cortarse la red, o se desmontó
+    a mano); `unmounting N bucket mounts of the previous version` y `removed the empty folder …`, o `bucket mounts
+    still in use: …` si alguno no se deja desmontar; `no free drive letter` en Windows;
+  - cada desmontaje con el PID que se para (`unmount <destino>: stopping rclone pid N` o, si es un resto de una
+    sesión anterior u otra ventana, `rclone from a previous session, PIDs [N]` … `done (N s)`).
 - **Códigos de error** (PR 4 y PR 5): cada error que ve el usuario (pop-ups, la línea de error en lugar de una
   lista, la primera línea del resumen de copy, check y Tag Manager cuando fallan, y los mensajes de la renovación
   de credenciales) lleva un código `<pantalla><tipo>-<MMDD>-<HHMMSS>`, por ejemplo `MNT101-1103-141526`. Los

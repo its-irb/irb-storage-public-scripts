@@ -109,7 +109,7 @@ la carpeta de la app:
     En macOS la arquitectura de `rclone` se auto-detecta con `uname -m`
     (`arm64` en Apple Silicon, `amd64` en Intel) y se puede forzar con la
     variable `RCLONE_ARCH`. La CI la fija explícitamente: `arm64` en el job
-    ARM y `amd64` en el job Intel (stopgap hasta nov-2026).
+    ARM y `amd64` en el job Intel.
 
 ### Activar y ejecutar (cada vez)
 
@@ -254,38 +254,40 @@ solo la hace la CI; ver abajo.)
   plantilla con `__BUILDPATH__` = workspace, se reescribe su `version`
   (la de la plantilla es `2.0.0`) y se escribe
   `__version__ = "1.0.<run_number>"` en `src/version.py`.
-- **Job `build-macos`** (matriz por app, runner `macos-latest`, Apple
-  Silicon): descarga assets (mount: `macos-assets-downloader.sh`;
+- **Job `build-macos`** (matriz por app, runner `macos-26`, Apple
+  Silicon; fijado en vez de `macos-latest` para que una imagen nueva de macOS
+  no cambie el build sin que lo decidamos): descarga assets (mount: `macos-assets-downloader.sh`;
   transfer: `macos-rclone-downloader.sh`, con `RCLONE_ARCH=arm64` para
   determinismo), `uv sync`, `flet build macos --output dist --no-rich-output`
   (con `echo "y" |` para autoconfirmar); en mount copia `fuse_t.framework` al
   bundle; genera un **DMG** (action `create-dmg`) → artefacto
   `bifrost-<flavour>-macos.dmg`.
-- **Job `build-macos-intel`** (matriz por app, runner `macos-14`): copia del
-  job anterior usando los mismos scripts de descarga con `RCLONE_ARCH=amd64`
-  → artefacto `bifrost-<flavour>-macos-intel.dmg`. **Stopgap
-  hasta el 2-nov-2026** (fecha en la que GitHub retira el runner `macos-14`,
-  el último Intel hosted): lleva `continue-on-error: true` para que, tras esa
-  fecha, su fallo no bloquee la release; hay que eliminar el job por completo
-  en el follow-up de esa fecha.
+- **Job `build-macos-intel`** (matriz por app, runner `macos-15-intel`): copia
+  del job anterior usando los mismos scripts de descarga con
+  `RCLONE_ARCH=amd64` → artefacto `bifrost-<flavour>-macos-intel.dmg`. Los Macs
+  Intel están soportados. Antes usaba `macos-14`, que GitHub Actions ya no
+  admite, con `continue-on-error`; ahora no lo lleva, así que si el build de
+  Intel falla, la release no se publica.
 - **Job `build-windows`** (matriz por app): descarga rclone, `uv sync`,
   `uv run flet build windows --output dist --no-rich-output -v`,
   **Inno Setup** (`ISCC.exe` sobre `installer.iss` con
   `/DBranchSuffix`, `/DAppVersion=1.0.<run_number>`, `/DAppName=<app>`) →
   `installer/*.exe`, y **firma el instalador** con `signtool` (certificado
   PFX desde los secrets del repo `IRBCODESIGNING` /
-  `IRBCODESIGNING_PASSWORD`, con timestamp de Digicert). Sube el `.exe` como
-  artefacto `<app>-windows`; GitHub lo entrega comprimido como
-  `<app>-windows.zip` con el `.exe` dentro.
+  `IRBCODESIGNING_PASSWORD`, con timestamp de Digicert). Comprime el
+  instalador firmado en `bifrost-<flavour>-<rama>-windows.zip` (para la
+  descarga manual: los navegadores avisan al bajar un `.exe` pero no un `.zip`)
+  y sube el `.exe` y ese `.zip` como artefacto `<app>-windows`.
 - **Job `release`** (solo en `main` y `release`): descarga los artefactos de
   los tres jobs de build (por eso su `needs` incluye también
   `build-macos-intel`) y publica una release de GitHub con tag
   `v1.0.<run_number>` que contiene:
   - macOS: `bifrost-<flavour>-macos.dmg` (Apple Silicon) y
-    `bifrost-<flavour>-macos-intel.dmg` (Intel, stopgap hasta nov-2026)
-  - Windows: `bifrost-<flavour>-<rama>-windows.exe` (instalador firmado) y
-    `bifrost-<flavour>-windows.zip` (el mismo instalador comprimido; lo crea el
-    propio job `release` con `zip`). El `.zip` es el que descargan los usuarios
+    `bifrost-<flavour>-macos-intel.dmg` (Intel)
+  - Windows, tres ficheros a propósito: `bifrost-<flavour>-<rama>-windows.exe`
+    (instalador firmado), `bifrost-<flavour>-<rama>-windows.zip` (el `.zip` del
+    job `build-windows`) y `bifrost-<flavour>-windows.zip` (el mismo instalador
+    comprimido; lo crea el propio job `release` con `zip`). El `.zip` es el que descargan los usuarios
     y el autoupdate, que extrae el `.exe` de dentro
     (`extract_windows_installer()`). El `.exe` suelto se mantiene porque las
     versiones anteriores lo siguen pidiendo (`-main-windows.exe`)
@@ -293,8 +295,9 @@ solo la hace la CI; ver abajo.)
   De estas releases descarga el autoupdate de las apps
   (`backend.download_new_binary()`): en macOS elige el sufijo según la
   arquitectura de la máquina (`platform.machine()`: arm64 → `-macos.dmg`,
-  x86_64 → `-macos-intel.dmg`); solo los Macs Intel con release pre-stopgap
-  necesitan una instalación manual del `-macos-intel.dmg`.
+  x86_64 → `-macos-intel.dmg`) y en Windows descarga `-windows.zip`; solo los
+  Macs Intel con una release anterior a los builds de Intel necesitan una
+  instalación manual del `-macos-intel.dmg`.
 
 ## Política de validación
 

@@ -5,7 +5,7 @@
 | Component | Folder | Role |
 |---|---|---|
 | **bifrost-transfer** | `bifrost-transfer/` | Copies data from network shares (SMB/CIFS), SFTP servers or local paths to MinIO S3 buckets, with integrity checks and tagging by metadata profile. Includes **Tag Manager** (bulk tagging without re-upload) and **web mode** (Open OnDemand). |
-| **bifrost-mount** | `bifrost-mount/` | Mounts MinIO S3 folders as a local drive (Windows/macOS/Linux). Desktop mode only. |
+| **bifrost-mount** | `bifrost-mount/` | Mounts each MinIO server whole and read-only, with its buckets as folders: a drive letter on Windows, `~/rclone-mounts/<server>` on macOS/Linux. Desktop mode only. |
 | **bifrost-shared** | `shared/` | Common wheel package: `bifrost_backend` (all non-UI logic, split into `common/`, `mount/` and `transfer/`; the `backend.py` facade re-exports it as `backend.X`) and `bifrost_frontend` (theme, components and the views shared by both apps; the `frontend.py` facade re-exports them). |
 
 Both apps are Flet apps with entry point `src/main.py` and one `pyproject.toml`

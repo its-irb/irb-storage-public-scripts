@@ -6,7 +6,7 @@ This repository contains two desktop apps (Flet/Python) for interacting with IRB
 | App | Folder | Description |
 |---|---|---|
 | **bifrost-transfer** | `bifrost-transfer/` | Upload data from network shares (SMB/CIFS), SFTP servers (password optional; browse and pick either a folder or an individual file as the source), or local folders to MinIO S3 buckets, with integrity verification and metadata tagging by profile. Includes a **Tag Manager** to browse and edit S3 object tags without re-uploading. |
-| **bifrost-mount** | `bifrost-mount/` | Mount MinIO S3 folders as a local drive. |
+| **bifrost-mount** | `bifrost-mount/` | Mount each MinIO server whole, with its buckets as folders: a drive letter on Windows, `~/rclone-mounts/<server>` on macOS and Linux. Read-only. |
 
 Both apps share the backend defined in `shared/bifrost_backend` (LDAP, rclone, SMB, S3). They also share part of the frontend in `shared/bifrost_frontend`, both imported as packages in each app's `main.py`.
 
@@ -111,6 +111,10 @@ The Tag Manager bucket browser also includes the same **"Filter by lab…"** fie
 
 Like the copy screen, it has a **LOGS** panel and saves a report of each operation (`reports/tags-<date>.log`). Errors open a window with what happened and what to do (**Try again** / **Cancel**); a folder can be stopped with **Cancel** while its tags are being applied, and a file's editor only opens once its current tags have been read.
 
+## Mounting (bifrost-mount)
+
+After signing in, bifrost-mount shows one card per MinIO server (`minio`, `minio-archive`, `irbminio`). **⊞ Mount** (or a double-click on the card) mounts the whole server, read-only, with its buckets as folders: on Windows in the first free drive letter (`X:\<bucket>`), on macOS and Linux in `~/rclone-mounts/<server>/<bucket>`. Each card shows how long the server's MinIO credentials last and where it is mounted, and has **⊠ Unmount** and **🔑 Renew credentials**; credentials are renewed automatically when mounting if they are about to expire. Closing the app unmounts the servers it mounted. Folder listings are cached for 12 hours, so a file just added to MinIO may need an unmount and mount to appear. User guide: [docs/user/mount-buckets.md](docs/user/mount-buckets.md).
+
 ---
 
 ## Auto-update
@@ -118,11 +122,16 @@ Like the copy screen, it has a **LOGS** panel and saves a report of each operati
 When a new release of bifrost-mount or bifrost-transfer is available, the app asks the user whether they want to upgrade. If so, the new release is downloaded from this git repo.
 
 > **macOS:** releases include `bifrost-<app>-macos.dmg` (Apple Silicon) and
-> `bifrost-<app>-macos-intel.dmg` (Intel, stopgap until Nov-2026). Autoupdate
+> `bifrost-<app>-macos-intel.dmg` (Intel). Autoupdate
 > downloads the build matching the Mac's architecture (arm64 →
 > `bifrost-<app>-macos.dmg`, Intel → `bifrost-<app>-macos-intel.dmg`). Intel
-> Macs still on a pre-stopgap release must install
+> Macs still on a release older than the Intel builds must install
 > `bifrost-<app>-macos-intel.dmg` once, manually, from the release page.
+>
+> **Windows:** releases include the signed installer as a loose `.exe` and inside
+> `.zip` files (browsers warn when downloading an `.exe`, not a `.zip`).
+> Autoupdate downloads `bifrost-<app>-windows.zip`, extracts the installer and
+> runs it; the loose `.exe` is kept for older versions, which still download it.
 
 ---
 

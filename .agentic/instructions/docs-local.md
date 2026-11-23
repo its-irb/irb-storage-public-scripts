@@ -37,7 +37,7 @@ Explica con detalle y con un ejemplo visual (árbol de carpetas) qué es cada un
 
 **Bifrost mount** — para leer datos de MinIO desde una app del clúster:
 1. Abre una sesión DCV.
-2. Dentro de DCV, usa Bifrost mount para montar los buckets de MinIO que contengan los datos que necesitas analizar.
+2. Dentro de DCV, usa Bifrost mount para montar el servidor de MinIO que contenga los datos que necesitas analizar (todos sus buckets aparecen como carpetas).
 3. Desde esa misma sesión DCV puedes abrir el resto de apps (por ejemplo, QuPath) y leer los datos de MinIO.
 4. Importante: **no lances el job en el nodo ccn01**; usa otros (por ejemplo, sphr).
 

@@ -11,9 +11,9 @@ backend (internal MinIO requests use `verify=False`).
 | Module | Key functions |
 |---|---|
 | `common/auth.py` — STS, rclone profile, LDAP | `get_credentials(endpoint, username, password, durationseconds)` → temporary STS credentials (HTTP timeout 30 s); `configure_rclone()`; `get_session_info(profile)` → `SessionInfo`; `validar_credenciales_ldap()`. |
-| `common/constants.py` | `MINIO_SERVERS`, `DEFAULT_S3_REGION`, `REPO`, `__version__`, `EMOJI_FONT_FILENAME`, `LDAP_SERVER_URL`, `LDAP_BASE_DN`, `STS_RENEWAL_THRESHOLD_DAYS` (3), `STS_AUTO_RENEWAL_DAYS` (7), `NO_LDAP` (`BIFROST_NO_LDAP=1`). |
+| `common/constants.py` | `MINIO_SERVERS` (its order is the order on screen: mount's cards and transfer's server list, whose first entry is preselected: `minio`, `minio-archive`, `irbminio`), `DEFAULT_S3_REGION`, `REPO`, `__version__`, `EMOJI_FONT_FILENAME`, `LDAP_SERVER_URL`, `LDAP_BASE_DN`, `STS_RENEWAL_THRESHOLD_DAYS` (3), `STS_AUTO_RENEWAL_DAYS` (7), `NO_LDAP` (`BIFROST_NO_LDAP=1`). |
 | `common/rclone.py` — rclone resolution | `get_rclone_executable()` — looks for rclone in (1) `FLET_ASSETS_DIR/bin/` (packaged apps), (2) `bifrost-<flavour>/src/assets/bin/` of the repo (dev, built from `APP_INFO["flavour"]`), (3) PATH (web/cluster); raises `EnvironmentError` if not found. `obtener_ruta_rclone_conf()` (runs `rclone config file`; result cached with `lru_cache`), `rclone_lsd()` (folders only — S3 destination), `_subprocess_kwargs()`. |
-| `common/updates.py` — autoupdate | `_parse_version()`, `check_update_version()`, `should_check_for_updates()`, `get_update_file_suffix()`, `download_new_binary()`, `get_emoji_font_asset_path()`. |
+| `common/updates.py` — autoupdate | `_parse_version()`, `check_update_version()`, `should_check_for_updates()`, `get_update_file_suffix()`, `download_new_binary()`, `extract_windows_installer()`, `build_windows_update_script()`, `get_emoji_font_asset_path()`. |
 | `common/ui_helpers.py` — Flet ⇄ threading | `ui_call(page, fn)`, `safe_thread(page, target)`. |
 | `common/logs.py` — technical log, reports, export | `setup_logging()`, `log_dir()`, `report_path()`, `write_report()`, `rclone_log_path()`, `open_in_file_browser()`, `export_logs_zip(sessions=EXPORTED_SESSIONS)` → path of the zip, in `~/Downloads` (0600) with the logs of the last 5 sessions and the copy, check and Tag Manager reports of those sessions. |
 | `common/shutdown.py` — orderly exit | `register_shutdown(cleanup, *, server_managed=False)`: called once at import, from the main thread; runs `cleanup` **once per process** whatever ends it — normal exit (`atexit`), a signal (SIGTERM from Slurm/Open OnDemand or DCV, Ctrl+C) or the window (`request_shutdown("window")`, from `install_window_close`). It cleans up in the signal handler instead of relying on `atexit`, which never runs in the packaged app (Flet replaces `sys.exit`). `install_signal_handlers()`: `main()` calls it again because `ft.run()` installs its own handlers, which do not close the app and let a second signal kill it without cleanup. `server_managed=True` (transfer under Hypercorn in Open OnDemand): only SIGTERM, which cleans up without exiting (the parent process closes the child); SIGINT is left to the parent. `request_shutdown(reason)` logs `APP shutdown requested (reason=…)`. |
@@ -163,10 +163,19 @@ path is passed to rclone as `CGOFUSE_LIBFUSE_PATH`.
 ## Autoupdate
 
 `check_update_version()`, `should_check_for_updates()` and
-`download_new_binary()` check GitHub releases and download the new binary. On
-macOS, `get_update_file_suffix()` picks the file suffix from the machine
+`download_new_binary()` check GitHub releases and download the new binary.
+`get_update_file_suffix()` picks the release file: on macOS from the machine
 architecture (`platform.machine()`: arm64 → `-macos.dmg`, x86_64 →
-`-macos-intel.dmg`; Intel stopgap until Nov-2026). `check_update_version()`
+`-macos-intel.dmg`); on Windows `-windows.zip`, the signed installer inside a
+`.zip` (browsers warn when downloading an `.exe`, not a `.zip`).
+`views/update.py` extracts it with `extract_windows_installer(zip, dest)`
+(`RuntimeError` unless the zip holds exactly one `.exe`) and runs the `.bat`
+from `build_windows_update_script(exe, flavour)`: `cd /d "%TEMP%"` (while a
+process keeps the app's working folder as current directory, Windows cannot
+delete it and the relaunched app fails, errno 32), `start /wait` on the silent
+installer, then relaunches the app. Releases still publish the loose
+`-main-windows.exe` because older versions download it: do not rename these
+files. `check_update_version()`
 accepts `force_update`, but it currently has no effect: the test block that
 simulates version `999.999.999` is commented out. See
 [operations.md](operations.md) for the versioning flow.

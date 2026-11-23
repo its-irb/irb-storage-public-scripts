@@ -50,8 +50,9 @@ Cross-cutting knowledge that constrains any change. Technical details in
 9. **STS credentials**: if more than 3 days remain and the token belongs to the
    user who signed in, they are reused; otherwise they are renewed
    automatically for 7 days (`STS_RENEWAL_THRESHOLD_DAYS` /
-   `STS_AUTO_RENEWAL_DAYS` in `bifrost_backend.common.constants`). The mount
-   and copy views also offer manual renewal ("🔑 Renew credentials", 1–30 days).
+   `STS_AUTO_RENEWAL_DAYS` in `bifrost_backend.common.constants`). In mount
+   this check runs when a server is mounted. Each server card in mount and the
+   copy view also offer manual renewal ("🔑 Renew credentials", 1–30 days).
 10. **WinFsp auto-install (`bifrost-mount` only, Windows)**: if WinFsp is
     missing when mounting, the backend raises `WinFspMissingError` (subclass of
     `EnvironmentError`) and the UI offers to download the latest official

@@ -28,8 +28,9 @@ data in MinIO **cannot be deleted** (see
 
 1. Open a **DCV** session on a node other than `ccn01`.
 2. Inside the DCV session, open **Bifrost mount** and sign in.
-3. Mount the MinIO folders that contain the data you need
-   (see [mount-buckets.md](mount-buckets.md)).
+3. Mount the MinIO server that contains the data you need. All its buckets
+   appear as folders in `~/rclone-mounts/<server>` (see
+   [mount-buckets.md](mount-buckets.md)).
 4. From that same DCV session, open the other apps (for example QuPath). They
    can read the MinIO data through the mounted folders.
 

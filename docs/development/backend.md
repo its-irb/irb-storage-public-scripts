@@ -44,9 +44,9 @@ llamando a `backend.X` (`from bifrost_backend import backend`).
 | Módulo | Funciones clave |
 |---|---|
 | `common/auth.py` — STS, perfil rclone, LDAP | `get_credentials(endpoint, username, password, durationseconds)` → dict de credenciales temporales (timeout HTTP de 30 s); `configure_rclone()`; `get_session_info(perfil)` → `SessionInfo`; `validar_credenciales_ldap()`. |
-| `common/constants.py` | `MINIO_SERVERS`, `DEFAULT_S3_REGION`, `REPO`, `__version__`, `EMOJI_FONT_FILENAME`, `LDAP_SERVER_URL`, `LDAP_BASE_DN`, `STS_RENEWAL_THRESHOLD_DAYS` (3), `STS_AUTO_RENEWAL_DAYS` (7), `NO_LDAP` (`BIFROST_NO_LDAP=1`). |
+| `common/constants.py` | `MINIO_SERVERS` (su orden es el de las pantallas: las tarjetas de mount y la lista de servidores de transfer, donde el primero sale seleccionado: `minio`, `minio-archive`, `irbminio`), `DEFAULT_S3_REGION`, `REPO`, `__version__`, `EMOJI_FONT_FILENAME`, `LDAP_SERVER_URL`, `LDAP_BASE_DN`, `STS_RENEWAL_THRESHOLD_DAYS` (3), `STS_AUTO_RENEWAL_DAYS` (7), `NO_LDAP` (`BIFROST_NO_LDAP=1`). |
 | `common/rclone.py` — resolución de rclone | `get_rclone_executable()` — resuelve el binario en (1) `FLET_ASSETS_DIR/bin/` (apps empaquetadas), (2) `bifrost-<flavour>/src/assets/bin/` del repo (desarrollo; se construye con `APP_INFO["flavour"]`), (3) PATH (modo web/clúster); si no lo encuentra lanza `EnvironmentError`. `obtener_ruta_rclone_conf()` (ejecuta `rclone config file`; el resultado se cachea con `lru_cache`), `rclone_lsd()` (solo carpetas — S3 destino), `_subprocess_kwargs()`. |
-| `common/updates.py` — autoupdate | `_parse_version()`, `check_update_version()`, `should_check_for_updates()`, `get_update_file_suffix()`, `download_new_binary()`, `get_emoji_font_asset_path()`. |
+| `common/updates.py` — autoupdate | `_parse_version()`, `check_update_version()`, `should_check_for_updates()`, `get_update_file_suffix()`, `download_new_binary()`, `extract_windows_installer()`, `build_windows_update_script()`, `get_emoji_font_asset_path()`. |
 | `common/ui_helpers.py` — Flet ⇄ threading | `ui_call(page, fn)`, `safe_thread(page, target)`. |
 | `common/logs.py` — log técnico, informes y exportación | `setup_logging()`, `log_dir()`, `report_path()`, `write_report()`, `rclone_log_path()`, `open_in_file_browser()`, `export_logs_zip(sessions=EXPORTED_SESSIONS)` → ruta del zip, en `~/Downloads` (0600) con los logs de las 5 últimas sesiones y los informes de copy, check y Tag Manager de esas sesiones. |
 | `common/shutdown.py` — cierre ordenado | `register_shutdown(cleanup, *, server_managed=False)`: se llama una vez, al importar la app y desde el hilo principal (el único donde se pueden instalar manejadores de señal). Ejecuta `cleanup` **una sola vez por proceso**, llegue el cierre por donde llegue: salida normal (`atexit`), una señal (SIGTERM de Slurm/Open OnDemand o de DCV, Ctrl+C) o el cierre de la ventana (`request_shutdown("window")`, desde `install_window_close`). Limpia en el propio manejador de la señal y no confía en `atexit`, porque en la app empaquetada Flet sustituye `sys.exit` y `atexit` no llega a ejecutarse. `install_signal_handlers()`: `main()` la vuelve a llamar porque `ft.run()` instala al arrancar sus propios manejadores, que no cierran la app y hacen que la segunda señal la mate sin limpiar. `server_managed=True` es para producción en Open OnDemand, donde Hypercorn ejecuta la app en un proceso hijo y el padre decide el cierre: el hijo deja SIGINT al padre, y con SIGTERM (un `scancel`, Delete en Open OnDemand) solo limpia, sin salir, para no cortar a medias el cierre ordenado del padre. `request_shutdown(reason)` deja `APP shutdown requested (reason=…)` en el log. |
@@ -192,7 +192,7 @@ El `main.py` de `bifrost-transfer` contiene un bloque comentado que añade
 
 | Script | Para qué |
 |---|---|
-| `macos-assets-downloader.sh` | `rclone` + `fuse-t.framework` (`bifrost-mount` en macOS) — arquitectura auto-detectada (`uname -m`, override con `RCLONE_ARCH`; el job Intel de la CI lo usa con `RCLONE_ARCH=amd64`, stopgap hasta nov-2026) |
+| `macos-assets-downloader.sh` | `rclone` + `fuse-t.framework` (`bifrost-mount` en macOS) — arquitectura auto-detectada (`uname -m`, override con `RCLONE_ARCH`; el job Intel de la CI lo usa con `RCLONE_ARCH=amd64`) |
 | `macos-rclone-downloader.sh` | solo `rclone` (`bifrost-transfer` en macOS) — arquitectura auto-detectada (mismo mecanismo; job Intel de la CI con `RCLONE_ARCH=amd64`) |
 | `windows-assets-downloader.sh` | `rclone.exe` |
 | `linux-assets-downloader.sh` | `rclone` (clúster Linux) |
@@ -224,10 +224,20 @@ disco como ficheros no versionados (gitignores; solo se versionan los
 
 `check_update_version()` consulta las releases de GitHub;
 `should_check_for_updates()` decide si toca comprobar;
-`download_new_binary()` descarga el binario de la release nueva. En macOS el
-sufijo del archivo lo elige `get_update_file_suffix()` según la arquitectura
-(`platform.machine()`: arm64 → `-macos.dmg`, x86_64 → `-macos-intel.dmg`,
-stopgap Intel hasta nov-2026). `check_update_version()` recibe
+`download_new_binary()` descarga el binario de la release nueva. El fichero lo
+elige `get_update_file_suffix()`: en macOS según la arquitectura
+(`platform.machine()`: arm64 → `-macos.dmg`, x86_64 → `-macos-intel.dmg`); en
+Windows `-windows.zip`, el instalador firmado dentro de un `.zip`, porque los
+navegadores avisan al descargar un `.exe` pero no un `.zip`. `views/update.py`
+saca el instalador con `extract_windows_installer(zip, destino)` (lanza
+`RuntimeError` si el `.zip` no tiene exactamente un `.exe`) y ejecuta el `.bat`
+de `build_windows_update_script(exe, flavour)`: `cd /d "%TEMP%"` (mientras un
+proceso tenga la carpeta de trabajo de la app como directorio actual, Windows no
+deja borrarla y la app relanzada falla al volver a extraerla, errno 32),
+`start /wait` sobre el instalador en modo silencioso (sin `/wait` la app se
+relanzaría antes de que termine) y relanza la app. La release sigue publicando
+el `.exe` suelto (`-main-windows.exe`) porque las versiones anteriores lo
+descargan: no cambiar estos nombres. `check_update_version()` recibe
 `force_update` (lo pasa `--update`), pero ahora mismo no hace nada: el bloque
 de prueba que simula la versión `999.999.999` está comentado; hay que
 descomentarlo para probar la pantalla de actualización. El flujo de

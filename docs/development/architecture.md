@@ -14,7 +14,7 @@ rclone.
 | Componente | Responsabilidad |
 |---|---|
 | `bifrost-transfer` | Copiar datos a buckets S3 con verificación de integridad, aplicar perfiles de metadatos, gestionar tags existentes (Tag Manager), ofrecer modo web para el clúster (Open OnDemand). |
-| `bifrost-mount` | Montar rutas de buckets S3 como unidades locales en Windows/macOS/Linux. |
+| `bifrost-mount` | Montar cada servidor MinIO entero, en solo lectura y con sus buckets como carpetas: en una letra de unidad en Windows y en `~/rclone-mounts/<servidor>` en macOS/Linux. |
 | `shared/bifrost_backend` | Toda la lógica no-UI: autenticación (LDAP), credenciales temporales (STS) y token de sesión, perfiles y ejecución de rclone, acceso SMB/CIFS, tagging S3 vía boto3, autoupdate, helpers de concurrencia UI y constantes compartidas. Organizado en `common/`, `mount/` y `transfer/`; `backend.py` es una fachada que reexporta la API pública. |
 | `ood-app-bifrost` (submódulo de git) | La app de Open OnDemand que lanza el job de `bifrost-transfer` en el clúster (formulario, `submit.yml.erb` y `template/script.sh.erb`, que arranca la app en modo web con Hypercorn). No se usa para desarrollar ni para los builds de escritorio. |
 | `shared/bifrost_frontend` | Tema (paleta, fuentes), componentes Flet reutilizables y las vistas comunes a las dos apps (actualización, login, selección de MinIO, renovación de credenciales), para que ambas apps se vean y se comporten igual. `frontend.py` es una fachada que reexporta todo. |
@@ -88,8 +88,9 @@ mount:
 Las credenciales STS se reutilizan si les quedan más de 3 días y son del
 usuario que ha iniciado sesión; si no, se renuevan automáticamente por 7 días
 (`STS_RENEWAL_THRESHOLD_DAYS` y `STS_AUTO_RENEWAL_DAYS` en
-`bifrost_backend.common.constants`). Las vistas de montaje y de copia permiten
-además renovarlas a mano (botón "🔑 Renew credentials", de 1 a 30 días).
+`bifrost_backend.common.constants`). En mount la comprobación se hace al montar cada servidor. Cada
+tarjeta de servidor de mount y la vista de copia permiten además renovarlas a mano (botón
+"🔑 Renew credentials", de 1 a 30 días).
 
 ## Límites y consecuencias de modificarlos
 

@@ -59,8 +59,8 @@
     }
   },
   "documentation": {
-    "last_reviewed_commit": "7dd21f5bfcb0ac65b66d835cdf3e830689a2c988",
-    "last_reviewed_at": "2026-11-06T12:16:02+01:00"
+    "last_reviewed_commit": "1ed6f8a1312535befb1fdf03687864b2897ba073",
+    "last_reviewed_at": "2026-11-23T16:59:57+01:00"
   },
   "framework_remote_url": "https://github.com/its-irb/agentic-repo-framework.git",
   "framework_branch": "main",

@@ -2,9 +2,11 @@
 
 ## Goal
 
-Make a MinIO folder appear on your computer as if it were a local folder, so
+Make your MinIO data appear on your computer as if it were a local folder, so
 you can open its files with your usual programs. This is called **mounting** a
 folder: making it available on your computer (or session) as if it were local.
+Bifrost mount mounts a whole MinIO server at once: all the buckets you can see
+in it appear inside as folders.
 
 ## When to use it
 

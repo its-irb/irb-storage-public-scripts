@@ -5,7 +5,17 @@ from __future__ import annotations
 import os
 
 
+# El orden es el de las pantallas: las tarjetas de mount y la lista de transfer (el primero sale seleccionado).
 MINIO_SERVERS = {
+    "minio": {
+        "IRB": {
+            "profile": "minio",
+            "endpoint": "https://minio.sc.irbbarcelona.org:9000",
+            "extra_rclone_config": {
+                "region": "eu-south-2",
+            }
+        }
+    },
     "minio-archive": {
         "IRB": {
             "profile": "minio-archive",
@@ -18,15 +28,6 @@ MINIO_SERVERS = {
             "endpoint": "http://irbminio.sc.irbbarcelona.org:9000"
         }
     },
-    "minio": {
-        "IRB": {
-            "profile": "minio",
-            "endpoint": "https://minio.sc.irbbarcelona.org:9000",
-            "extra_rclone_config": {
-                "region": "eu-south-2",
-            }
-        }
-    }
 }
 
 
