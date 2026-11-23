@@ -43,7 +43,7 @@ This README is a quick reference for running and packaging the apps.
 bifrost-mount/            # MinIO folder mounting app
   src/
     main.py               # GUI (Flet). Entry point: startup, technical log, navigation, exit cleanup
-    views/                # mount.py: bucket selector + mount view
+    views/                # servers.py + server_card.py: one card per MinIO server
     config.py             # APP_INFO
     version.py
     assets/bin/           # Bundled binaries (rclone) — downloaded, not versioned

@@ -58,11 +58,30 @@ def parse_mount_processes(output: str, *, windows: bool) -> list[tuple[int, str]
     return processes
 
 
-def pids_serving(mount_point: str) -> list[int]:
-    """PIDs de los `rclone mount` cuya línea de comandos tiene esta carpeta como argumento completo."""
+def pids_serving(mount_point: str, processes: list[tuple[int, str]] | None = None) -> list[int]:
+    """PIDs de los `rclone mount` cuya línea de comandos tiene esta carpeta (o letra de unidad) como argumento
+    completo. `processes`: la lista de `rclone_mount_processes()` si ya se tiene (en Windows, leerla es lento)."""
     # La carpeta completa, entre comillas, espacios o los extremos: …/bkt no debe coincidir con …/bkt2.
     target = re.compile(r'(?:^|["\s])' + re.escape(normalized(mount_point)) + r'(?=["\s]|$)')
-    return [pid for pid, command_line in rclone_mount_processes() if target.search(command_line)]
+    if processes is None:
+        processes = rclone_mount_processes()
+    return [pid for pid, command_line in processes if target.search(command_line)]
+
+
+def server_mount_pids(perfil: str, processes: list[tuple[int, str]] | None = None) -> list[int]:
+    """PIDs de los `rclone mount` que montan el servidor `perfil` entero (`rclone mount <perfil>: …`), estén donde
+    estén. No los de un bucket (`<perfil>:<bucket>`) ni los de otro servidor (`minio` no es `minio-archive`)."""
+    target = re.compile(r'\smount\s+"?' + re.escape(perfil) + r':"?(?=["\s]|$)', re.IGNORECASE)
+    if processes is None:
+        processes = rclone_mount_processes()
+    return [pid for pid, command_line in processes if target.search(command_line)]
+
+
+def drive_letter_in(command_line: str, perfil: str) -> str | None:
+    """Windows: la letra de unidad ("X:") de una línea de `rclone_mount_processes()` que monta el servidor `perfil`
+    entero (`rclone mount <perfil>: X: …`), o None. La línea llega en minúsculas; `minio` no es `minio-archive`."""
+    match = re.search(r'\smount\s+"?' + re.escape(perfil.lower()) + r':"?\s+"?([a-z]):\\?"?(?=\s|$)', command_line)
+    return f"{match.group(1).upper()}:" if match else None
 
 
 def stop_mount_process(proceso: subprocess.Popen) -> None:

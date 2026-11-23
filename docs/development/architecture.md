@@ -76,9 +76,13 @@ rclone.
 ```text
 view_update (comprueba release)
   → view_login   (valida credenciales contra LDAP; BIFROST_NO_LDAP=1 se salta la validación)
+transfer:
   → view_minio   (selección de servidor MinIO / perfil rclone)
   → view_credentials (obtiene credenciales STS temporales; reutiliza si quedan >3 días)
-  → view_mount (mount) | view_copy (transfer; con view_shares previa en clúster)
+  → view_copy (con view_shares previa en clúster)
+mount:
+  → view_servers (una tarjeta por servidor; cada uno se monta entero, con sus buckets como carpetas)
+  ⇄ view_credentials (al montar, si hay que renovar; vuelve a view_servers y monta)
 ```
 
 Las credenciales STS se reutilizan si les quedan más de 3 días y son del

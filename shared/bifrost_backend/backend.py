@@ -68,9 +68,10 @@ from .common.rclone_mount import (
     obtener_letra_unidad_disponible,
 )
 from .mount.s3_mount import (
-    mount_rclone_S3_prefix_to_folder,
-    desmontar_punto_montaje,
-    resolver_mount_point_destino,
+    BucketMountsBusyError,
+    active_mount_point,
+    mount_profile,
+    unmount_profile,
     desmontar_todos_los_mounts_s3,
 )
 from .mount.preflight import (

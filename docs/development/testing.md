@@ -11,8 +11,9 @@ comprobar a mano lo que los tests no pueden cubrir.
 ## Estado actual
 
 - Hay **tests automáticos (pytest) solo para el autoupdate**
-  (`shared/bifrost_backend/common/updates.py`) y para el análisis de la lista de procesos
-  `rclone mount` (`shared/bifrost_backend/mount/processes.py`).
+  (`shared/bifrost_backend/common/updates.py`), para el análisis de la lista de procesos
+  `rclone mount` (`shared/bifrost_backend/mount/processes.py`) y para el comando con el que se
+  monta un servidor (`shared/bifrost_backend/mount/s3_mount.py`).
 - El resto del proyecto se valida **a mano**, ejecutando las apps (ver la política de
   validación en [build-and-ci.md](build-and-ci.md#política-de-validación)).
 - Todavía **no** hay ruff, mypy ni tests en la CI: `pytest`, `ruff` y `mypy` no figuran
@@ -31,6 +32,7 @@ tests/
       test_updates.py              # lógica pura: versiones, sufijo por plataforma, should_check, .bat
       test_update_flow.py          # check de versión y descarga, con requests.get sustituido
       test_processes.py            # reconocer los `rclone mount` en la salida de ps / PowerShell
+      test_s3_mount.py             # el comando de montaje: servidor entero, solo lectura y opciones
 ```
 
 Decisiones tomadas hasta ahora (provisionales, se pueden cambiar cuando se defina una
@@ -84,7 +86,14 @@ significa "pasa" en cada grupo:
   lleva la carpeta en su línea de comandos y no es rclone) y en la de PowerShell, y deja fuera
   las copias; `pids_serving` distingue `…/bkt` de `…/bkt2`. La salida de PowerShell **no está
   capturada en Windows**: tiene la forma que esperamos de `Get-CimInstance`, así que el test
-  valida nuestro análisis, no que Windows la devuelva así.
+  valida nuestro análisis, no que Windows la devuelva así. También `server_mount_pids` (los
+  rclone de un servidor entero: no `minio:bkt`, ni `minio-archive` para `minio`) y
+  `drive_letter_in` (la letra de `rclone mount minio: X:`).
+- **Comando de montaje** (`test_s3_mount.py`): `_mount_command` monta el servidor entero
+  (`minio:`), en solo lectura y con las opciones de rendimiento en ese orden; `--allow-non-empty`
+  solo fuera de Windows, y las opciones de caché que se pasan al arrancar la app van al final
+  (rclone se queda con el último valor). No lanza rclone: no comprueba que rclone las acepte ni
+  que el montaje vaya más rápido.
 
 ### Qué no cubren
 

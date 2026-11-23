@@ -17,7 +17,7 @@ per app.
 bifrost-mount/            # Mount app (desktop)
   src/
     main.py               # Flet entry point: technical log, exit cleanup (register_shutdown), view navigation
-    views/mount.py        # Bucket selector + mount/unmount view
+    views/                # servers (one card per MinIO server), server_card, renew_dialog, winfsp_dialog
     config.py             # APP_INFO = {"flavour": "mount", ...}
     version.py            # __version__ (written by CI/build)
     assets/bin/           # bundled rclone
@@ -44,7 +44,7 @@ shared/                   # bifrost-shared package (local wheel)
   bifrost_backend/
     backend.py            # Facade: re-exports the public API (backend.X)
     common/               # auth, constants, logs, rclone, rclone_mount, rclone_output, shutdown, ui_helpers, updates
-    mount/                # preflight (WinFsp/FUSE checks), mount_points, processes, s3_mount
+    mount/                # preflight (WinFsp/FUSE checks), mount_points, processes, legacy, s3_mount
     transfer/             # copy_check, ldap_groups, rclone_ops, s3_tags, sftp, smb
   bifrost_frontend/
     frontend.py           # Facade: re-exports theme, components and views
@@ -83,11 +83,12 @@ docs/superpowers/         # Historical feature specs and plans
   `from bifrost_frontend.frontend import *`. See [frontend.md](frontend.md).
 
 **App-specific**:
-- `src/main.py` — entry point: startup, view navigation (login → minio →
-  credentials → mount/copy), the technical log (`backend.setup_logging(...)`)
+- `src/main.py` — entry point: startup, view navigation (mount: login →
+  servers ⇄ credentials; transfer: login → minio → credentials → copy), the technical log (`backend.setup_logging(...)`)
   and exit cleanup (`backend.register_shutdown(...)`). In `bifrost-transfer` it
   also computes `IS_WEB` and builds the cluster ASGI app.
-- `src/views/` — the app's own views (`mount.py` in mount; `shares.py`,
+- `src/views/` — the app's own views (`servers.py`, `server_card.py`,
+  `renew_dialog.py`, `winfsp_dialog.py` in mount; `shares.py`,
   `rclone_browser.py`, `local_fs.py`, `copy.py`, `tag_manager.py` in transfer).
 - `src/web_session.py` (**transfer only**) — web-mode session store.
 - `src/meta_fields.py` — **`bifrost-transfer` only**: `FieldType`, `TAG_PROFILES`, `build_meta_fields`, `LAB_ACRONYMS`, `build_lab_filter_widget`, `detect_profile`. Canonical source of profiles and fields.
@@ -137,8 +138,12 @@ docs/superpowers/         # Historical feature specs and plans
 
 ## High-level flows
 
-- Desktop: login (LDAP) → MinIO server selection → automatic temporary STS
-  credentials → action view (mount or copy).
+- Desktop transfer: login (LDAP) → MinIO server selection → automatic temporary
+  STS credentials → copy view.
+- Desktop mount: login (LDAP) → one card per MinIO server → Mount (renews the
+  STS credentials first if needed) → the whole server is mounted, with its
+  buckets as folders (a drive letter on Windows, `~/rclone-mounts/<server>`
+  elsewhere).
 - Web (transfer only, Open OnDemand): same, with a persistent session in
   `_WEB_SESSIONS` (`web_session.py`) and tab reconnection. See
   [frontend.md](frontend.md).

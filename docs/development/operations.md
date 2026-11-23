@@ -127,7 +127,7 @@ Detalle y decisiones: `docs/superpowers/plans/PLAN-logging-improvements.md`.
   lista, la primera línea del resumen de copy, check y Tag Manager cuando fallan, y los mensajes de la renovación
   de credenciales) lleva un código `<pantalla><tipo>-<MMDD>-<HHMMSS>`, por ejemplo `MNT101-1103-141526`. Los
   del login también tienen el suyo, pero solo en el log técnico: en esa pantalla sería ruido. Pantalla: `LGN`
-  login, `CRD` renovación de credenciales, `MNT` montar un bucket, `NET` NetApp, `CPY` copy (y "Save log" y los
+  login, `CRD` renovación de credenciales, `MNT` montar un servidor, `NET` NetApp, `CPY` copy (y "Save log" y los
   navegadores de copy), `CHK` check, `TAG` Tag Manager, `APP` actualizar BIFROST o fallo no previsto. El tipo es
   el campo `num` de cada `UserIssue` (`common/rclone_output.py`); `UserIssue.reference(screen)` crea el código.
 
@@ -136,7 +136,7 @@ Detalle y decisiones: `docs/superpowers/plans/PLAN-logging-improvements.md`.
   | 1xx MinIO | 101 · 102 · 103 · 104 · 105 · 106 · 107 · 108 · 109 | `CREDENTIALS_EXPIRED` · `PROFILE_MISSING` · `MINIO_PERMISSION` · `BUCKET_NOT_FOUND` · `OBJECT_GONE` · `WORM_PROTECTED` · `INVALID_TAG` · `MINIO_BUSY` · `CLOCK_SKEW` |
   | 2xx red y límites | 201 · 202 · 203 · 204 | `NETWORK` · `TEMPORARY` · `TRANSFER_LIMIT` · `TIME_LIMIT` |
   | 3xx ficheros de origen | 301 · 302 · 303 · 304 · 305 | `SOURCE_NOT_FOUND` · `SOURCE_PERMISSION` · `SOURCE_CHANGING` · `FILE_IN_USE` · `DISK_FULL` |
-  | 4xx montajes | 401 · 402 · 403 · 404 · 405 | `MOUNT_TIMEOUT` · `MOUNT_BUSY` · `MOUNT_NOT_ALLOWED` · `UNMOUNT_FAILED` · `FUSE_MISSING` |
+  | 4xx montajes | 401 · 402 · 403 · 404 · 405 · 406 | `MOUNT_TIMEOUT` · `MOUNT_BUSY` · `MOUNT_NOT_ALLOWED` · `UNMOUNT_FAILED` · `FUSE_MISSING` · `NO_DRIVE_LETTER` |
   | 5xx NetApp | 501 · 502 · 503 | `NETAPP_LOGIN` · `NETAPP_SHARE_NOT_FOUND` · `NETAPP_PERMISSION` |
   | 6xx inicio de sesión | 601 | `INVALID_CREDENTIALS` |
   | 9xx BIFROST | 901 · 902 · 903 · 999 | `RCLONE_MISSING` · `RCLONE_OPTIONS` · `FATAL` · `UNEXPECTED` |

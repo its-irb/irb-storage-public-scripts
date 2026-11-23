@@ -25,11 +25,10 @@ al salir; el resto vive en módulos propios:
 
 | App | Módulos de `src/` además de `main.py` |
 |---|---|
-| `bifrost-mount` | `views/mount.py` (`build_rclone_browser`, que aquí es una lista de buckets, y `_build_mount_bucket`, la vista de montaje). |
+| `bifrost-mount` | `views/servers.py` (`build_servers_content`: una tarjeta por servidor MinIO; lo monta, lo abre o lo desmonta en un hilo y pregunta su estado al backend, `active_mount_point`, en vez de guardarlo), `views/server_card.py` (`ServerCard`: nombre, dirección, caducidad de las credenciales, dónde está montado, Mount/Open, Unmount y Renew credentials; doble clic = Mount; no llama al backend), `views/renew_dialog.py` (`show_renew_dialog`, 1-30 días), `views/winfsp_dialog.py` (`prompt_install_winfsp`). |
 | `bifrost-transfer` | `web_session.py` (sesiones del modo web), `meta_fields.py`, `views/shares.py` (`_build_shares_content`), `views/rclone_browser.py` (`build_rclone_browser`, navegador de carpetas del destino), `views/local_fs.py` (`build_local_fs_browser`, `show_local_fs_modal`), `views/copy.py` (`_build_copy_content`), `views/tag_manager.py` (`_build_tag_manager_content`). |
 
-`build_rclone_browser` se llama igual en las dos apps pero son funciones
-distintas.
+`build_rclone_browser` solo existe en transfer (navegador de carpetas).
 
 ## `shared/bifrost_frontend`: tema, componentes y vistas comunes
 
@@ -77,7 +76,10 @@ A continuación:
 
 ```text
 bifrost-mount (desktop puro):
-  view_update → view_login → view_minio → view_credentials (auto) → view_mount
+  view_update → view_login → view_servers ⇄ view_credentials
+  (view_servers: una tarjeta por servidor; cada servidor se monta entero, con sus
+  buckets como carpetas. view_credentials sale al montar si hay que renovar, y
+  vuelve a view_servers y monta; o desde "Renew credentials".)
 
 bifrost-transfer (Mac/Windows/desktop):
   view_update → view_login → view_minio → view_credentials (auto) → view_copy
@@ -106,7 +108,8 @@ STS_RENEWAL_THRESHOLD_DAYS = 3
 STS_AUTO_RENEWAL_DAYS = 7
 ```
 
-Al elegir servidor, `main.py` llama a `backend.hay_que_renovar_credenciales(perfil, usuario)`, que deja la
+Al elegir servidor (transfer) o al montar uno (mount, `views/servers.py`), la app llama a
+`backend.hay_que_renovar_credenciales(perfil, usuario)`, que deja la
 decisión en una línea del log técnico:
 
 - Si quedan **más de 3 días** de validez y el token es del usuario que ha
@@ -116,7 +119,7 @@ decisión en una línea del log técnico:
   menos** (`needs_renewal(usuario, STS_RENEWAL_THRESHOLD_DAYS)`), se renuevan
   automáticamente por 7 días mostrando progreso (`build_credentials_content`).
 
-Además, la vista de montaje y la de copia muestran un badge con el tiempo
+Además, cada tarjeta de servidor de mount y la vista de copia muestran un badge con el tiempo
 restante (`🔑 Credentials expire in 6d 23h`; rojo con menos de 1 día, ámbar
 hasta 3 días) y un botón **"🔑 Renew credentials"** que abre un diálogo para
 renovar a mano entre 1 y 30 días (7 por defecto). Al terminar se vuelve a la

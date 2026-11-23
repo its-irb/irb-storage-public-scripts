@@ -107,7 +107,7 @@ _CATALOG: list[tuple[re.Pattern, UserIssue]] = [
     (re.compile(r"\bmount failed\b|Resource busy|mountpoint is not empty", re.I),
      UserIssue("MOUNT_BUSY", 402, "Mount folder in use",
                "The local folder for this mount is in use (it may already be mounted).",
-               "Click “Unmount all” and mount again. If it keeps happening, restart the computer.")),
+               "Unmount it and mount again. If it keeps happening, restart the computer.")),
     (re.compile(r"rclone not found"),
      UserIssue("RCLONE_MISSING", 901, "BIFROST is incomplete",
                "A component BIFROST needs (rclone) is missing.",
@@ -187,7 +187,11 @@ MOUNT_NOT_ALLOWED = UserIssue("MOUNT_NOT_ALLOWED", 403, "BIFROST cannot open the
                               "to access network volumes, then mount again.")
 UNMOUNT_FAILED = UserIssue("UNMOUNT_FAILED", 404, "Could not unmount",
                            "A mounted folder is still in use, so it could not be unmounted.",
-                           "Close the windows or programs that are using it and click “Unmount all” again.")
+                           "Close the windows or programs that are using it and try again.")
+NO_DRIVE_LETTER = UserIssue("NO_DRIVE_LETTER", 406, "No free drive letter",
+                            "All the drive letters of this computer (D: to Z:) are in use, so BIFROST cannot mount "
+                            "the server.",
+                            "Unmount a server you do not need, or disconnect a drive, and try again.")
 
 # Inicio de sesión: lo detecta el login (LDAP) o la renovación de credenciales sin LDAP (MinIO no da credenciales).
 INVALID_CREDENTIALS = UserIssue("INVALID_CREDENTIALS", 601, "Wrong username or password",

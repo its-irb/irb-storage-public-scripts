@@ -1,4 +1,7 @@
-"""La carpeta de un montaje de MinIO: dónde está y en qué estado (montada, colgada, desmontada)."""
+"""La carpeta de un montaje de MinIO: dónde está y en qué estado (montada, colgada, desmontada).
+
+En Windows un servidor se monta en una letra de unidad ("X:"), que elige `s3_mount`; aquí solo están las carpetas.
+"""
 
 from __future__ import annotations
 
@@ -10,17 +13,22 @@ import subprocess
 import time
 from pathlib import Path
 
-from ..common.rclone_mount import MountError, is_mounted
-from ..common.rclone_output import ISSUES_BY_CODE
+from ..common.rclone_mount import is_mounted
 
 log = logging.getLogger("bifrost.mount")
 
 
 def mount_base() -> Path:
-    """Devuelve la carpeta raíz donde se crean los mount points S3."""
+    """Carpeta raíz de los montajes en carpeta. En Windows solo la usaban los montajes por bucket de la versión
+    anterior (`legacy.py`): ahora cada servidor se monta en una letra de unidad."""
     if platform.system() == "Windows":
         return Path("C:/rclone-mounts")
     return Path.home() / "rclone-mounts"
+
+
+def profile_folder(perfil: str) -> Path:
+    """macOS/Linux: la carpeta donde se monta un servidor entero (<base>/<perfil>), con sus buckets dentro."""
+    return mount_base() / perfil
 
 
 def normalized(path: str | Path) -> str:
@@ -29,24 +37,10 @@ def normalized(path: str | Path) -> str:
 
 
 def prepare_mount_point(mount_point: Path) -> bool:
-    """Deja lista la carpeta de montaje. Devuelve True si ya está montada y responde: no hay que volver a montarla.
-
-    En macOS/Linux se desmonta un montaje colgado de una sesión anterior y se crea la carpeta (rclone puede montar
-    sobre una carpeta con contenido: --allow-non-empty). En Windows la carpeta solo existe mientras está montada:
-    WinFsp la crea al montar.
-    """
-    if platform.system() == "Windows":
-        if is_mounted(mount_point):
-            return True
-        if mount_point.exists():
-            try:
-                mount_point.rmdir()
-            except OSError as ex:
-                log.warning("mount point %s exists and could not be removed: %s", mount_point, ex)
-                raise MountError(ISSUES_BY_CODE["MOUNT_BUSY"]) from ex
-        mount_point.parent.mkdir(parents=True, exist_ok=True)
-        return False
-    if _is_stale(mount_point):
+    """macOS/Linux: deja lista la carpeta de montaje. Devuelve True si ya está montada y responde: no hay que volver
+    a montarla. Desmonta un montaje colgado de una sesión anterior y crea la carpeta (rclone puede montar sobre una
+    carpeta con contenido: --allow-non-empty)."""
+    if is_stale(mount_point):
         log.info("stale mount point %s: forcing unmount", mount_point)
         force_unmount(mount_point)
     elif is_mounted(mount_point):
@@ -92,7 +86,7 @@ def force_unmount(mount_point: Path) -> None:
             log.info("forced unmount with '%s' failed: %s", " ".join(comando[:-1]), ex)
 
 
-def _is_stale(mount_point: Path) -> bool:
+def is_stale(mount_point: Path) -> bool:
     """Detecta si mount_point es un mountpoint FUSE colgado (el proceso rclone
     que lo servía murió sin desmontar, típico de un cierre abrupto de sesión
     DCV/Open OnDemand). Un mount colgado sigue reportando ismount()=True pero

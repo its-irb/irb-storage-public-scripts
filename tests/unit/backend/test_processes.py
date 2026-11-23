@@ -63,3 +63,33 @@ def test_pids_serving_matches_the_whole_folder(monkeypatch):
     assert processes.pids_serving("/Users/n/rclone-mounts/minio/bkt2") == [8400]
     assert processes.pids_serving("/Users/n/rclone-mounts/minio/bkt") == []
     assert processes.pids_serving("/Users/n/rclone-mounts/minio/") == [8201]     # la barra final no importa
+
+
+def test_drive_letter_of_a_whole_server():
+    """La letra de `rclone mount <perfil>: X:`, sobre líneas ya normalizadas como las de Windows (minúsculas)."""
+    found = dict(processes.parse_mount_processes(POWERSHELL_OUTPUT, windows=True))
+    assert processes.drive_letter_in(found[4600], "minio") == "X:"
+    assert processes.drive_letter_in('"c:\\bifrost\\rclone.exe" mount "minio:" "y:\\" --read-only', "minio") == "Y:"
+    assert processes.drive_letter_in("c:\\bifrost\\rclone.exe mount minio: z:", "minio") == "Z:"
+
+
+def test_drive_letter_only_for_that_server():
+    line = "c:\\bifrost\\rclone.exe mount minio-archive: y: --read-only"
+    assert processes.drive_letter_in(line, "minio") is None              # minio no es minio-archive
+    assert processes.drive_letter_in(line, "minio-archive") == "Y:"
+
+
+def test_no_drive_letter_for_a_bucket_mount():
+    """Los montajes por bucket de la versión anterior (`minio:bkt` en una carpeta) no son el servidor entero."""
+    found = dict(processes.parse_mount_processes(POWERSHELL_OUTPUT, windows=True))
+    assert processes.drive_letter_in(found[4321], "minio") is None
+
+
+def test_server_mount_pids_only_the_whole_server():
+    """`rclone mount minio: …`, esté donde esté; no `minio:bkt2` (un bucket) ni otro servidor."""
+    mac = processes.parse_mount_processes(PS_OUTPUT, windows=False)
+    assert processes.server_mount_pids("minio", mac) == [8201]
+    assert processes.server_mount_pids("minio-archive", mac) == []
+    windows = processes.parse_mount_processes(POWERSHELL_OUTPUT, windows=True)
+    assert processes.server_mount_pids("minio", windows) == [4600]
+    assert processes.server_mount_pids("minio", [(1, "rclone mount minio-archive: y:")]) == []

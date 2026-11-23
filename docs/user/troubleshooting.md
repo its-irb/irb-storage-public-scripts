@@ -43,10 +43,11 @@ exact error in your logs (see [Send your logs to ITS](#send-your-logs-to-its)).
 | 305 | Not enough space | Free some space and try again. |
 | **4xx** | **Mounted folders** | |
 | 401 | The folder did not respond | MinIO or the NetApp did not answer in time. Check that the Nexica VPN is on and try again. |
-| 402 | Mount folder in use | Click **⊠ Unmount all** and mount again. If it keeps happening, restart the computer. |
+| 402 | Mount folder in use | Unmount it and mount again. If it keeps happening, restart the computer. |
 | 403 | BIFROST cannot open the mounted folder | On a Mac: **System Settings → Privacy & Security → Files and Folders**, allow BIFROST to access network volumes, then mount again. |
-| 404 | Could not unmount | Close the windows or programs that are using the folder and click **⊠ Unmount all** again. |
+| 404 | Could not unmount | Close the windows or programs that are using the folder and try again. |
 | 405 | Folder driver missing | On a Mac, reinstall BIFROST. On Linux, install FUSE (`sudo apt install fuse3` or `sudo dnf install fuse3`), or ask ITS. |
+| 406 | No free drive letter | Windows: unmount a server you do not need, or disconnect a drive, and try again. |
 | **5xx** | **NetApp** | |
 | 501 | NetApp did not accept your password | Sign out and sign in again with your current IRB password. |
 | 502 | NetApp share not found | Contact ITS. |

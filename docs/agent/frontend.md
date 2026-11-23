@@ -19,11 +19,10 @@
 
 | App | Modules in `src/` besides `main.py` |
 |---|---|
-| `bifrost-mount` | `views/mount.py` (`build_rclone_browser` bucket list, `_build_mount_bucket`). |
+| `bifrost-mount` | `views/servers.py` (`build_servers_content`: one card per MinIO server; mounts, opens or unmounts it in a thread and reads its state from the backend, `active_mount_point`, instead of keeping it), `views/server_card.py` (`ServerCard`: name, endpoint, credentials expiry, mount point, Mount/Open, Unmount, Renew credentials; double-click = Mount; never calls the backend), `views/renew_dialog.py` (`show_renew_dialog`, 1–30 days), `views/winfsp_dialog.py` (`prompt_install_winfsp`). |
 | `bifrost-transfer` | `web_session.py`, `meta_fields.py`, `views/shares.py` (`_build_shares_content`), `views/rclone_browser.py` (`build_rclone_browser` folder navigator), `views/local_fs.py` (`build_local_fs_browser`, `show_local_fs_modal`), `views/copy.py` (`_build_copy_content`), `views/tag_manager.py` (`_build_tag_manager_content`). |
 
-`build_rclone_browser` has the same name in both apps but different code: a
-bucket list in mount, a folder navigator in transfer.
+`build_rclone_browser` only exists in transfer (folder navigator).
 
 ## `shared/bifrost_frontend`
 
@@ -62,7 +61,10 @@ mode transfer also builds the ASGI `app` with `ft.app(main, export_asgi_app=True
 
 ```text
 bifrost-mount (pure desktop):
-  view_update → view_login → view_minio → view_credentials (auto) → view_mount
+  view_update → view_login → view_servers ⇄ view_credentials
+  (view_servers: one card per server; each server is mounted whole, with its
+  buckets as folders. view_credentials comes up when mounting needs a renewal,
+  then goes back to view_servers and mounts; or from "Renew credentials".)
 
 bifrost-transfer (desktop):
   view_update → view_login → view_minio → view_credentials (auto) → view_copy
@@ -79,14 +81,14 @@ and the live log panel (`ft.ListView` with `auto_scroll=True`).
 
 Constants in `bifrost_backend.common.constants`:
 `STS_RENEWAL_THRESHOLD_DAYS = 3`, `STS_AUTO_RENEWAL_DAYS = 7`. After choosing
-the server, `main.py` calls `backend.hay_que_renovar_credenciales(profile, user)`
+the server (transfer) or when mounting one (mount, `views/servers.py`), the app calls `backend.hay_que_renovar_credenciales(profile, user)`
 (it logs the decision in one line); if there is no token or
 `needs_renewal(user, STS_RENEWAL_THRESHOLD_DAYS)` is true (token of another user,
 unreadable, or 3 days or less left), it shows
 `build_credentials_content` and renews for 7 days, showing progress; otherwise
-it goes straight to the action view.
+it goes straight to the action view (in mount: mounts the server).
 
-The mount view and the copy view show a badge (`🔑 Credentials expire in 6d 23h`,
+Each server card in mount and the copy view show a badge (`🔑 Credentials expire in 6d 23h`,
 red under 1 day, amber up to 3 days) and a **"🔑 Renew credentials"** button
 that opens a dialog to renew manually for 1–30 days (default 7).
 
