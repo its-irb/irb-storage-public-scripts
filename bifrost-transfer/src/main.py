@@ -225,10 +225,14 @@ def main(page: ft.Page):
             )
         )
 
-    def go_login():
+    def go_login(resume: bool = True):
+        """Pantalla de login. En web, con `resume` y una sesión guardada del último usuario, rellena el usuario y al
+        entrar la restaura (va directa a la copia, saltándose la elección de servidor): es lo que pasa al reabrir la
+        pestaña. Con `resume=False` ("Back to login" de la elección de servidor) es un login normal; la sesión no se
+        borra, así que una copia en marcha sigue enlazada."""
         # If a previous session exists for the last known user, pre-fill the
         # username and use a special on_success that skips update/shares/minio.
-        if IS_WEB:
+        if IS_WEB and resume:
             last_user = _LAST_WEB_USER[0]
             session   = _ws_load(last_user) if last_user else None
             if session:
@@ -241,8 +245,18 @@ def main(page: ft.Page):
                     is_web=IS_WEB,
                 ))
                 return
-        show_screen(build_login_content(page, on_success=on_login_success,
+        show_screen(build_login_content(page, on_success=_on_login_fresh,
                                         no_ldap=NO_LDAP, is_web=IS_WEB))
+
+    def _on_login_fresh(creds: dict) -> None:
+        """Login normal. En web, si entra otro usuario, se descarta la sesión guardada del anterior (como al
+        restaurar); si es el mismo, se conserva (la copia en marcha y su log siguen en ella)."""
+        last_user = _LAST_WEB_USER[0]
+        if IS_WEB and last_user and creds["usuario"] != last_user:
+            log.info("web session: user changed from %s to %s, previous session discarded", last_user,
+                     creds["usuario"])
+            _ws_clear(last_user)
+        on_login_success(creds)
 
     def _sweep_sftp_huerfanos() -> None:
         """Borra los perfiles SFTP efímeros que quedaron de sesiones anteriores (al iniciar sesión)."""
@@ -286,7 +300,8 @@ def main(page: ft.Page):
     def go_minio():
         show_screen(build_minio_content(page, on_continue=on_minio_selected,
                                         no_ldap=NO_LDAP, is_web=IS_WEB,
-                                        on_back=go_login, usuario=state["credenciales_ldap"]["usuario"]))
+                                        on_back=lambda: go_login(resume=False),
+                                        usuario=state["credenciales_ldap"]["usuario"]))
 
     def on_minio_selected(eleccion: dict):
         log.info("server selected: %s (%s)", eleccion["servidor"], eleccion["endpoint"])
