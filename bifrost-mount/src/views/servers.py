@@ -12,7 +12,6 @@ from bifrost_backend import backend
 from bifrost_backend.common.constants import NO_LDAP
 from bifrost_frontend.frontend import *
 
-from views.renew_dialog import show_renew_dialog
 from views.server_card import ServerCard
 from views.winfsp_dialog import prompt_install_winfsp
 
@@ -24,12 +23,14 @@ def build_servers_content(
     *,
     usuario: str,
     on_credentials: Callable[[str, int | None], None],
+    on_back: Callable[[], None],
     mount_on_load: str | None = None,
 ) -> ft.Control:
     """Una tarjeta por servidor de `MINIO_SERVERS`, con su estado leído del backend (no se guarda aparte).
 
     `on_credentials(servidor, días)` lleva a la pantalla de credenciales: con `días=None`, la renovación automática
     antes de montar (al volver, `main` pasa `mount_on_load=servidor` y se monta); con días, la renovación a mano.
+    `on_back()` vuelve al login; lo montado sigue montado (esta pantalla lo vuelve a leer del backend al entrar).
     """
     servers = {srv: cfg["IRB"] for srv, cfg in backend.MINIO_SERVERS.items()}
     mount_points: dict[str, str | None] = dict.fromkeys(servers)   # dónde está montado cada uno (None: no lo está)
@@ -99,7 +100,7 @@ def build_servers_content(
             show_issue(page, error.issue, is_web=False, title="Could not mount the server",
                        context=_error_context(srv, error), screen="mount")
             return
-        _finish(srv, "✅ Mounted!", C_ACCENT)
+        _finish(srv, "Mounted!", C_ACCENT)
 
         def _clear_status():
             if srv not in busy:
@@ -166,18 +167,20 @@ def build_servers_content(
             ft.Container(
                 content=ft.Column(
                     [
+                        nav_bar("Back to login", on_back, usuario=usuario),
+                        ft.Container(height=12),
                         section_title("MINIO SERVERS"),
                         ft.Container(height=6),
                         ft.Text("Each server is mounted whole, with its buckets as folders. "
                                 "Double-click a server to mount it, or to open it if it is already mounted.",
                                 size=12, color=C_TEXT_DIM),
-                        ft.Container(height=12),
-                        ft.Column([card.control for card in cards.values()], spacing=10),
-                        ft.Container(height=12),
+                        ft.Container(height=16),
+                        ft.Column([card.control for card in cards.values()], spacing=12),
+                        ft.Container(height=16),
                     ],
                     spacing=0,
                 ),
-                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
+                padding=ft.Padding.only(left=24, right=24, top=0, bottom=8),
             ),
         ],
         spacing=0,

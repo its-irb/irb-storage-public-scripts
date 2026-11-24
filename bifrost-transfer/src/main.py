@@ -14,6 +14,10 @@ Uso:
 Flujo de vistas (Mac / Windows / Web):
     view_update → view_login → view_minio → view_credentials (auto) → view_copy
 
+    Cada pantalla vuelve a la anterior con el botón de arriba a la izquierda: view_minio → login,
+    view_credentials → view_minio (o a view_copy si se renovó a mano), view_copy → view_minio,
+    Tag Manager y NetApp → view_copy. Si la renovación falla, "Try again" la repite.
+
 Flujo de vistas (Linux cluster):
     view_update → view_login → view_shares → view_minio
     → view_credentials → view_copy
@@ -22,7 +26,7 @@ Notas sobre credenciales STS:
   - Si quedan MÁS de 3 días → se salta la renovación y va directo a view_copy
   - Si quedan MENOS de 3 días (o no hay credenciales) → renueva automáticamente
     por 7 días, mostrando el progreso en un log en pantalla
-  - No hay botones manuales de renovación en el flujo Mac/Windows/Web
+  - "Renew credentials" en view_copy renueva a mano (1-30 días) y vuelve a view_copy
 
 Fixes aplicados respecto al piloto inicial:
   - Thread-safety: toda modificación de UI desde hilos usa backend.ui_call(page, fn)
@@ -281,7 +285,8 @@ def main(page: ft.Page):
 
     def go_minio():
         show_screen(build_minio_content(page, on_continue=on_minio_selected,
-                                        no_ldap=NO_LDAP, is_web=IS_WEB))
+                                        no_ldap=NO_LDAP, is_web=IS_WEB,
+                                        on_back=go_login, usuario=state["credenciales_ldap"]["usuario"]))
 
     def on_minio_selected(eleccion: dict):
         log.info("server selected: %s (%s)", eleccion["servidor"], eleccion["endpoint"])
@@ -312,6 +317,8 @@ def main(page: ft.Page):
                 no_ldap=NO_LDAP,
                 is_web=IS_WEB,
                 done_message="Continuing to copy interface...",
+                on_cancel=go_minio,
+                cancel_label="Back to servers",
             ))
         else:
             go_copy()
@@ -323,6 +330,7 @@ def main(page: ft.Page):
             perfil_rclone=state["perfil_rclone"],
             endpoint=state["endpoint"],
             on_back=go_copy,
+            usuario=state["credenciales_ldap"]["usuario"],
         ))
 
     def _load_and_show_shares(skip_groups: bool = False) -> None:

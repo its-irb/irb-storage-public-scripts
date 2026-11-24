@@ -38,12 +38,8 @@ def _build_shares_content(
             [
                 build_header(subtitle=f"NetApp Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP, page=page),
                 ft.Container(
-                    content=ft.Row(
-                        [btn_secondary("← Back", on_click=lambda e: on_back())],
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
-                    padding=ft.Padding.symmetric(horizontal=24, vertical=8),
-                    margin=ft.Margin.only(bottom=4),
+                    content=nav_bar("Back to copy", on_back, usuario=usuario_actual),
+                    padding=ft.Padding.only(left=24, right=24, top=0, bottom=8),
                 ),
                 ft.Container(
                     content=ft.Column(
@@ -146,7 +142,8 @@ def _build_shares_content(
             width=14, height=14, stroke_width=2, color=C_PRIMARY, visible=False
         )
         status_txt = ft.Text("", size=11, color=C_TEXT_DIM, visible=False)
-        error_btn = ft.TextButton("⚠️ Error (details)", style=ft.ButtonStyle(color=C_ERROR), visible=False)
+        error_btn = ft.TextButton(content=ft.Text("Error — details", size=12), icon=ft.Icons.ERROR_OUTLINE,
+                                  style=ft.ButtonStyle(color=C_ERROR), visible=False)
         badge = ft.Container(
             content=ft.Row(
                 [
@@ -179,8 +176,8 @@ def _build_shares_content(
             ),
             bgcolor=C_SURFACE,
             border=ft.Border.all(1, C_BORDER),
-            border_radius=6,
-            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+            border_radius=8,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
         )
         _row_containers[share_name] = c
         return ft.GestureDetector(
@@ -196,7 +193,7 @@ def _build_shares_content(
     def _show_admin_cred_dialog(e):
         user_tf, user_col = styled_field("Admin username")
         pass_tf, pass_col = styled_field("Admin password", password=True)
-        err = ft.Text("", color=C_ERROR, size=12, visible=False)
+        err = ErrorBanner(visible=False)
 
         loading_indicator = ft.ProgressRing(
             width=16, height=16, stroke_width=2, color=C_PRIMARY, visible=False
@@ -281,12 +278,10 @@ def _build_shares_content(
         page.show_dialog(dlg)
         page.update()
 
-    admin_btn = btn_secondary("🔑 Admin credentials",
+    admin_btn = btn_secondary("Admin credentials", icon=ft.Icons.ADMIN_PANEL_SETTINGS_OUTLINED,
                               on_click=_show_admin_cred_dialog)
     #admin_btn.visible = es_admin_its
     admin_btn.visible = False
-
-    back_btn_widget = btn_secondary("← Back", on_click=lambda e: on_back())
 
     hint = ft.Text(
         "Double-click a share to mount it.",
@@ -313,12 +308,8 @@ def _build_shares_content(
         [
             build_header(subtitle=f"NetApp Shares — {usuario_actual}", IS_WEB=IS_WEB, no_ldap=NO_LDAP, page=page),
             ft.Container(
-                content=ft.Row(
-                    [c for c in [back_btn_widget] if c is not None],
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
-                margin=ft.Margin.only(bottom=4),
+                content=nav_bar("Back to copy", on_back, usuario=usuario_actual),
+                padding=ft.Padding.only(left=24, right=24, top=0, bottom=8),
             ),
             ft.Container(
                 content=ft.Column(

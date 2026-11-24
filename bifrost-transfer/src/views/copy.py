@@ -10,7 +10,7 @@ from typing import Callable
 
 import flet as ft
 from bifrost_backend import backend
-from bifrost_backend.common.constants import NO_LDAP, STS_AUTO_RENEWAL_DAYS, STS_RENEWAL_THRESHOLD_DAYS
+from bifrost_backend.common.constants import NO_LDAP
 from bifrost_frontend.frontend import *
 
 from meta_fields import TAG_PROFILES, build_meta_fields, validate_profile_tagset
@@ -65,126 +65,65 @@ def _build_copy_content(
     num_cores = backend.obtener_num_cpus()
     rclone_config_path = str(backend.obtener_ruta_rclone_conf())
 
-    # ── Badge de expiración de credenciales ───────────────────────────────
-    info = backend.get_session_info(perfil_rclone)
+    # ── Servidor, credenciales y acciones de arriba ───────────────────────
+    def _renew(dias: int) -> None:
+        """Tras el diálogo "Renew": la pantalla de renovación, que vuelve aquí al terminar o con "Back to copy"."""
+        show_screen(build_credentials_content(
+            page,
+            perfil_rclone=perfil_rclone,
+            endpoint=endpoint,
+            credenciales_ldap=credenciales_ldap,
+            on_continue=on_renew_complete,
+            extra_config=extra_config,
+            duracion_dias=dias,
+            on_back=on_login if NO_LDAP else None,
+            no_ldap=NO_LDAP,
+            is_web=IS_WEB,
+            done_message="Continuing to copy interface...",
+            on_cancel=on_renew_complete,
+            cancel_label="Back to copy",
+        ))
 
-    if info and info.remaining is not None:
-        dias = info.remaining.days
-        color_badge = C_ERROR if dias < 1 else C_WARNING if dias <= STS_RENEWAL_THRESHOLD_DAYS else C_ACCENT
-        expiry_text = "🔑 Credentials expired" if info.expired else f"🔑 Credentials expire in {info.remaining_text()}"
-    else:
-        color_badge = C_TEXT_DIM
-        expiry_text = "🔑 Credentials: unknown expiry"
-
-    expiry_badge = ft.Container(
-        content=ft.Text(expiry_text, size=11, color=color_badge, weight=ft.FontWeight.W_600),
-        bgcolor=f"{color_badge}22",
-        border=ft.Border.all(1, f"{color_badge}55"),
-        border_radius=20,
-        padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+    renew_btn = btn_secondary(
+        "Renew credentials", icon=ft.Icons.KEY,
+        on_click=lambda e: show_renew_dialog(page, perfil=perfil_rclone, usuario=credenciales_ldap["usuario"],
+                                             on_renew=_renew),
     )
 
-    def show_renew_dialog(e):
-        days_tf = ft.TextField(
-            value=str(STS_AUTO_RENEWAL_DAYS),
-            bgcolor=C_SURFACE2,
-            border_color=C_BORDER,
-            focused_border_color=C_PRIMARY,
-            color=C_TEXT,
-            border_radius=6,
-            content_padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-            text_size=13,
-            width=80,
-            keyboard_type=ft.KeyboardType.NUMBER,
-        )
-        err = ft.Text("", color=C_ERROR, size=12, visible=False)
-
-        def do_renew(ev=None):
-            try:
-                dias_int = int(days_tf.value or "0")
-                if dias_int < 1 or dias_int > 30:
-                    err.value   = "Enter a value between 1 and 30 days."
-                    err.visible = True
-                    page.update()
-                    return
-            except ValueError:
-                err.value   = "Invalid number."
-                err.visible = True
-                page.update()
-                return
-
-            page.pop_dialog()
-
-            show_screen(build_credentials_content(
-                page,
-                perfil_rclone=perfil_rclone,
-                endpoint=endpoint,
-                credenciales_ldap=credenciales_ldap,
-                on_continue=on_renew_complete,
-                extra_config=extra_config,
-                duracion_dias=dias_int,
-                on_back=on_login if NO_LDAP else None,
-                no_ldap=NO_LDAP,
-                is_web=IS_WEB,
-                done_message="Continuing to copy interface...",
-            ))
-
-        def cancel(ev):
-            page.pop_dialog()
-
-        dlg = ft.AlertDialog(
-            modal=True,
-            title=ft.Row(
-                [
-                    ft.Icon(ft.Icons.AUTORENEW, color=C_PRIMARY, size=20),
-                    ft.Text("Renew MinIO credentials", color=C_TEXT, size=15,
-                            weight=ft.FontWeight.W_600),
-                ],
-                spacing=8,
-            ),
-            content=ft.Column(
-                [
-                    ft.Text(f"User: {credenciales_ldap['usuario']}", color=C_TEXT_DIM, size=12),
-                    ft.Text(f"Profile: {perfil_rclone}", color=C_TEXT_DIM, size=12),
-                    ft.Container(height=12),
-                    ft.Row(
-                        [
-                            ft.Text("Renew for:", size=13, color=C_TEXT),
-                            days_tf,
-                            ft.Text("days", size=13, color=C_TEXT),
-                        ],
-                        spacing=10,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
-                    err,
-                ],
-                spacing=8,
-                tight=True,
-                width=320,
-            ),
-            actions=[
-                btn_secondary("Cancel", on_click=cancel),
-                btn_primary("🔄 Renew", on_click=do_renew),
-            ],
-            bgcolor=C_OVERLAY,
-            shape=ft.RoundedRectangleBorder(radius=10),
-        )
-        #page.overlay.append(dlg)
-        #dlg.open = True
-        page.show_dialog(dlg)
-        page.update()
-
-    renew_btn = btn_secondary("🔑 Renew credentials", on_click=show_renew_dialog)
-    def _back_with_sftp_cleanup(e):
+    def _back_with_sftp_cleanup():
         _sftp_disconnect(clear_origen=False)
         on_back()
 
-    back_btn  = btn_secondary("← Back", on_click=_back_with_sftp_cleanup) if on_back else None
-    tags_btn  = btn_secondary("🏷️ Tags", on_click=lambda e: on_tags()) if on_tags else None
+    tags_btn  = btn_secondary("Tags", icon=ft.Icons.LABEL_OUTLINE, on_click=lambda e: on_tags()) if on_tags else None
     cifs_btn = (
-        btn_secondary("⊞  Mount NetApp", on_click=lambda e: on_cifs())
+        btn_secondary("Mount NetApp", icon=ft.Icons.FOLDER_SHARED_OUTLINED, on_click=lambda e: on_cifs())
         if IS_WEB and on_cifs is not None
         else None
+    )
+    server_bar = card(
+        ft.Row(
+            [
+                icon_tile(ft.Icons.STORAGE_ROUNDED, C_PRIMARY),
+                ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                ft.Text(perfil_rclone, size=15, weight=ft.FontWeight.W_600, color=C_TEXT),
+                                expiry_chip(backend.get_session_info(perfil_rclone)),
+                            ],
+                            spacing=12, wrap=True, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Text(endpoint, size=11, color=C_TEXT_DIM, font_family=FONT_MONO,
+                                font_family_fallback=MONO_FALLBACK, selectable=True),
+                    ],
+                    spacing=4, tight=True, expand=True,
+                ),
+                *[b for b in (tags_btn, cifs_btn, renew_btn) if b is not None],
+            ],
+            spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        padding=16,
     )
 
     # ── Origen ────────────────────────────────────────────────────────────
@@ -287,7 +226,7 @@ def _build_copy_content(
         content=log_list,
         bgcolor=C_BG,
         border=ft.Border.all(1, C_BORDER),
-        border_radius=6,
+        border_radius=8,
         height=280,
     )
 
@@ -493,8 +432,8 @@ def _build_copy_content(
         _active_proceso: dict = {"proc": None}
 
     # ── Botones ────────────────────────────────────────────────────────────
-    copy_btn   = btn_primary("▶  Copy data")
-    check_btn  = btn_primary("✓  Check data", disabled=False)
+    copy_btn   = btn_primary("Copy data", icon=ft.Icons.PLAY_ARROW_ROUNDED)
+    check_btn  = btn_primary("Check data", icon=ft.Icons.FACT_CHECK_OUTLINED, disabled=False)
     cancel_btn = ft.Button(
         content=ft.Row(
             [ft.Icon(ft.Icons.STOP_CIRCLE_OUTLINED, size=16), ft.Text("Cancel")],
@@ -508,11 +447,11 @@ def _build_copy_content(
             },
             color={ft.ControlState.DEFAULT: "#0D1117"},
             shape=ft.RoundedRectangleBorder(radius=6),
-            padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+            padding=ft.Padding.symmetric(horizontal=20, vertical=12),
         ),
     )
-    
-    save_btn  = btn_secondary("↓  Save log")
+
+    save_btn  = btn_secondary("Save log", icon=ft.Icons.DOWNLOAD)
 
     _cancelling: list = [False]   # mutable flag; reset each time a new operation starts
 
@@ -648,7 +587,7 @@ def _build_copy_content(
         port_tf, port_col = styled_field("Port", value="22")
         user_tf, user_col = styled_field("Username")
         pass_tf, pass_col = styled_field("Password", password=True)
-        err = ft.Text("", color=C_ERROR, size=12, visible=False)
+        err = ErrorBanner(visible=False)
         loading_indicator = ft.ProgressRing(
             width=16, height=16, stroke_width=2, color=C_PRIMARY, visible=False
         )
@@ -729,7 +668,7 @@ def _build_copy_content(
         page.show_dialog(dlg)
         page.update()
 
-    sftp_btn = btn_secondary("🌐 SFTP", on_click=_open_sftp_dialog)
+    sftp_btn = btn_secondary("SFTP", icon=ft.Icons.LANGUAGE, on_click=_open_sftp_dialog)
 
     # ── FilePicker (solo desktop) ──────────────────────────────────────────
     if not IS_WEB:
@@ -774,9 +713,9 @@ def _build_copy_content(
                 except OSError as ex:
                     _log_not_saved(ex)
 
-        pick_file_btn   = btn_secondary("📄 File",
+        pick_file_btn   = btn_secondary("File", icon=ft.Icons.INSERT_DRIVE_FILE_OUTLINED,
                             on_click=lambda e: page.run_task(_pick_file, e))
-        pick_folder_btn = btn_secondary("📁 Folder",
+        pick_folder_btn = btn_secondary("Folder", icon=ft.Icons.FOLDER_OUTLINED,
                             on_click=lambda e: page.run_task(_pick_folder, e))
 
         pick_row = ft.Row([pick_file_btn, pick_folder_btn, sftp_btn], spacing=8)
@@ -798,8 +737,8 @@ def _build_copy_content(
 
         pick_row    = ft.Row(
             [
-                btn_secondary("📁 Folder", on_click=_open_folder_browser),
-                btn_secondary("📄 File",   on_click=_open_file_browser),
+                btn_secondary("Folder", icon=ft.Icons.FOLDER_OUTLINED, on_click=_open_folder_browser),
+                btn_secondary("File", icon=ft.Icons.INSERT_DRIVE_FILE_OUTLINED, on_click=_open_file_browser),
                 sftp_btn,
             ],
             spacing=8,
@@ -859,6 +798,9 @@ def _build_copy_content(
         spacing=4,
         tight=True,
     )
+    # Los campos y el navegador ocupan todo el ancho de la tarjeta "Paths" (no solo el de su contenido)
+    for _col in (origen_col, flags_col, dest_browser_col):
+        _col.horizontal_alignment = ft.CrossAxisAlignment.STRETCH
 
     # ── Informe de cada operación ──────────────────────────────────────────
     # Cada copia o check guarda sus propias líneas para el informe. No se usan el buffer web (mezcla las
@@ -1033,7 +975,7 @@ def _build_copy_content(
 
     bottom_col = ft.Column(
         [
-            ft.Container(height=16),
+            ft.Container(height=24),
             section_title("METADATA"),
             ft.Container(height=6),
             profile_row,
@@ -1048,7 +990,7 @@ def _build_copy_content(
             ),
             ft.Container(height=12),
             progress_block,
-            ft.Container(height=12),
+            ft.Container(height=16),
             section_title("LOG OUTPUT"),
             ft.Container(height=8),
             log_container,
@@ -1063,16 +1005,13 @@ def _build_copy_content(
         [
             build_header(subtitle=f"Copy & Verify — {perfil_rclone}", IS_WEB=IS_WEB, no_ldap=NO_LDAP, page=page),
             ft.Container(
-                content=ft.Row(
-                    [c for c in [back_btn, tags_btn, cifs_btn, expiry_badge, ft.Container(expand=True), renew_btn] if c is not None],
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
-                margin=ft.Margin.only(bottom=4),
-            ),
-            ft.Container(
                 content=ft.Column(
                     [
+                        nav_bar("Back to servers", _back_with_sftp_cleanup if on_back else None,
+                                usuario=credenciales_ldap["usuario"]),
+                        ft.Container(height=12),
+                        server_bar,
+                        ft.Container(height=24),
                         section_title("PATHS"),
                         ft.Container(height=10),
                         card(
@@ -1090,13 +1029,14 @@ def _build_copy_content(
                                     flags_col,
                                 ],
                                 spacing=0,
+                                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                             ),
                         ),
                         bottom_col,
                     ],
                     spacing=0,
                 ),
-                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
+                padding=ft.Padding.only(left=24, right=24, top=0, bottom=8),
             ),
         ],
         spacing=0,

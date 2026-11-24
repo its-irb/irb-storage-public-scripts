@@ -83,7 +83,7 @@ def build_rclone_browser(
         spacing=8,
         visible=False,
     )
-    error_text = ft.Text("", color=C_ERROR, size=11, visible=False)
+    error_text = ErrorBanner(visible=False)
 
     # ── Crear nueva carpeta (virtual) ─────────────────────────────────────
     new_folder_tf = ft.TextField(
@@ -108,7 +108,7 @@ def build_rclone_browser(
 
     def _style_file_row(container: ft.Container, selected: bool) -> None:
         if selected:
-            container.bgcolor = f"{C_PRIMARY}22"
+            container.bgcolor = tint(C_PRIMARY, 0.13)
             container.border  = ft.Border.all(2, C_PRIMARY)
         else:
             container.bgcolor = C_SURFACE2
@@ -394,8 +394,8 @@ def build_rclone_browser(
                                 spacing=8,
                                 tight=True,
                             ),
-                            bgcolor=f"{C_WARNING}11",
-                            border=ft.Border.all(1, f"{C_WARNING}44"),
+                            bgcolor=tint(C_WARNING, 0.07),
+                            border=ft.Border.all(1, tint(C_WARNING, 0.27)),
                             border_radius=8,
                             padding=12,
                         )

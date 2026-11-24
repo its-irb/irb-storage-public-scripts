@@ -9,7 +9,10 @@ Uso:
     python main.py             # desktop
 
 Flujo de vistas:
-    view_update → view_login → view_servers ⇄ view_credentials
+    view_update → view_login ⇄ view_servers ⇄ view_credentials
+
+    view_servers vuelve al login con "← Back to login"; view_credentials vuelve a view_servers con
+    "← Back to servers" (en cualquier momento) y, si falla, deja reintentar con "Try again".
 
     view_servers tiene una tarjeta por servidor MinIO; cada servidor se monta entero (sus buckets son carpetas).
 
@@ -92,6 +95,7 @@ def main(page: ft.Page):
             page,
             usuario=state["credenciales_ldap"]["usuario"],
             on_credentials=go_credentials,
+            on_back=go_login,
             mount_on_load=mount,
         ))
 
@@ -111,6 +115,8 @@ def main(page: ft.Page):
             on_back=go_login if (NO_LDAP and automatic) else None,
             no_ldap=NO_LDAP,
             done_message="Loading servers...",
+            on_cancel=go_servers,
+            cancel_label="Back to servers",
         ))
 
 
