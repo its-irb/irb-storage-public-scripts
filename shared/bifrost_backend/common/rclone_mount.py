@@ -52,6 +52,27 @@ class MountError(Exception):
         self.issue = issue
 
 
+def obtener_letra_unidad_disponible() -> str | None:
+    """Devuelve la primera letra de unidad disponible en Windows (desde D:), o None."""
+    import string
+    if platform.system() != "Windows":
+        return None
+    try:
+        import ctypes
+        drives_mask = ctypes.windll.kernel32.GetLogicalDrives()
+        letras_en_uso = {
+            f"{l}:"
+            for i, l in enumerate(string.ascii_uppercase)
+            if drives_mask & (1 << i)
+        }
+        for letra in [f"{l}:" for l in string.ascii_uppercase[3:]]:
+            if letra not in letras_en_uso:
+                return letra
+    except Exception as e:
+        log.warning("could not list the Windows drive letters: %s", e)
+    return None
+
+
 def is_mounted(path: str | Path) -> bool:
     """True si la carpeta está montada. En Windows (WinFsp) la carpeta solo existe mientras está montada."""
     if platform.system() == "Windows":

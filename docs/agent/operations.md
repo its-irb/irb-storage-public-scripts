@@ -43,7 +43,7 @@ cd ..   # back to the app folder
 The macOS scripts pick the rclone architecture from `uname -m`
 (`arm64` on Apple Silicon, `amd64` on Intel); override with the `RCLONE_ARCH`
 env var. CI pins it explicitly: `arm64` in the ARM job and `amd64` in the
-Intel job (stopgap until Nov-2026).
+Intel job.
 
 ```bash
 # Activate
@@ -137,25 +137,31 @@ uv add <package>
   `flet build windows`), `PYTHONUTF8=1` on Windows.
 - The version is injected as `1.0.<run_number>` in `src/version.py` and in each
   app's `pyproject.toml` before the build (the template version is `2.0.0`).
-- `build-macos` job (runner `macos-latest`, Apple Silicon): DMGs from the
-  `*-arm.sh` downloaders (with `RCLONE_ARCH=arm64`) →
+- `build-macos` job (runner `macos-26`, Apple Silicon; pinned instead of
+  `macos-latest` so a new macOS image never changes the build unless we decide
+  it): DMGs from `macos-assets-downloader.sh` (mount) /
+  `macos-rclone-downloader.sh` (transfer) with `RCLONE_ARCH=arm64` →
   `bifrost-<flavour>-macos.dmg`.
-- `build-macos-intel` job (runner `macos-14`, Intel): same job with the
-  `*-intel.sh` downloaders (hardcoded `osx-amd64`) →
-  `bifrost-<flavour>-macos-intel.dmg`. **Stopgap until Nov-2026** (GitHub
-  retires `macos-14`, the last Intel hosted runner): it runs with
-  `continue-on-error: true` so its failure never blocks the release, and the
-  whole job must be removed in the follow-up after that date.
+- `build-macos-intel` job (runner `macos-15-intel`, Intel): same job with
+  `RCLONE_ARCH=amd64` → `bifrost-<flavour>-macos-intel.dmg`. Intel Macs are
+  supported; the job has no `continue-on-error`, so if it fails the release is
+  not published.
+- `build-windows` job: signed installer
+  `bifrost-<flavour>-<branch>-windows.exe` plus a `.zip` with it inside
+  (`bifrost-<flavour>-<branch>-windows.zip`), both in the artifact.
 - `release` job (only on `main` and `release`): publishes the release with tag
   `v1.0.<run_number>` and the artifacts (macOS:
   `bifrost-<flavour>-macos.dmg` (arm64) +
-  `bifrost-<flavour>-macos-intel.dmg` (Intel, stopgap); Windows: installer
+  `bifrost-<flavour>-macos-intel.dmg` (Intel); Windows: the installer
   `.exe` **signed** with `signtool`, PFX from the secrets
-  `IRBCODESIGNING`/`IRBCODESIGNING_PASSWORD`). The apps' autoupdate downloads
-  from those releases, picking the macOS suffix from the machine architecture
-  (`platform.machine()`: arm64 → `-macos.dmg`, x86_64 →
-  `-macos-intel.dmg`); Intel Macs on a pre-stopgap release need one manual
-  install of the `-macos-intel.dmg`.
+  `IRBCODESIGNING`/`IRBCODESIGNING_PASSWORD`, the build job's
+  `<branch>-windows.zip`, and `bifrost-<flavour>-windows.zip`, made by the
+  release job, which users download and the Windows autoupdate uses; the three
+  Windows files are intentional). The apps' autoupdate downloads from those
+  releases, picking the suffix per platform (`platform.machine()` on macOS:
+  arm64 → `-macos.dmg`, x86_64 → `-macos-intel.dmg`; Windows:
+  `-windows.zip`); Intel Macs on a release older than the Intel builds need one
+  manual install of the `-macos-intel.dmg`.
 
 ## Tests
 

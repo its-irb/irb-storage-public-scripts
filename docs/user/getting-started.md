@@ -42,43 +42,51 @@ asks if you want to update, and downloads it if you accept.
 
 1. Open the app.
 2. Type your **IRB username and password**.
-3. Choose the **MinIO server** that belongs to your research group.
-4. Wait a moment: the app gets a temporary access pass for MinIO by itself. It
-   lasts 7 days. Each time you sign in, if it has 3 days or less left (or you
-   do not have one yet), the app renews it for 7 days by itself, showing a
-   progress bar. You never have to type any keys.
-5. You arrive at the main screen of the app:
-   - **Bifrost transfer** → the copy screen
-     (see [transfer-data.md](transfer-data.md)).
-   - **Bifrost mount** → the mount screen
-     (see [mount-buckets.md](mount-buckets.md)).
+3. What comes next depends on the app:
+   - **Bifrost transfer**: choose the **MinIO server** that belongs to your
+     research group. Wait a moment: the app gets a temporary access pass for
+     MinIO by itself. It lasts 7 days. Each time you sign in, if it has 3 days
+     or less left (or you do not have one yet), the app renews it for 7 days by
+     itself, showing a progress bar. Then you arrive at the copy screen (see
+     [transfer-data.md](transfer-data.md)).
+   - **Bifrost mount**: you arrive at the list of MinIO servers, with one card
+     per server (see [mount-buckets.md](mount-buckets.md)). You do not choose a
+     server here. Each server has its own access pass: the app gets it, or
+     renews it for 7 days if it has 3 days or less left, by itself when you
+     mount that server, showing a progress bar.
+
+   You never have to type any keys.
 
 ## Expected result
 
-After signing in you see the copy screen (Bifrost transfer) or the mount screen
-(Bifrost mount).
+After signing in you see the copy screen (Bifrost transfer) or the list of
+MinIO servers (Bifrost mount).
 
 ## Renew your MinIO access pass by hand
 
-The app only renews the access pass by itself when you sign in. If you keep
-the app open for several days, or you are about to start a long copy, renew it
-by hand so it does not run out in the middle.
+Bifrost transfer only renews the access pass by itself when you sign in, and
+Bifrost mount only when you mount a server. If you keep the app open for
+several days, or you are about to start a long copy, renew it by hand so it
+does not run out in the middle.
 
-At the top of the mount screen and of the copy screen there is a label that
-shows how long your access pass lasts, for example
-**🔑 Credentials expire in 6d 23h** (6 days and 23 hours). It turns red when
-less than 1 day is left and orange when 3 days or less are left.
+A label shows how long your access pass lasts, for example
+**🔑 Credentials expire in 6d 23h** (6 days and 23 hours). In Bifrost transfer
+it is at the top of the copy screen; in Bifrost mount there is one on each
+server's card, because each server has its own pass. It turns red when less
+than 1 day is left and orange when 3 days or less are left.
 
-1. Click **🔑 Renew credentials** (in the same row as that label, at the right
-   end).
+1. Click **🔑 Renew credentials**: in Bifrost transfer, in the same row as that
+   label, at the right end; in Bifrost mount, on the card of the server.
 2. A small window opens. Next to **Renew for:**, type how many days you want
    (from 1 to 30; it shows 7 by default).
 3. Click **🔄 Renew**. To close the window without renewing, click
    **Cancel**.
 4. A screen shows the progress of the renewal. When it finishes, you go back to
-   the screen where you were.
+   the screen where you were (in Bifrost mount, the list of servers; renewing
+   does not mount the server).
 
-**Expected result**: the label at the top shows the new time left.
+**Expected result**: the label (at the top of the copy screen, or on the
+server's card) shows the new time left.
 
 **If something goes wrong**:
 
