@@ -11,9 +11,9 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from config import APP_INFO
 
 from .constants import EMOJI_FONT_FILENAME, REPO, __version__
+from .rclone import app_assets_dir
 
 log = logging.getLogger("bifrost.update")
 
@@ -150,15 +150,10 @@ def get_emoji_font_asset_path() -> str | None:
     if flet_assets and (Path(flet_assets) / font_rel).exists():
         return font_rel
 
-    # 2. Dev sin flet run: assets del repo (solo si el paquete se importa
-    # desde el repo, no desde site-packages).
-    pkg_root = Path(__file__).parent.parent.parent
-    if pkg_root.name == "shared":
-        repo_font = (
-            pkg_root.parent
-            / f"bifrost-{APP_INFO['flavour']}" / "src" / "assets" / font_rel
-        )
-        if repo_font.exists():
-            return font_rel
+    # 2. Dev sin flet run (python src/main.py): los assets de la app, junto a su config.py; funciona
+    # también con bifrost-shared instalado en site-packages.
+    assets = app_assets_dir()
+    if assets is not None and (assets / font_rel).exists():
+        return font_rel
 
     return None
