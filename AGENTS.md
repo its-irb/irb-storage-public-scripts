@@ -29,7 +29,7 @@ English). Documentation methodology: `docs/documentation-methodology.md`.
 - Profiles and lab acronyms are defined only in `bifrost-transfer/src/meta_fields.py`.
 - In `bifrost-transfer`, `IS_WEB` is computed only in `src/main.py`; a module that
   reads it declares `IS_WEB = False` and must be added to `_propagar_is_web()`.
-- There is no automated test suite: validate by running the app (`flet run`).
+- Automated tests (pytest) cover pure logic only (`tests/`, `bifrost-transfer/tests/`); validate UI changes by running the app (`flet run`).
 - Never commit `.venv/`, `dist/`, `build/`, generated `src/version.py` or local `pyproject.toml` files.
 
 ## Keeping the documentation up to date

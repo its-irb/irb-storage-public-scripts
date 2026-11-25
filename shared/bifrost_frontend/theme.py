@@ -30,6 +30,14 @@ _SYSTEM_FALLBACK_FONTS = ["sans-serif"]
 MONO_FALLBACK = ["monospace", EMOJI_FONT_FAMILY]
 REGULAR_FALLBACK = ["sans-serif", EMOJI_FONT_FAMILY]
 
+def tint(color: str, opacity: float) -> str:
+    """`color` translúcido (fondos y bordes suaves de chips, avisos y tarjetas).
+
+    No vale `f"{color}22"`: Flet lee "#RRGGBBAA" como "#AARRGGBB" y sale otro color (el ámbar se ve rojo).
+    """
+    return ft.Colors.with_opacity(opacity, color)
+
+
 def apply_theme(page: ft.Page) -> None:
     page.title             = APP_INFO["name"]
     page.bgcolor           = C_BG

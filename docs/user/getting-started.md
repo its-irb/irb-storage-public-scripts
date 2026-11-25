@@ -59,8 +59,15 @@ asks if you want to update, and downloads it if you accept.
 
 ## Expected result
 
-After signing in you see the copy screen (Bifrost transfer) or the list of
-MinIO servers (Bifrost mount).
+After signing in you see the list of MinIO servers (Bifrost transfer, to choose
+one, and then the copy screen; Bifrost mount, one card per server).
+
+At the top of every screen:
+
+- on the right, **Signed in as** and your username;
+- on the left, a button to go back to the previous screen. On the list of
+  servers it is **Back to login**, which takes you back to the sign-in screen.
+  In Bifrost mount, the servers you mounted stay mounted.
 
 ## Renew your MinIO access pass by hand
 
@@ -69,21 +76,25 @@ Bifrost mount only when you mount a server. If you keep the app open for
 several days, or you are about to start a long copy, renew it by hand so it
 does not run out in the middle.
 
-A label shows how long your access pass lasts, for example
-**🔑 Credentials expire in 6d 23h** (6 days and 23 hours). In Bifrost transfer
-it is at the top of the copy screen; in Bifrost mount there is one on each
-server's card, because each server has its own pass. It turns red when less
+A label with a key shows how long your access pass lasts, for example
+**Credentials expire in 6d 23h** (6 days and 23 hours). In Bifrost transfer
+it is on the card of the server, at the top of the copy screen; in Bifrost
+mount there is one on each server's card, because each server has its own
+pass. It turns red when less
 than 1 day is left and orange when 3 days or less are left.
 
-1. Click **🔑 Renew credentials**: in Bifrost transfer, in the same row as that
-   label, at the right end; in Bifrost mount, on the card of the server.
+1. Click **Renew credentials**: in Bifrost transfer, on the card of the server
+   at the top of the copy screen, at the right end; in Bifrost mount, on the
+   card of the server.
 2. A small window opens. Next to **Renew for:**, type how many days you want
    (from 1 to 30; it shows 7 by default).
-3. Click **🔄 Renew**. To close the window without renewing, click
-   **Cancel**.
+3. Click **Renew** (or press Enter). To close the window without renewing,
+   click **Cancel**.
 4. A screen shows the progress of the renewal. When it finishes, you go back to
    the screen where you were (in Bifrost mount, the list of servers; renewing
-   does not mount the server).
+   does not mount the server). You do not have to wait: **Back to copy**
+   (Bifrost transfer) or **Back to servers** (Bifrost mount), at the top left,
+   takes you back at any moment.
 
 **Expected result**: the label (at the top of the copy screen, or on the
 server's card) shows the new time left.
@@ -91,10 +102,18 @@ server's card) shows the new time left.
 **If something goes wrong**:
 
 - **Enter a value between 1 and 30 days.** or **Invalid number.**: type a whole
-  number from 1 to 30 and click **🔄 Renew** again.
-- If the renewal screen shows **❌ Connection error.** or **❌ Renewal failed.**,
-  check that the Nexica VPN is on, close and open the app, sign in again and
-  repeat. If it keeps failing, see [troubleshooting.md](troubleshooting.md).
+  number from 1 to 30 and click **Renew** again.
+- If the renewal fails (for example **Cannot connect to MinIO — Connection
+  problem**), the renewal screen says what happened and, in the **What you can
+  do** box, what to do (usually: check that the Nexica VPN is on). Then click
+  **Try again**. You can also go back with **Back to copy** or **Back to
+  servers**: you do not need to close the app. This also applies when the app
+  renews the pass by itself (when you choose a server in Bifrost transfer, or
+  mount one in Bifrost mount).
+- If it says **Wrong username or password**, click **Back to login** and sign in
+  again.
+- If it keeps failing, send ITS the **error code** shown on that screen (the
+  button next to it copies it); see [troubleshooting.md](troubleshooting.md).
 
 ## If something goes wrong
 

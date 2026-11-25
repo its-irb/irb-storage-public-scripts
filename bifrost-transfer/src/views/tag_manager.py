@@ -43,6 +43,7 @@ def _build_tag_manager_content(
     perfil_rclone: str,
     endpoint: str,
     on_back: Callable,
+    usuario: str | None = None,
 ) -> ft.Control:
     # ── State ────────────────────────────────────────────────────────────
     s3  = {"client": None}
@@ -70,13 +71,13 @@ def _build_tag_manager_content(
     )
     log_section = ft.Container(
         content=ft.Column([
-            ft.Text("LOGS", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600),
+            section_title("LOGS"),
             ft.Container(height=6),
             ft.Container(
                 content=log_list,
                 bgcolor=C_BG,
                 border=ft.Border.all(1, C_BORDER),
-                border_radius=6,
+                border_radius=8,
                 height=180,
             ),
         ], spacing=0),
@@ -133,7 +134,7 @@ def _build_tag_manager_content(
         ],
         spacing=8, visible=False,
     )
-    browser_error = ft.Text("", color=C_ERROR, size=11, visible=False)
+    browser_error = ErrorBanner(visible=False)
 
     tm_filter_state = {"acronym": None}
     tm_bucket_cache: dict = {"list": None, "tags": None}
@@ -252,7 +253,7 @@ def _build_tag_manager_content(
                         tag_btn,
                         arrow,
                     ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    bgcolor=f"{C_ACCENT}18" if is_sel else C_SURFACE,
+                    bgcolor=tint(C_ACCENT, 0.09) if is_sel else C_SURFACE,
                     border=ft.Border.all(
                         2 if is_sel else 1,
                         C_ACCENT if is_sel else C_BORDER,
@@ -302,7 +303,7 @@ def _build_tag_manager_content(
                             ),
                             ft.Text(name, size=12, color=C_TEXT, expand=True),
                         ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                        bgcolor=f"{C_ACCENT}18" if is_sel else C_SURFACE,
+                        bgcolor=tint(C_ACCENT, 0.09) if is_sel else C_SURFACE,
                         border=ft.Border.all(
                             2 if is_sel else 1,
                             C_ACCENT if is_sel else C_BORDER,
@@ -502,7 +503,7 @@ def _build_tag_manager_content(
     card_container = ft.Container()
     target_label    = ft.Text("Select a folder or a file", size=12, color=C_TEXT_DIM, italic=True)
     obj_count_label = ft.Text("", size=11, color=C_TEXT_DIM)
-    apply_btn       = btn_primary("Apply tags →")
+    apply_btn       = btn_primary("Apply tags", icon=ft.Icons.LABEL_OUTLINE)
     apply_btn.disabled = True
     apply_status    = ft.Text("", size=12, color=C_TEXT_DIM, visible=False)
 
@@ -876,7 +877,7 @@ def _build_tag_manager_content(
     view_raw_btn = btn_secondary("Show raw tags", on_click=_on_show_raw)
     view_raw_btn.visible = False
 
-    add_tag_btn = btn_secondary("+ Add tag", on_click=_on_add_tag_row)
+    add_tag_btn = btn_secondary("Add tag", icon=ft.Icons.ADD, on_click=_on_add_tag_row)
 
     prefill_profile_dd = ft.Dropdown(
         options=[ft.dropdown.Option(p) for p in profile_names],
@@ -892,7 +893,7 @@ def _build_tag_manager_content(
     )
     prefill_profile_dd.on_change = lambda e: active_profile.update({"name": e.control.value})
     prefill_btn   = btn_secondary("Pre-fill", on_click=_on_prefill_from_profile)
-    file_save_btn = btn_primary("Save tags")
+    file_save_btn = btn_primary("Save tags", icon=ft.Icons.SAVE_OUTLINED)
     file_save_btn.on_click = _on_save_file_tags
 
     _file_editor_section = ft.Container(
@@ -900,7 +901,7 @@ def _build_tag_manager_content(
         expand=True,
         content=ft.Column(
             [
-                ft.Text("FILE TAGS EDITOR", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600),
+                section_title("FILE TAGS EDITOR"),
                 ft.Container(height=8),
                 ft.Row(
                     [ft.Column([_file_name_label, _file_uploaded_label], spacing=2, tight=True), view_raw_btn],
@@ -940,7 +941,7 @@ def _build_tag_manager_content(
         expand=True,
         content=ft.Column(
             [
-                ft.Text("APPLY TAGS TO ALL FILES IN FOLDER", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600),
+                section_title("APPLY TAGS TO ALL FILES IN FOLDER"),
                 ft.Container(height=8),
                 # El seleccionador de Perfil se encuentra FUERA del cuadro de metadatos
                 ft.Row(
@@ -989,17 +990,13 @@ def _build_tag_manager_content(
     )
 
     # ── Layout ────────────────────────────────────────────────────────────
-    back_btn = btn_secondary("← Back", on_click=lambda e: on_back())
 
     content = ft.Column(
         [
             build_header(subtitle=f"Tag Manager — {perfil_rclone}", IS_WEB=IS_WEB, no_ldap=NO_LDAP, page=page),
             ft.Container(
-                content=ft.Row(
-                    [back_btn, ft.Container(expand=True)],
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                padding=ft.Padding.symmetric(horizontal=24, vertical=8),
+                content=nav_bar("Back to copy", on_back, usuario=usuario),
+                padding=ft.Padding.only(left=24, right=24, top=0, bottom=8),
             ),
             ft.Container(
                 content=ft.Row(
@@ -1008,7 +1005,7 @@ def _build_tag_manager_content(
                         ft.Container(
                             content=ft.Column(
                                 [
-                                    ft.Text("BROWSE", size=10, color=C_TEXT_DIM, weight=ft.FontWeight.W_600),
+                                    section_title("BROWSE"),
                                     ft.Container(height=8),
                                     breadcrumb_row,
                                     ft.Container(height=6),
@@ -1023,7 +1020,7 @@ def _build_tag_manager_content(
                                         ),
                                         bgcolor=C_SURFACE,
                                         border=ft.Border.all(1, C_BORDER),
-                                        border_radius=6,
+                                        border_radius=8,
                                         height=400,
                                         padding=ft.Padding.all(8),
                                     ),

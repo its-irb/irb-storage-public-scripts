@@ -10,10 +10,12 @@ comprobar a mano lo que los tests no pueden cubrir.
 
 ## Estado actual
 
-- Hay **tests automáticos (pytest) solo para el autoupdate**
-  (`shared/bifrost_backend/common/updates.py`), para el análisis de la lista de procesos
-  `rclone mount` (`shared/bifrost_backend/mount/processes.py`) y para el comando con el que se
-  monta un servidor (`shared/bifrost_backend/mount/s3_mount.py`).
+- Hay **tests automáticos (pytest) solo de lógica pura**: el autoupdate
+  (`shared/bifrost_backend/common/updates.py`), el análisis de la lista de procesos
+  `rclone mount` (`shared/bifrost_backend/mount/processes.py`), el comando con el que se
+  monta un servidor (`shared/bifrost_backend/mount/s3_mount.py`), dónde se busca rclone
+  (`shared/bifrost_backend/common/rclone.py`) y, aparte, en `bifrost-transfer/tests/`, los
+  perfiles y la validación de metadatos (`bifrost-transfer/src/meta_fields.py`).
 - El resto del proyecto se valida **a mano**, ejecutando las apps (ver la política de
   validación en [build-and-ci.md](build-and-ci.md#política-de-validación)).
 - Todavía **no** hay ruff, mypy ni tests en la CI: `pytest`, `ruff` y `mypy` no figuran
@@ -33,6 +35,11 @@ tests/
       test_update_flow.py          # check de versión y descarga, con requests.get sustituido
       test_processes.py            # reconocer los `rclone mount` en la salida de ps / PowerShell
       test_s3_mount.py             # el comando de montaje: servidor entero, solo lectura y opciones
+      test_rclone.py               # dónde se busca rclone: FLET_ASSETS_DIR, assets de la app, PATH
+
+bifrost-transfer/tests/            # aparte: necesita el venv de transfer (importa flet y bifrost_frontend)
+  conftest.py                      # añade bifrost-transfer/src al path
+  test_meta_fields.py              # perfiles, provider, campos obligatorios, validación de tags, detect_profile
 ```
 
 Decisiones tomadas hasta ahora (provisionales, se pueden cambiar cuando se defina una
@@ -57,6 +64,16 @@ uv run --no-project --python 3.12 --with pytest --with requests python -m pytest
 ```
 
 Añade `-v` para ver cada test, o la ruta de un fichero para ejecutar solo ese.
+
+Los de `bifrost-transfer/tests/` no entran en ese comando (`pytest.ini` solo mira `tests/`) y
+necesitan el venv de transfer, porque `meta_fields.py` importa `flet` y `bifrost_frontend`. Desde
+`bifrost-transfer/` (si ha cambiado `shared/`, reinstala antes `bifrost-shared`: `meta_fields.py`
+importa componentes nuevos de `bifrost_frontend`):
+
+```bash
+uv sync --reinstall-package bifrost-shared
+uv run --no-sync --with pytest python -m pytest tests -v
+```
 
 ### Qué comprueban realmente
 
@@ -94,6 +111,14 @@ significa "pasa" en cada grupo:
   solo fuera de Windows, y las opciones de caché que se pasan al arrancar la app van al final
   (rclone se queda con el último valor). No lanza rclone: no comprueba que rclone las acepte ni
   que el montaje vaya más rápido.
+- **Dónde se busca rclone** (`test_rclone.py`): `app_assets_dir()` devuelve el `assets/` junto
+  al `config.py` de la app (y None con el `config` de pruebas, que no tiene fichero);
+  `get_rclone_executable()` encuentra el rclone de la app sin `FLET_ASSETS_DIR`, da prioridad a
+  `FLET_ASSETS_DIR` y falla con `EnvironmentError` si no hay rclone en ningún sitio. Usa una app
+  falsa en una carpeta temporal: no comprueba que exista el rclone real ni que funcione.
+- **Metadatos** (`bifrost-transfer/tests/test_meta_fields.py`): campos de cada perfil con
+  `provider` primero, `apply_provider`, campos obligatorios, límites y caracteres de los tags
+  (`check_tag_value`, `validate_profile_tagset`) y `detect_profile`.
 
 ### Qué no cubren
 

@@ -31,7 +31,9 @@ Use something else if:
 
 1. The Nexica VPN is on and you have signed in (see
    [getting-started.md](getting-started.md)).
-2. You are on the **copy** screen, after choosing your MinIO server.
+2. You are on the **copy** screen, after choosing your MinIO server. The card
+   at the top shows which server it is. To change it, click **Back to servers**
+   at the top left and choose another one.
 3. You know three things:
    - the **source**: where the data is now (a folder on your computer, the Z
      drive, or an SFTP server);
@@ -49,7 +51,7 @@ You can pick a **folder** or a **single file**.
 |---|---|
 | A folder on your computer | Type or browse to its path. |
 | The Z drive (folder shared with your lab) | Use Bifrost transfer on the cluster (see [web-mode-ood.md](web-mode-ood.md)). |
-| An SFTP server | Click **🌐 SFTP** and fill in the connection window. **Host** and **Username** are required; **Password** is optional (some accounts have none); **Port** is 22 unless you change it. |
+| An SFTP server | Click **SFTP** and fill in the connection window. **Host** and **Username** are required; **Password** is optional (some accounts have none); **Port** is 22 unless you change it. |
 
 > The SFTP connection is temporary. The app removes it when you click
 > **Disconnect (✕)**, when you leave the copy screen and each time you sign in
@@ -101,10 +103,10 @@ click copy again.
 1. Choose the **source**.
 2. Choose the **destination** folder in MinIO.
 3. Choose the **profile** and fill in the fields.
-4. Click **▶ Copy data**. The log panel shows the progress: first BIFROST
+4. Click **Copy data**. The log panel shows the progress: first BIFROST
    compares your files with what is already in MinIO, then it copies the ones
    that are missing.
-5. When it finishes, click **✓ Check data** to confirm that the original and
+5. When it finishes, click **Check data** to confirm that the original and
    the copy are identical.
 
 To stop a copy, click **Cancel**. Files already copied stay in MinIO. If you
@@ -127,7 +129,7 @@ skipped.
 
 | You see | What it means | What to do |
 |---|---|---|
-| ✅ **Copy finished: N file(s) copied to MinIO (size) in (time)** | Everything was copied. The line below says how many files were already in MinIO, if any. | Run **✓ Check data** to confirm it. |
+| ✅ **Copy finished: N file(s) copied to MinIO (size) in (time)** | Everything was copied. The line below says how many files were already in MinIO, if any. | Run **Check data** to confirm it. |
 | ✅ **Nothing new to copy** | All the files were already in MinIO. | Nothing. |
 | ⚠️ **Files already in MinIO were not copied again, so their tags were NOT updated** | Those files were not copied again, so **their labels were not updated**: if they had other labels, they still have them. | If you wanted new labels on them, use [Tag Manager](tag-manager.md). |
 | ⚠️ **N file(s) replaced a different file with the same name** | A file in MinIO had the same name but different content. It was replaced, and its labels are now the ones you filled in. | If that was not intended, contact ITS. |
@@ -166,7 +168,7 @@ where: **📄 Report saved: …**
 | Linux | `~/.local/state/bifrost/transfer/reports/` |
 | Cluster (Open OnDemand) | In the folder of your session, see [web-mode-ood.md](web-mode-ood.md#logs-and-reports). |
 
-BIFROST keeps the last 30 reports of each type. **↓ Save log** saves what you
+BIFROST keeps the last 30 reports of each type. **Save log** saves what you
 see in the log panel to a file: on your computer you choose where; on the
 cluster it goes to the same reports folder.
 
@@ -188,4 +190,4 @@ cluster it goes to the same reports folder.
 | You need the full log of a copy or check | Open its report, see [Where the full report is saved](#where-the-full-report-is-saved). |
 | The summary shows an **error code** (for example `CPY103-1103-141526`) | Follow its "What you can do" line. If it keeps happening, click **Export logs…** and send the file to ITS with the code (see [Error codes](troubleshooting.md#error-codes)). |
 | A window says **Option not allowed** | Some options in **Additional rclone flags (advanced)** cannot be used. Remove them, or put back the default values. |
-| The label at the top is red or orange (**🔑 Credentials expire in …**), or you are about to start a long copy | Your MinIO access pass is about to run out. Click **🔑 Renew credentials** before copying (see [getting-started.md](getting-started.md#renew-your-minio-access-pass-by-hand)). |
+| The label on the server card at the top is red or orange (**Credentials expire in …**), or you are about to start a long copy | Your MinIO access pass is about to run out. Click **Renew credentials**, on that card, before copying (see [getting-started.md](getting-started.md#renew-your-minio-access-pass-by-hand)). |

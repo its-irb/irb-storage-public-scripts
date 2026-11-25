@@ -23,7 +23,7 @@ Read only the module you need for the task. Index:
   many comments and docstrings are in Spanish; UI strings in the apps are mostly
   English (for example "Source path", "Connect"). The WinFsp flow of
   `bifrost-mount` is in English.
-- **There is no automated test suite**: validation is manual with `flet run`.
+- **Automated tests cover pure logic only** (`tests/` and `bifrost-transfer/tests/`, pytest, not in CI): the UI is validated manually with `flet run`.
 - `docs/agent/` should be enough for routine work; consult `docs/development/`
   only to go deeper when updating that layer.
 - **Entry point for any agent**: `AGENTS.md` at the repo root points here.

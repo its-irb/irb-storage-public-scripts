@@ -152,11 +152,21 @@ BIFROST_CLUSTER=1 python src/main.py --web   # (solo transfer) simular OOD
   `bifrost-transfer/`: sirve la app en el puerto 8000 (cámbialo con
   `FLET_SERVER_PORT`) y hay que abrir `http://localhost:8000` a mano. Flet
   instala `flet-web` automáticamente si falta (las dependencias de la app solo
-  lo incluyen en Linux):
+  lo incluyen en Linux), pero instala la última FastAPI, que ya no acepta el
+  `openapi_prefix` que le pasa `flet-web` 0.84, y el arranque falla con
+  `TypeError: FastAPI.__init__() got an unexpected keyword argument
+  'openapi_prefix'`. Antes hay que instalar las versiones fijadas (las que usa
+  `uv.lock` en el clúster), con el venv **de transfer** activado (no el de
+  mount: Flet instalaría los paquetes en el venv equivocado):
 
 ```bash
+uv pip install --python .venv/bin/python "flet-web==0.84.0" "fastapi==0.143.0"
 FLET_FORCE_WEB_SERVER=true python src/main.py --web
 ```
+
+  Un `uv sync` posterior (también `uv sync --reinstall-package bifrost-shared`)
+  quita esos dos paquetes, porque en las dependencias de la app son solo de
+  Linux: hay que volver a instalarlos antes de la siguiente prueba.
 
 ### Trabajar con código compartido
 

@@ -14,6 +14,10 @@ Uso:
 Flujo de vistas (Mac / Windows / Web):
     view_update → view_login → view_minio → view_credentials (auto) → view_copy
 
+    Cada pantalla vuelve a la anterior con el botón de arriba a la izquierda: view_minio → login,
+    view_credentials → view_minio (o a view_copy si se renovó a mano), view_copy → view_minio,
+    Tag Manager y NetApp → view_copy. Si la renovación falla, "Try again" la repite.
+
 Flujo de vistas (Linux cluster):
     view_update → view_login → view_shares → view_minio
     → view_credentials → view_copy
@@ -22,7 +26,7 @@ Notas sobre credenciales STS:
   - Si quedan MÁS de 3 días → se salta la renovación y va directo a view_copy
   - Si quedan MENOS de 3 días (o no hay credenciales) → renueva automáticamente
     por 7 días, mostrando el progreso en un log en pantalla
-  - No hay botones manuales de renovación en el flujo Mac/Windows/Web
+  - "Renew credentials" en view_copy renueva a mano (1-30 días) y vuelve a view_copy
 
 Fixes aplicados respecto al piloto inicial:
   - Thread-safety: toda modificación de UI desde hilos usa backend.ui_call(page, fn)
@@ -221,10 +225,14 @@ def main(page: ft.Page):
             )
         )
 
-    def go_login():
+    def go_login(resume: bool = True):
+        """Pantalla de login. En web, con `resume` y una sesión guardada del último usuario, rellena el usuario y al
+        entrar la restaura (va directa a la copia, saltándose la elección de servidor): es lo que pasa al reabrir la
+        pestaña. Con `resume=False` ("Back to login" de la elección de servidor) es un login normal; la sesión no se
+        borra, así que una copia en marcha sigue enlazada."""
         # If a previous session exists for the last known user, pre-fill the
         # username and use a special on_success that skips update/shares/minio.
-        if IS_WEB:
+        if IS_WEB and resume:
             last_user = _LAST_WEB_USER[0]
             session   = _ws_load(last_user) if last_user else None
             if session:
@@ -237,8 +245,18 @@ def main(page: ft.Page):
                     is_web=IS_WEB,
                 ))
                 return
-        show_screen(build_login_content(page, on_success=on_login_success,
+        show_screen(build_login_content(page, on_success=_on_login_fresh,
                                         no_ldap=NO_LDAP, is_web=IS_WEB))
+
+    def _on_login_fresh(creds: dict) -> None:
+        """Login normal. En web, si entra otro usuario, se descarta la sesión guardada del anterior (como al
+        restaurar); si es el mismo, se conserva (la copia en marcha y su log siguen en ella)."""
+        last_user = _LAST_WEB_USER[0]
+        if IS_WEB and last_user and creds["usuario"] != last_user:
+            log.info("web session: user changed from %s to %s, previous session discarded", last_user,
+                     creds["usuario"])
+            _ws_clear(last_user)
+        on_login_success(creds)
 
     def _sweep_sftp_huerfanos() -> None:
         """Borra los perfiles SFTP efímeros que quedaron de sesiones anteriores (al iniciar sesión)."""
@@ -281,7 +299,9 @@ def main(page: ft.Page):
 
     def go_minio():
         show_screen(build_minio_content(page, on_continue=on_minio_selected,
-                                        no_ldap=NO_LDAP, is_web=IS_WEB))
+                                        no_ldap=NO_LDAP, is_web=IS_WEB,
+                                        on_back=lambda: go_login(resume=False),
+                                        usuario=state["credenciales_ldap"]["usuario"]))
 
     def on_minio_selected(eleccion: dict):
         log.info("server selected: %s (%s)", eleccion["servidor"], eleccion["endpoint"])
@@ -312,6 +332,8 @@ def main(page: ft.Page):
                 no_ldap=NO_LDAP,
                 is_web=IS_WEB,
                 done_message="Continuing to copy interface...",
+                on_cancel=go_minio,
+                cancel_label="Back to servers",
             ))
         else:
             go_copy()
@@ -323,6 +345,7 @@ def main(page: ft.Page):
             perfil_rclone=state["perfil_rclone"],
             endpoint=state["endpoint"],
             on_back=go_copy,
+            usuario=state["credenciales_ldap"]["usuario"],
         ))
 
     def _load_and_show_shares(skip_groups: bool = False) -> None:

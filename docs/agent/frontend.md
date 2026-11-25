@@ -19,7 +19,7 @@
 
 | App | Modules in `src/` besides `main.py` |
 |---|---|
-| `bifrost-mount` | `views/servers.py` (`build_servers_content`: one card per MinIO server; mounts, opens or unmounts it in a thread and reads its state from the backend, `active_mount_point`, instead of keeping it), `views/server_card.py` (`ServerCard`: name, endpoint, credentials expiry, mount point, Mount/Open, Unmount, Renew credentials; double-click = Mount; never calls the backend), `views/renew_dialog.py` (`show_renew_dialog`, 1–30 days), `views/winfsp_dialog.py` (`prompt_install_winfsp`). |
+| `bifrost-mount` | `views/servers.py` (`build_servers_content`: one card per MinIO server; mounts, opens or unmounts it in a thread and reads its state from the backend, `active_mount_point`, instead of keeping it), `views/server_card.py` (`ServerCard`: name, endpoint, credentials expiry, mount point, Mount/Open, Unmount, Renew credentials; double-click = Mount; never calls the backend), `views/winfsp_dialog.py` (`prompt_install_winfsp`). The Renew dialog is shared (`show_renew_dialog`, see below). |
 | `bifrost-transfer` | `web_session.py`, `meta_fields.py`, `views/shares.py` (`_build_shares_content`), `views/rclone_browser.py` (`build_rclone_browser` folder navigator), `views/local_fs.py` (`build_local_fs_browser`, `show_local_fs_modal`), `views/copy.py` (`_build_copy_content`), `views/tag_manager.py` (`_build_tag_manager_content`). |
 
 `build_rclone_browser` only exists in transfer (folder navigator).
@@ -27,16 +27,30 @@
 ## `shared/bifrost_frontend`
 
 `frontend.py` is a facade: it re-exports `theme.py` (palette `C_*`, fonts,
-`apply_theme`), `components.py` (`btn_primary`, `btn_secondary`, `card`,
-`section_title`, `field_label`, `styled_field`, `status_badge`, `show_dialog`,
-`show_confirm`, `build_header`) and the shared views:
+`apply_theme`, `tint`), `components.py` and the shared views. Components:
+
+| Component | What it is |
+|---|---|
+| `btn_primary(text, on_click=None, width=None, disabled=False, icon=None)`, `btn_secondary(text, on_click=None, width=None, icon=None)` | Buttons; `icon` is a Material icon (`ft.Icons.*`). |
+| `btn_nav(text, on_click=None, icon=ft.Icons.ARROW_BACK)` | Discreet navigation button ("Back to login"). |
+| `nav_bar(back_text=None, on_back=None, *, usuario=None)` | Top row of a screen: back button on the left (only with `on_back`), "Signed in as <usuario>" on the right. |
+| `icon_tile(icon, color, size=44)` | Icon on a rounded square tinted with its colour (card and dialog headers). |
+| `expiry_label(session) -> (text, color)`, `expiry_chip(session)` | Credentials expiry text/colour (red under 1 day, amber up to 3) and its chip with a key icon. |
+| `card`, `section_title`, `field_label`, `styled_field`, `status_badge`, `build_header`, `log_text` | As before. |
+| `open_dialog(page, *, title, color, icon, body, actions, subtitle="")` | Modal with the common look: icon tile, title, optional subtitle, body, buttons on the right. |
+| `show_dialog`, `show_issue`, `show_confirm` | Notices, program errors and Yes/No (see "UI conventions"). |
+| `tip_box(text)`, `error_code_row(page, ref)` | "What you can do" box and the error code row with a copy button. |
+| `ErrorBanner(value="", visible=…)` | Error inside a screen or dialog (red box with icon). Drop-in for the red `ft.Text` it replaced: change `value` and `visible`; a leading "⚠️"/"❌" is stripped. |
+
+Shared views:
 
 | View | Signature | Notes |
 |---|---|---|
 | `views/update.py` | `build_update_content(page, on_continue)` | First screen; checks GitHub releases and installs updates. |
 | `views/login.py` | `build_login_content(page, on_success, prefill_user="", *, no_ldap, is_web=False)` | Locks button and fields while validating (`_set_busy`), so Enter/click cannot start a second LDAP check. Message per `validar_credenciales_ldap` reason (`_LDAP_ERROR_MESSAGES`); "Username is required." / "Password is required." for empty fields; the password is not stripped. Writes `LOGIN attempt/bypass LDAP/success — user: <user>` and `LOGIN failed — user: <user> — reason: <reason>` to the technical log (logger `bifrost.login`), the same in both apps. `prefill_user` shows the "Resuming previous session" banner (transfer web). |
-| `views/minio.py` | `build_minio_content(page, on_continue, *, no_ldap, is_web=False)` | MinIO server selection. |
-| `views/credentials.py` | `build_credentials_content(page, perfil_rclone, endpoint, credenciales_ldap, on_continue, extra_config=None, duracion_dias=None, on_back=None, *, no_ldap, is_web=False, done_message)` | STS renewal with on-screen log; the technical log (logger `bifrost.auth`) gets one line per step (`credentials: renewing …`, `credentials: renewed …`, request failures), not the on-screen text; `done_message` is the last line ("Loading servers…" / "Continuing to copy interface…"). |
+| `views/minio.py` | `build_minio_content(page, on_continue, *, no_ldap, is_web=False, on_back=None, usuario=None)` | MinIO server selection (transfer): one card per server with its credentials expiry; click selects, double-click or "Continue" goes on. `on_back` → login; `usuario` is shown top right. |
+| `views/credentials.py` | `build_credentials_content(page, perfil_rclone, endpoint, credenciales_ldap, on_continue, extra_config=None, duracion_dias=None, on_back=None, *, no_ldap, is_web=False, done_message, on_cancel=None, cancel_label="Back")` | STS renewal: a state card (renewing / error / renewed) and the on-screen log. On failure it shows what to do (`tip_box`), the code (`error_code_row`) and "Try again", except for a wrong password without LDAP (`on_back` set: "Back to login" instead, retrying would repeat the same password). An unexpected exception in the renewal also ends in the error state (never stuck). With `on_cancel`, a `nav_bar` button (`cancel_label`) leaves at any time; after that the thread neither touches the screen nor navigates. The technical log (logger `bifrost.auth`) gets one line per step (`credentials: renewing …`, `credentials: renewed …`, `credentials: retrying …`, request failures), not the on-screen text; `done_message` is the last line ("Loading servers…" / "Continuing to copy interface…"). |
+| `views/renew_dialog.py` | `show_renew_dialog(page, *, perfil, usuario, on_renew)` | "Renew MinIO credentials" dialog (1–30 days, default 7; Enter confirms); calls `on_renew(days)`. Used by mount's server cards and transfer's copy view. |
 
 Differences between the apps are parameters; do not copy these views back into
 an app.
@@ -61,17 +75,21 @@ mode transfer also builds the ASGI `app` with `ft.app(main, export_asgi_app=True
 
 ```text
 bifrost-mount (pure desktop):
-  view_update → view_login → view_servers ⇄ view_credentials
+  view_update → view_login ⇄ view_servers ⇄ view_credentials
   (view_servers: one card per server; each server is mounted whole, with its
   buckets as folders. view_credentials comes up when mounting needs a renewal,
   then goes back to view_servers and mounts; or from "Renew credentials".)
 
-bifrost-transfer (desktop):
-  view_update → view_login → view_minio → view_credentials (auto) → view_copy
-
-bifrost-transfer (Linux cluster, BIFROST_CLUSTER=1):
-  view_update → view_login → view_shares → view_minio → view_credentials → view_copy
+bifrost-transfer (desktop and web; web skips view_update and starts at view_login):
+  view_update → view_login ⇄ view_minio ⇄ view_credentials (auto) → view_copy
+  view_copy ⇄ view_credentials (manual), view_copy ⇄ Tag Manager, view_copy ⇄ NetApp shares (web)
 ```
+
+Every screen has a `nav_bar` at the top: a back button (top left) and "Signed
+in as <user>" (top right). Back targets: servers/minio → login; renewal →
+servers (automatic) or copy (manual, transfer); copy → minio; Tag Manager and
+NetApp → copy. In mount, going back to the login does not unmount anything
+(view_servers reads the mount state from the backend when it is built).
 
 `view_copy` contains the rclone folder browser for the destination
 (`build_rclone_browser`), the source selector (SMB/local/SFTP), copy options
@@ -88,9 +106,11 @@ unreadable, or 3 days or less left), it shows
 `build_credentials_content` and renews for 7 days, showing progress; otherwise
 it goes straight to the action view (in mount: mounts the server).
 
-Each server card in mount and the copy view show a badge (`🔑 Credentials expire in 6d 23h`,
-red under 1 day, amber up to 3 days) and a **"🔑 Renew credentials"** button
-that opens a dialog to renew manually for 1–30 days (default 7).
+Each server card in mount, each card of transfer's server selection and the
+server card of the copy view show a chip (`expiry_chip`: key icon + "Credentials
+expire in 6d 23h", red under 1 day, amber up to 3 days). Mount's cards and the
+copy view have a **"Renew credentials"** button that opens `show_renew_dialog`
+to renew manually for 1–30 days (default 7).
 
 ## `meta_fields.py` (bifrost-transfer only)
 
@@ -162,11 +182,14 @@ reverted the next day (`5e6246b`).
   own WebSocket with its own `page` object.
 - Sessions in `_WEB_SESSIONS` (`web_session.py`; global dict by `username`;
   TTL = life of the Hypercorn process). **The LDAP password is never stored.**
-  `_ws_clear` runs when a previous session is restored with a different
-  username (there is no logout).
+  `_ws_clear` runs when a different username signs in (on restore or on a
+  normal login); there is no logout.
 - Reconnection: when the tab is reopened the user only re-enters the password;
   `_replay` restores state, replays the last 200 buffer lines and re-attaches
-  the rclone process if it is still alive.
+  the rclone process if it is still alive. `go_login(resume=True)` (default)
+  is what restores; "Back to login" of view_minio calls `go_login(resume=False)`:
+  a normal login that goes to view_minio. The session is kept for the same
+  user, so a running copy stays attached when that server is chosen again.
 - Log dispatcher `_dispatch_log` with a **150 ms throttle** (buffer cap 5000
   lines, several callbacks per user, `_dispatch_lock` lock). Without the
   throttle Hypercorn saturates and reconnections hang.
@@ -193,23 +216,33 @@ With `threading.Timer`, wrap the callback:
 ## UI conventions
 
 - **Language**: follow the surrounding code; UI strings in the apps are mostly
-  English (for example "Source path", "Connect", "← Back"). The WinFsp
+  English (for example "Source path", "Connect", "Back to login"). The WinFsp
   installation flow messages in `bifrost-mount` are in English.
 - **Colours**: only constants from `bifrost_frontend.frontend` (`C_PRIMARY`,
-  `C_ERROR`, …). Do not hardcode hex values.
-- **Buttons**: prefer `btn_primary` / `btn_secondary` over raw `ft.Button`.
+  `C_ERROR`, …). Do not hardcode hex values. Translucent backgrounds and
+  borders: `tint(color, opacity)`, never `f"{C_X}22"` (Flet reads `#RRGGBBAA`
+  as `#AARRGGBB`, so the colour changes: amber looked red).
+- **Buttons**: prefer `btn_primary` / `btn_secondary` over raw `ft.Button`. Put
+  the icon in `icon=` (Material icon), not an emoji in the label (emojis render
+  as boxes on some systems).
+- **Navigation**: every screen starts with `nav_bar(back_text, on_back,
+  usuario=…)`; no screen should be a dead end.
 - **Error dialogs**: notices about what the user typed: `show_dialog(page, title, msg, color=C_ERROR)`. Program
   errors (`UserIssue`): `show_issue(page, issue, *, is_web, title=None, context="", screen=…, buttons=[(label,
-  action), …], ref=None) -> str` — under the title, the error code ("Error MNT101-1103-141526"); then the context
-  (the bucket, one file or a count; never lists or log paths), what happened and what to do; each button closes
-  the dialog, then runs its action. `screen` (`mount`, `netapp`, `copy`, `check`, `tags`, `app`) sets the code
-  prefix and the hint; `ref` reuses a code (an operation's, or the one shown the first time); it returns the
-  code. An error shown instead of a list: `issue_line(issue, *, is_web, screen)`. Both log `issue shown: ref=…
-  code=… screen=…` through `issue_reference(issue, screen, ref=None)`, which the credentials screen (`CRD`)
-  and the login (`LGN`) call directly; the login only logs it and does not show the code (noise there).
+  action), …], ref=None) -> str` — header with icon and title, and under it `context` (the bucket, one file or a
+  count; never lists or log paths); then what happened, the "What you can do" box (`tip_box`) and the error code
+  ("MNT101-1103-141526") in its own row with a copy button (`error_code_row`); each button closes the dialog,
+  then runs its action. `screen` (`mount`, `netapp`, `copy`, `check`, `tags`, `app`) sets the code prefix and
+  the hint; `ref` reuses a code (an operation's, or the one shown the first time); it returns the code. An
+  error shown instead of a list: `issue_line(issue, *, is_web, screen)`, shown in an `ErrorBanner`. Both log
+  `issue shown: ref=… code=… screen=…` through `issue_reference(issue, screen, ref=None)`, which the
+  credentials screen (`CRD`) and the login (`LGN`) call directly; the login only logs it and does not show the
+  code (noise there). New dialogs use `open_dialog` for the same look.
+- **Errors inside a screen or dialog**: `ErrorBanner`, not a red `ft.Text`. Field validation under a single
+  field (metadata, tag rows) stays a small red text.
 - **Header**: `build_header(subtitle, IS_WEB, no_ldap, page=None)`; with `page`, on desktop, the "Export logs…"
   button (confirmation, then `backend.export_logs_zip()`). Every screen passes `page`.
 - **Log panel lines**: `log_text(line)` (colour from the leading emoji; used by copy and Tag Manager).
-- **Confirmations**: `show_confirm(page, title, message, on_yes, on_no=None)`.
+- **Confirmations**: `show_confirm(page, title, message, on_yes, on_no=None)` (same header, question icon).
 - **Copy logs** (transfer/web): always go through `_dispatch_log`; never
   `log_list.controls.append(...)` directly from a thread.

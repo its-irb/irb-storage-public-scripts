@@ -13,15 +13,16 @@ renews your MinIO access show an **error code**, for example
 | What | `101` | The kind of problem (see the table below). The same problem always has the same number. |
 | When | `1103-141526` | Month and day (November 3) and time (14:15:26). |
 
-When you contact ITS, give them the **whole code**: it lets them find that
-exact error in your logs (see [Send your logs to ITS](#send-your-logs-to-its)).
+In an error window the code is at the bottom, and the button next to it
+copies it, so you can paste it in your message. When you contact ITS, give
+them the **whole code**: it lets them find that exact error in your logs (see [Send your logs to ITS](#send-your-logs-to-its)).
 
 ### What each number means
 
 | Number | Problem | What to do |
 |---|---|---|
 | **1xx** | **MinIO** | |
-| 101 | MinIO access expired | Click **🔑 Renew credentials** and try again. In the Tag Manager, go **← Back**, renew and open the Tag Manager again. |
+| 101 | MinIO access expired | Click **Renew credentials** and try again. In the Tag Manager, click **Back to copy**, renew and open the Tag Manager again. |
 | 102 | MinIO access not set up | The same as 101. |
 | 103 | No permission in MinIO | Check that you chose the right folder. If you need access, ask your group's data manager. |
 | 104 | MinIO folder not found | Choose the folder again from the list. |
@@ -197,8 +198,8 @@ and install it; from then on the app will update itself.
 
 1. Read the window that appears and the **LOGS** panel: they say what happened
    and what you can do.
-2. If it says **MinIO access expired**, go **← Back**, click **🔑 Renew
-   credentials** and open the Tag Manager again. The app only renews the access
+2. If it says **MinIO access expired**, click **Back to copy** (top left), click
+   **Renew credentials** and open the Tag Manager again. The app only renews the access
    when you sign in.
 3. Click **Try again**. For a folder, only the files that failed are retried.
 4. If it persists, ask your group's data manager to check your permissions on
