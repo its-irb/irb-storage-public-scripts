@@ -142,8 +142,9 @@ uv add <package>
 ## CI and releases
 
 - Triggers: push to `main`, `release`, `develop`, `feature/**` (only with
-  changes in the apps, `shared/` or the workflow) + `workflow_dispatch`. Only
-  `main` publishes releases; the others build artifacts.
+  changes in the apps, `shared/` or the workflow) + `workflow_dispatch`. `main`
+  publishes releases, `develop` publishes one rolling prerelease
+  (`develop-latest`), the other branches only build artifacts.
 - CI toolchain: Python 3.12, `uv` via pip, **Node 24** (needed for
   `flet build windows`), `PYTHONUTF8=1` on Windows.
 - **Versioning (SemVer, one version for both apps)**: the `version` job runs
@@ -180,15 +181,27 @@ uv add <package>
 - `build-windows` job: signed installer
   `bifrost-<flavour>-<branch>-windows.exe` plus a `.zip` with it inside
   (`bifrost-<flavour>-<branch>-windows.zip`), both in the artifact.
-- `release` job (only on `main` and only when `is_release` is true): creates tag
-  `vX.Y.Z` on the built commit and the release "Release vX.Y.Z" with notes grouped
-  by commit type (`next_version.py notes`) and the artifacts (macOS:
+- `publish` job — one job, the same steps for both publishing branches; only the
+  "Qué se publica" step sets different values:
+
+  | | `main` (only when `is_release` is true) | `develop` (every push) |
+  |---|---|---|
+  | Release | "Release vX.Y.Z", latest | "Develop: vX.Y.Z.N", prerelease, not latest |
+  | Tag | `vX.Y.Z` | `develop-latest` (the previous release and tag are deleted first: there is always one) |
+  | Notes | commits grouped by type (`next_version.py notes`) | a "test build" header + the same notes (what the next `main` release will contain) |
+
+  So every merge to `develop` runs the code that will publish on `main`. The
+  prerelease never affects users (the autoupdate only reads the `latest` release)
+  nor the numbering (`next_version.py` only counts `vX.Y.Z` tags). The tag is not
+  `develop` because it would clash with the branch name. Two pushes to the same
+  branch publish one after the other (`concurrency`). Every release has the
+  artifacts on the built commit (`target_commitish`) (macOS:
   `bifrost-<flavour>-macos.dmg` (arm64) +
   `bifrost-<flavour>-macos-intel.dmg` (Intel); Windows: the installer
   `.exe` **signed** with `signtool`, PFX from the secrets
   `IRBCODESIGNING`/`IRBCODESIGNING_PASSWORD`, the build job's
   `<branch>-windows.zip`, and `bifrost-<flavour>-windows.zip`, made by the
-  release job, which users download and the Windows autoupdate uses; the three
+  `publish` job, which users download and the Windows autoupdate uses; the three
   Windows files are intentional). The apps' autoupdate downloads from those
   releases, picking the suffix per platform (`platform.machine()` on macOS:
   arm64 → `-macos.dmg`, x86_64 → `-macos-intel.dmg`; Windows:

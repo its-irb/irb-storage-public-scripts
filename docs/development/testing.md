@@ -229,7 +229,7 @@ moleste. Si `flet build` no funciona en tu equipo, el build podría hacerse con 
 Actions, pero no se ha probado.
 
 Esta forma solo sirve si la última release ya contiene el fichero que pide tu código. Si tu
-cambio toca **lo que se publica** (nombres de los assets, el job `release` del CI) o **lo
+cambio toca **lo que se publica** (nombres de los assets, el job `publish` del CI) o **lo
 que descarga el updater**, la última release todavía no lo tiene: usa la forma siguiente.
 
 ### Cómo probarlo: contra una prerelease de tu rama (antes del merge a `main`)
@@ -238,14 +238,23 @@ Sirve para probar de punta a punta, **sin hacer merge a `main` y sin que los usu
 noten**, un cambio que afecta a la release o a la descarga del update. Se hizo así para pasar
 el autoupdate de Windows del `.exe` al `.zip` (rama `feature/update`, prerelease `v1.0.330`).
 
+> **¿Y la prerelease `develop-latest`?** La que publica `develop` en cada fusión sirve para
+> **descargar** la build de pruebas, pero no para esta prueba: el updater compara el **nombre
+> del tag** con la versión instalada (`_parse_version`), y `develop-latest` no es un número,
+> así que nunca ofrecería actualizar. Para esta prueba hace falta una prerelease cuyo tag sea
+> una versión, como la de abajo.
+
 **Por qué funciona y por qué es seguro:**
 
-- El job `release` del CI solo se ejecuta en `main` (y solo cuando hay versión nueva), así
-  que desde una rama normal no hay ninguna release que probar. Se habilita temporalmente para
-  tu rama.
+- El job `publish` del CI solo publica en `main` (cuando hay versión nueva) y en `develop`
+  (la prerelease `develop-latest`), así que desde tu rama no hay ninguna release que probar.
+  Se habilita temporalmente para tu rama, con su propio tag.
 - La release de la rama se publica como **prerelease**. GitHub nunca marca una prerelease
   como `latest`, y las apps de los usuarios solo consultan `releases/latest`: no la ven y no
   se actualizan a ella.
+- Su tag es la versión de prueba con cuatro números (`v<última release>.<n>`, p. ej.
+  `v1.1.0.412`): el updater la compara bien, y `next_version.py` solo cuenta los tags
+  `vX.Y.Z`, así que no altera la numeración de las releases.
 - Tu build local se apunta a esa prerelease concreta (por su tag) en vez de a `latest`. Ese
   cambio solo existe en tu equipo y no se commitea.
 - Se prueban así a la vez el CI nuevo (qué publica y con qué nombres) y el updater nuevo
@@ -256,27 +265,35 @@ la prerelease es visible en la página de *Releases* hasta que la borres.
 
 #### 1. Publicar una prerelease desde tu rama
 
-En `.github/workflows/main.yml`, job `release`, cambia temporalmente tres cosas (marca cada
+En `.github/workflows/main.yml`, job `publish`, cambia temporalmente dos cosas (marca cada
 línea con un comentario `TEMPORAL` para encontrarlas luego):
 
 ```yaml
-  release:
-    # TEMPORAL: <tu-rama> publica una prerelease. Revertir antes del merge a main.
-    if: (github.ref == 'refs/heads/main' && needs.version.outputs.is_release == 'true') || github.ref == 'refs/heads/<tu-rama>'
+  publish:
+    # TEMPORAL: <tu-rama> publica una prerelease. Revertir antes del merge.
+    if: github.ref == 'refs/heads/develop' || (github.ref == 'refs/heads/main' && needs.version.outputs.is_release == 'true') || github.ref == 'refs/heads/<tu-rama>'
     ...
-      - name: Crear GitHub Release
-        with:
+      - name: Qué se publica
+        run: |
           ...
-          prerelease: ${{ github.ref == 'refs/heads/<tu-rama>' }}   # TEMPORAL
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            ...
+          elif [ "$GITHUB_REF" = "refs/heads/<tu-rama>" ]; then   # TEMPORAL
+            tag="v$v"; name="Prueba <tu-rama>: v$v"; prerelease=true; latest=false; rolling=false   # TEMPORAL
+          else
+            ...
 ```
 
-- `if`: deja que el job `release` se ejecute en tu rama. En tu rama la versión es la de
-  prueba, con cuatro números (`<última release>.<n>`, p. ej. `v1.1.0.412`), y con ella se
-  crean el tag y la release. Esto no se ha probado todavía con el versionado nuevo; el
-  autoupdate compara bien los cuatro números.
-- `prerelease`: es lo que impide que la release sea `latest`. En `main` sigue valiendo `false`.
-- `target_commitish: ${{ github.sha }}` ya está en el job: crea el tag sobre tu commit y no
-  sobre la rama principal.
+Sustituye `<tu-rama>` por el nombre de tu rama (p. ej. `feature/update`).
+
+- `if`: deja que el job `publish` se ejecute en tu rama.
+- El `elif`: le da a tu rama su propio tag, la versión de prueba (`v<última release>.<n>`), y
+  la publica como prerelease que no es `latest` ni se borra sola. **No te lo saltes**: sin él
+  tu rama caería en el `else`, que es el de `develop`, y **sustituiría la prerelease
+  `develop-latest`**.
+- No hace falta tocar nada más: `target_commitish` ya crea el tag sobre tu commit, y
+  `prerelease`/`make_latest` salen de los valores del `elif`. Con el versionado nuevo esta
+  prueba aún no se ha hecho; el updater compara bien los cuatro números.
 
 Haz un commit **solo con este cambio** (así se revierte fácil) y súbelo. Si usas PowerShell
 5.1, escribe el mensaje en un fichero y usa `git commit -F fichero`: con varios `-m`,
@@ -284,17 +301,19 @@ PowerShell puede meterlos todos en el título.
 
 #### 2. Comprobar la prerelease
 
-Cuando termine la ejecución en *Actions* (todos los jobs en verde, incluido `release`):
+Cuando termine la ejecución en *Actions* (todos los jobs en verde, incluido `publish`):
 
-1. En *Releases* debe aparecer `Release v<versión>` (p. ej. `v1.1.0.412`) con la etiqueta
-   **Pre-release**. El último número es el de la ejecución del workflow.
+1. En *Releases* debe aparecer `Prueba <tu-rama>: v<versión>` (p. ej. `v1.1.0.412`) con la
+   etiqueta **Pre-release**. El último número es el de la ejecución del workflow.
 2. Revisa sus assets: deben estar los ficheros con los nombres que espera tu código (para
    Windows: `bifrost-<app>-<rama>-windows.exe` y `bifrost-<app>-windows.zip`). Si publicas un
    `.zip`, descárgalo y comprueba que contiene lo que debe.
-3. Comprueba que `latest` **no** ha cambiado (debe salir la release anterior, no la tuya):
+3. Comprueba que `latest` **no** ha cambiado (debe salir la release anterior, no la tuya) y
+   que `develop-latest` sigue siendo la de `develop` (su nombre empieza por `Develop:`):
 
    ```powershell
    (Invoke-RestMethod https://api.github.com/repos/its-irb/irb-storage-public-scripts/releases/latest).tag_name
+   (Invoke-RestMethod https://api.github.com/repos/its-irb/irb-storage-public-scripts/releases/tags/develop-latest).name
    ```
 
 #### 3. Apuntar tu build local a la prerelease (sin commit)
@@ -372,11 +391,16 @@ una carpeta `bifrost-update-*` con el `.exe` extraído
 1. Quita las líneas `# PRUEBA LOCAL` de `updates.py` y restaura `version.py`
    (`git checkout -- bifrost-<flavour>/src/version.py`). Si `updates.py` también tiene
    cambios buenos sin commitear, no uses `git checkout` con él: deshaz solo esas líneas.
-2. Quita del workflow las líneas `TEMPORAL` (o `git revert <commit del paso 1>`) **antes del
-   merge a `main`**. Si llegaran a `main`, el `if` no haría daño, pero el workflow quedaría
-   con código de prueba.
-3. Borra la prerelease en *Releases* (icono de papelera) y después su tag, que no se borra
-   con ella: `git push origin --delete v<versión>`.
+2. Quita del workflow las líneas `TEMPORAL` (o `git revert <commit del paso 1>`) **antes de
+   fusionar tu rama**, en `develop` o en `main`. Si llegaran, el `if` y el `elif` no harían
+   daño en otras ramas, pero el workflow quedaría con código de prueba.
+3. Borra la prerelease y su tag, que no se borra con ella desde la web:
+
+   ```bash
+   gh release delete v<versión> --cleanup-tag --yes
+   ```
+
+   (o en *Releases*, icono de papelera, y después `git push origin --delete v<versión>`).
 4. Comprueba que `latest` sigue siendo la release anterior.
 
 ### Compilar e instalar (Windows)

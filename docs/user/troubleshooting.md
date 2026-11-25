@@ -194,7 +194,8 @@ date for you.
 update may offer a build that does not run on your Mac. In that case, download
 the file ending in `-macos-intel.dmg` once from
 [the releases page](https://github.com/its-irb/irb-storage-public-scripts/releases)
-and install it; from then on the app will update itself.
+(from the release marked **Latest**, not the **Develop: …** test version marked
+**Pre-release**) and install it; from then on the app will update itself.
 
 ## Errors when applying labels (Tag Manager)
 

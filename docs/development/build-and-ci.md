@@ -263,7 +263,9 @@ solo la hace la CI; ver abajo.)
 - **Triggers**: push a `main`, `release`, `develop`, `feature/**` — solo con
   cambios en `bifrost-transfer/**`, `bifrost-mount/**`, `shared/**` o el
   propio workflow—, además de `workflow_dispatch` (manual). Todas compilan y
-  suben artefactos; **solo `main` publica releases** (la rama `release` ya no).
+  suben artefactos. **`main` publica releases**; **`develop` publica una sola
+  prerelease de pruebas** (`develop-latest`) que se renueva en cada push; el
+  resto de ramas (también `release`, que antes publicaba) solo dejan artefactos.
 - **Toolchain**: Python **3.12** (`setup-python`), `uv` vía `pip install uv`,
   **Node 24** (`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`; necesario para
   `flet build windows`), y en Windows `PYTHONUTF8=1` y long paths activados.
@@ -283,10 +285,11 @@ solo la hace la CI; ver abajo.)
 
   Si llegan varios tipos, manda el más fuerte: una sola versión por push.
   - **En `main` con versión nueva**: `version` = `base` = `X.Y.Z` e
-    `is_release=true`; el job `release` la publica.
+    `is_release=true`; el job `publish` la publica.
   - **En el resto** (otras ramas, o `main` sin commits que saquen versión):
     `version` = `<última release>.<run_number>` (p. ej. `1.1.0.412`), `base` =
-    la última release, `is_release=false`; solo artefactos.
+    la última release, `is_release=false`; solo artefactos (en `develop`,
+    además, la prerelease `develop-latest`).
   - `version` se escribe en `src/version.py` y en el `AppVersion` de Inno
     Setup; `base` en el `version` del `pyproject.toml` y en
     `flet build --build-version`, con `--build-number <run_number>`.
@@ -346,19 +349,44 @@ solo la hace la CI; ver abajo.)
   instalador firmado en `bifrost-<flavour>-<rama>-windows.zip` (para la
   descarga manual: los navegadores avisan al bajar un `.exe` pero no un `.zip`)
   y sube el `.exe` y ese `.zip` como artefacto `<app>-windows`.
-- **Job `release`** (solo en `main` y solo si el job `version` devuelve
-  `is_release=true`): descarga los artefactos de los tres jobs de build (por eso
-  su `needs` incluye también `build-macos-intel`) y publica la release de GitHub
-  «Release vX.Y.Z» con tag `vX.Y.Z` sobre el commit compilado
-  (`target_commitish`) y, como notas, los commits que sacan versión agrupados en
-  cambios incompatibles, nuevas funciones, arreglos y otros
-  (`next_version.py notes`). Contiene:
+- **Job `publish`**: un solo job para las dos ramas que publican, con los
+  mismos pasos (notas, descargar los artefactos de los tres jobs de build —por
+  eso su `needs` incluye también `build-macos-intel`—, crear el `.zip` de
+  Windows y publicar con `softprops/action-gh-release` sobre el commit compilado,
+  `target_commitish`). Solo cambian los valores que fija el paso «Qué se publica»:
+
+  | | `main` (solo si `is_release=true`) | `develop` (en cada push) |
+  |---|---|---|
+  | Release | «Release vX.Y.Z», `latest` | «Develop: vX.Y.Z.N», prerelease, nunca `latest` |
+  | Tag | `vX.Y.Z` | `develop-latest`; antes borra la prerelease anterior y su tag (`gh release delete --cleanup-tag`): siempre hay una sola |
+  | Notas | los commits que sacan versión agrupados en cambios incompatibles, nuevas funciones, arreglos y otros (`next_version.py notes`) | una cabecera («build de pruebas… no es una versión publicada…») y debajo lo mismo: lo que saldrá en la próxima release de `main` |
+
+  Por qué así:
+  - **Un solo job y no dos**: cada fusión a `develop` ejecuta el mismo código
+    que publicará en `main`. Si la prerelease sale bien, en `main` solo cambian
+    los valores de la tabla; el cálculo de `X.Y.Z` lo cubren los tests de
+    `next_version.py`. Con dos jobs copiados, un error solo en el de `main` no se
+    vería hasta el día de la release.
+  - **La prerelease de `develop`**: la build de pruebas se descarga desde
+    *Releases* en vez de desde un artefacto de *Actions* (que hay que buscar,
+    viene en `.zip`, pide iniciar sesión en GitHub y caduca a los 90 días).
+  - **Una sola, que se sustituye**: para no llenar *Releases* de prereleases
+    viejas ni que alguien instale una antigua por error.
+  - **No afecta a los usuarios ni a la numeración**: el autoupdate solo consulta
+    la release `latest`, y una prerelease nunca lo es (`make_latest: false`);
+    `next_version.py` solo cuenta los tags `vX.Y.Z`.
+  - **El tag es `develop-latest` y no `develop`**: un tag con el nombre de la
+    rama haría ambiguo `develop` en los comandos de git.
+  - **Dos pushes seguidos a la misma rama publican uno detrás de otro**
+    (`concurrency`), para que no se pisen al borrar y crear la prerelease.
+
+  Cada release contiene:
   - macOS: `bifrost-<flavour>-macos.dmg` (Apple Silicon) y
     `bifrost-<flavour>-macos-intel.dmg` (Intel)
   - Windows, tres ficheros a propósito: `bifrost-<flavour>-<rama>-windows.exe`
     (instalador firmado), `bifrost-<flavour>-<rama>-windows.zip` (el `.zip` del
     job `build-windows`) y `bifrost-<flavour>-windows.zip` (el mismo instalador
-    comprimido; lo crea el propio job `release` con `zip`). El `.zip` es el que descargan los usuarios
+    comprimido; lo crea el propio job `publish` con `zip`). El `.zip` es el que descargan los usuarios
     y el autoupdate, que extrae el `.exe` de dentro
     (`extract_windows_installer()`). El `.exe` suelto se mantiene porque las
     versiones anteriores lo siguen pidiendo (`-main-windows.exe`)

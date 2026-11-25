@@ -150,7 +150,7 @@ One version for both apps, [SemVer](https://semver.org) `MAJOR.MINOR.PATCH`, com
 | only `docs`, `style`, `refactor`, `test`, `ci`, `chore` | no release |
 | `Release-As: X.Y.Z` in a commit body | exactly that version (it must be greater than the last release) |
 
-Only `main` publishes a release (`vX.Y.Z`, with the commits as notes). Builds of other branches, or of `main` with nothing to release, carry `<last release>.<run number>` (e.g. `1.1.0.412`): newer than their release for the autoupdate, older than the next one. To force a version, push an empty commit to the branch that goes to `main`:
+Only `main` publishes a release (`vX.Y.Z`, with the commits as notes). Builds of other branches, or of `main` with nothing to release, carry `<last release>.<run number>` (e.g. `1.1.0.412`): newer than their release for the autoupdate, older than the next one. Every push to `develop` also replaces a single prerelease, **Develop: vX.Y.Z.N** (tag `develop-latest`), to download the current test build from the releases page; the apps never update to it (they only read the `Latest` release). To force a version, push an empty commit to the branch that goes to `main`:
 
 ```bash
 git commit --allow-empty -m "chore(release): publica la 2.0.0" -m "Release-As: 2.0.0"

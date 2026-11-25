@@ -25,7 +25,9 @@ travel inside the app.
 New versions are published as *releases* on GitHub, at
 https://github.com/its-irb/irb-storage-public-scripts/releases .
 
-1. Open that page and choose the latest release.
+1. Open that page and choose the release marked **Latest**. Do not use the one
+   called **Develop: …** and marked **Pre-release**: it is a test version for
+   the people who develop BIFROST.
 2. Download the file for your computer and the app you need:
    - **Windows**: the file ending in `.zip` (your browser will not warn you
      about it). Unzip it and run the `.exe` inside, which is the installer
