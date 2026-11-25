@@ -42,8 +42,9 @@ def test_get_update_file_suffix(monkeypatch, plat, machine, expected):
 
 @pytest.fixture
 def clean_env(monkeypatch):
-    for var in ("FLET_APP_STORAGE_TEMP", "SLURM_JOB_ID"):
+    for var in ("FLET_APP_STORAGE_TEMP", "SLURM_JOB_ID", "BIFROST_CLUSTER"):
         monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(sys, "platform", "darwin")     # que no dependa del sistema donde se lanzan los tests
     monkeypatch.setattr(sys, "argv", ["bifrost-mount.exe"])
     monkeypatch.delattr(sys, "frozen", raising=False)
 
@@ -65,6 +66,21 @@ def test_should_check_when_frozen(monkeypatch, clean_env):
 def test_should_not_check_on_slurm(monkeypatch, clean_env):
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setenv("SLURM_JOB_ID", "123")
+    assert updates.should_check_for_updates() is False
+
+
+@pytest.mark.parametrize("argv", [["bifrost-mount"], ["main.py", "--update"]])
+def test_should_never_check_on_linux(monkeypatch, clean_env, argv):
+    # El clúster (Open OnDemand, sesiones DCV) es Linux y no hay binarios de Linux en las releases
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "argv", argv)
+    assert updates.should_check_for_updates() is False
+
+
+def test_should_never_check_in_cluster_mode(monkeypatch, clean_env):
+    monkeypatch.setenv("BIFROST_CLUSTER", "1")
+    monkeypatch.setattr(sys, "argv", ["main.py", "--update"])
     assert updates.should_check_for_updates() is False
 
 

@@ -49,9 +49,16 @@ def check_update_version(force_update: bool = False) -> str | None:
 def should_check_for_updates() -> bool:
     """
     Determina si se debe comprobar actualizaciones en el entorno actual.
-    Devuelve False en entornos HPC/cluster o cuando no se ejecuta como binario compilado,
-    a menos que se pase el flag --update (útil para testing en desarrollo).
+
+    Nunca en Linux ni en el clúster (Open OnDemand: transfer en modo web y mount en las sesiones DCV), ni
+    siquiera con --update: allí la app se ejecuta desde el código que instala ITS y las releases no traen
+    binarios de Linux. El modo web tampoco muestra la pantalla de actualización (main.py de transfer).
+    En el resto, False cuando no se ejecuta como binario compilado, a menos que se pase el flag --update
+    (útil para testing en desarrollo).
     """
+    if sys.platform.startswith("linux") or os.environ.get("BIFROST_CLUSTER") == "1":
+        log.debug("update check skipped: Linux / cluster")
+        return False
     if "--update" in sys.argv:
         return True
     if not getattr(sys, 'frozen', False) and not os.environ.get('FLET_APP_STORAGE_TEMP'):

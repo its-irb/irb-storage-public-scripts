@@ -473,6 +473,8 @@ def main(page: ft.Page):
             on_login=go_login,
         ))
 
+    # En modo web (Open OnDemand y web local) no hay autoupdate: la app la sirve el código instalado en el
+    # servidor y no se descarga ningún binario. Solo el escritorio pasa por la pantalla de actualización.
     if IS_WEB:
         go_login()
     else:
