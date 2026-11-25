@@ -427,75 +427,67 @@ jobs:
   
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Release — solo en main, cuando el job version dice que estos commits sacan versión
-  # Recoge los artefactos de los tres jobs y crea el tag vX.Y.Z y la GitHub Release, con las notas
-  # agrupadas por tipo de commit (next_version.py notes).
+  # Publicar — un solo job para las dos ramas que publican, con los mismos pasos:
+  #  · main, cuando el job version dice que estos commits sacan versión: la release vX.Y.Z
+  #    ("Release vX.Y.Z", latest), que es la que ven el autoupdate y los usuarios.
+  #  · develop, en cada push (al fusionar una PR): una sola prerelease, develop-latest
+  #    ("Develop: vX.Y.Z.N"), que sustituye a la anterior. Sirve para descargar la build de pruebas
+  #    desde Releases y, sobre todo, ejecuta en cada fusión a develop el mismo código que publicará en
+  #    main: si la prerelease sale bien, en main solo cambian los valores del paso "Qué se publica".
+  # La prerelease no afecta a los usuarios: el autoupdate solo mira la release "latest" y una
+  # prerelease nunca lo es; y next_version.py solo cuenta los tags vX.Y.Z. El tag es develop-latest y
+  # no "develop" para no chocar con el nombre de la rama.
   # ─────────────────────────────────────────────────────────────────────────────
-  release:
+  publish:
     needs: [version, build-macos, build-windows, build-macos-intel]
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    if: github.ref == 'refs/heads/main' && needs.version.outputs.is_release == 'true'
+    if: github.ref == 'refs/heads/develop' || (github.ref == 'refs/heads/main' && needs.version.outputs.is_release == 'true')
+    concurrency:
+      group: publish-${{ github.ref_name }}   # dos pushes seguidos a la misma rama: uno detrás de otro
+      cancel-in-progress: false
     steps:
       - name: Checkout código
         uses: actions/checkout@v6.0.2
         with:
           fetch-depth: 0
 
-      - name: Notas de la release
-        run: python3 .github/scripts/next_version.py notes > release-notes.md
+      - name: Qué se publica
+        id: p
+        run: |
+          set -euo pipefail
+          v="${{ needs.version.outputs.version }}"
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            tag="v$v"; name="Release v$v"; prerelease=false; latest=true; rolling=false
+          else
+            tag="develop-latest"; name="Develop: v$v"; prerelease=true; latest=false; rolling=true
+          fi
+          {
+            echo "tag=$tag"; echo "name=$name"; echo "prerelease=$prerelease"
+            echo "latest=$latest"; echo "rolling=$rolling"
+          } >> "$GITHUB_OUTPUT"
+          echo "Publica $name (tag $tag, prerelease: $prerelease, latest: $latest)"
+
+      - name: Notas
+        run: |
+          {
+            if [ "${{ steps.p.outputs.rolling }}" = "true" ]; then
+              echo "Build de pruebas de \`develop\` (**v${{ needs.version.outputs.version }}**, commit ${GITHUB_SHA::7})."
+              echo "No es una versión publicada: las apps no se actualizan a ella. Se sustituye en cada fusión a develop."
+              echo ""
+              echo "Lo que saldrá en la próxima release de main:"
+              echo ""
+            fi
+            python3 .github/scripts/next_version.py notes
+          } > release-notes.md
+          cat release-notes.md
 
       - name: Descargar todos los artefactos
         uses: actions/download-artifact@v4.3.0
         with:
           path: dist
           merge-multiple: true
-
-      # - name: Verificar dist
-      #   run: ls -lah dist/
-
-      #- name: Zipear .app bundles de macOS
-      #  env:
-      #    BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
-      #  run: |
-      #    cd dist
-      #    for APP in bifrost-transfer bifrost-mount; do
-      #      BUNDLE="${APP}-macos.app"
-      #      if [ -d "$BUNDLE" ]; then
-      #        zip -r "${BUNDLE}.zip" "$BUNDLE"
-      #        rm -rf "$BUNDLE"
-      #        echo "Zipeado: ${BUNDLE}.zip"
-      #      fi
-      #    done
-       #   ls -lah .
-
-      # - name: Verificar artefactos macOS
-      #   env:
-      #     BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
-      #   run: |
-      #     ls -lah dist/
-      #     for APP in bifrost-transfer bifrost-mount; do
-      #       test -f "dist/${APP}-macos.app.zip" \
-      #         && echo "OK: ${APP}" \
-      #         || echo "WARNING: ${APP} no encontrado"
-      #     done
-
-      #Por si queremos quitar el nombre de la rama de los archivos finales, aunque no es tan importante porque ya se incluye en el tag de la release.
-      # - name: Eliminar sufijo de rama de los nombres de archivo
-      #   shell: bash
-      #   env:
-      #     BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
-      #   run: |
-      #     for file in dist/*; do
-      #       [[ -f "$file" ]] || continue
-      #       base=$(basename "$file")
-      #       new_name="${base/-${BRANCH_SUFFIX}/}"
-      #       if [[ "$base" != "$new_name" ]]; then
-      #         mv "$file" "dist/$new_name"
-      #       fi
-      #     done
-      #     ls -lah dist/
 
       # La release publica el instalador de Windows de dos formas: <app>-windows.zip con el
       # .exe dentro, que es el que descargan los usuarios y el autoupdate (updates.py, sufijo
@@ -511,15 +503,25 @@ jobs:
           done
           ls -lah dist/
 
-      - name: Crear GitHub Release
+      - name: Borrar la prerelease anterior y su tag (develop)
+        if: steps.p.outputs.rolling == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.p.outputs.tag }}
+        run: |
+          gh release delete "$TAG" --cleanup-tag --yes || echo "No había prerelease $TAG"
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true    # por si quedó el tag sin release
+
+      - name: Publicar en GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.version.outputs.version }}
-          name: "Release v${{ needs.version.outputs.version }}"
+          tag_name: ${{ steps.p.outputs.tag }}
+          name: ${{ steps.p.outputs.name }}
           target_commitish: ${{ github.sha }}
           body_path: release-notes.md
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.p.outputs.prerelease }}
+          make_latest: ${{ steps.p.outputs.latest }}
           files: dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
