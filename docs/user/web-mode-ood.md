@@ -122,6 +122,8 @@ If you need to keep a report, download it or copy it to another folder.
   Bifrost mount in a DCV session.
 - The session lasts as long as the Open OnDemand job. If the job ends or
   restarts, the session and any copy in progress are lost; start again.
+- On the cluster, Bifrost transfer and Bifrost mount never ask to update: ITS
+  keeps the version on the cluster up to date for you.
 
 ## If something goes wrong
 

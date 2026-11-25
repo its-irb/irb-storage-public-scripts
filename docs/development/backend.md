@@ -237,9 +237,16 @@ deja borrarla y la app relanzada falla al volver a extraerla, errno 32),
 `start /wait` sobre el instalador en modo silencioso (sin `/wait` la app se
 relanzaría antes de que termine) y relanza la app. La release sigue publicando
 el `.exe` suelto (`-main-windows.exe`) porque las versiones anteriores lo
-descargan: no cambiar estos nombres. `check_update_version()` recibe
-`force_update` (lo pasa `--update`), pero ahora mismo no hace nada: el bloque
-de prueba que simula la versión `999.999.999` está comentado; hay que
-descomentarlo para probar la pantalla de actualización. El flujo de
-versionado (`1.0.<run_number>`) y la publicación están en
+descargan: no cambiar estos nombres. `should_check_for_updates()` no
+comprueba nunca en Linux ni con `BIFROST_CLUSTER=1` (el clúster: allí la app es
+código instalado por ITS y no hay binarios de Linux en las releases, así que ni
+con `--update`); con `--update` comprueba siempre; con la versión de desarrollo
+(lleva `dev`, como el `0.0.0.dev` del repositorio) no comprueba; y no comprueba
+si la app no está empaquetada, con SLURM o con un ejecutable `_cluster`. El
+detalle y el porqué, en [operations.md](operations.md#autoupdate).
+`check_update_version()` recibe `force_update` (lo pasa `--update`), pero no lo
+usa: el bloque de prueba que simula la versión `999.999.999` está comentado.
+`_parse_version()` solo entiende números (`1.1.0`, `1.1.0.412`): una versión
+con sufijo (`1.1.0-rc1`) se lee como `0` y haría que la app pidiera actualizar
+siempre. El versionado (SemVer, `X.Y.Z` / `X.Y.Z.N`) y la publicación están en
 [build-and-ci.md](build-and-ci.md).

@@ -175,7 +175,13 @@ process keeps the app's working folder as current directory, Windows cannot
 delete it and the relaunched app fails, errno 32), `start /wait` on the silent
 installer, then relaunches the app. Releases still publish the loose
 `-main-windows.exe` because older versions download it: do not rename these
-files. `check_update_version()`
-accepts `force_update`, but it currently has no effect: the test block that
-simulates version `999.999.999` is commented out. See
+files. `should_check_for_updates()`, in this order: never on Linux or with
+`BIFROST_CLUSTER=1` (the cluster: Open OnDemand web and DCV sessions run code
+installed by ITS, and releases have no Linux binaries — not even with
+`--update`); always with `--update`; never with a development version (contains
+`dev`, e.g. `0.0.0.dev`, the repo `version.py`); never when not packaged (unless
+Flet set `FLET_APP_STORAGE_TEMP`), on SLURM or with a `_cluster` executable.
+Transfer's web mode never shows the update screen (`main.py`).
+`check_update_version()` accepts `force_update`, but it currently has no effect:
+the test block that simulates version `999.999.999` is commented out. See
 [operations.md](operations.md) for the versioning flow.

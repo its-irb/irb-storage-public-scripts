@@ -25,7 +25,9 @@ travel inside the app.
 New versions are published as *releases* on GitHub, at
 https://github.com/its-irb/irb-storage-public-scripts/releases .
 
-1. Open that page and choose the latest release.
+1. Open that page and choose the release marked **Latest**. Do not use the one
+   called **Develop: …** and marked **Pre-release**: it is a test version for
+   the people who develop BIFROST.
 2. Download the file for your computer and the app you need:
    - **Windows**: the file ending in `.zip` (your browser will not warn you
      about it). Unzip it and run the `.exe` inside, which is the installer
@@ -36,7 +38,8 @@ https://github.com/its-irb/irb-storage-public-scripts/releases .
      browser through Open OnDemand (see [web-mode-ood.md](web-mode-ood.md)).
 
 The app **updates itself**: when you open it and a newer version exists, it
-asks if you want to update, and downloads it if you accept.
+asks if you want to update, and downloads it if you accept. On the cluster
+(Open OnDemand) it never asks: there ITS keeps the app up to date for you.
 
 ## Sign in
 

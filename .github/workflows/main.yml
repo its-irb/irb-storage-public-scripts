@@ -24,7 +24,34 @@ env:
 # jobs
 # ─────────────────────────────────────────────────────────────────────────────
 jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Versión — una sola para las dos apps (SemVer: MAYOR.MENOR.PARCHE), .github/scripts/next_version.py
+  #  · main con commits que sacan versión (feat → MENOR; fix/perf/revert/build → PARCHE; `!` o
+  #    BREAKING CHANGE → MAYOR; `Release-As: X.Y.Z` la fija): X.Y.Z, y el job release la publica.
+  #  · Resto (otras ramas, o main con solo docs/refactor/ci…): la última release + el número de
+  #    ejecución, X.Y.Z.N. El autoupdate la ve más nueva que su release (no ofrece "volver") y más
+  #    antigua que la siguiente (sí ofrece actualizar cuando sale).
+  # `base` (X.Y.Z) es la del pyproject.toml y el bundle: Flutter/macOS solo admiten tres números; el
+  # cuarto va como build number (--build-number).
+  # ─────────────────────────────────────────────────────────────────────────────
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      base: ${{ steps.v.outputs.base }}
+      is_release: ${{ steps.v.outputs.is_release }}
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Calcular versión
+        id: v
+        run: python3 .github/scripts/next_version.py version --ref "${{ github.ref }}" --run-number "${{ github.run_number }}"
+
   summary:
+    needs: version
     runs-on: ubuntu-latest
     steps:
       - name: Checkout código
@@ -37,7 +64,7 @@ jobs:
           echo "## 📦 Commits incluidos en este build" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Rama:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Versión:** \`1.0.${{ github.run_number }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Versión:** \`${{ needs.version.outputs.version }}\`${{ needs.version.outputs.is_release == 'true' && ' (release)' || '' }}" >> $GITHUB_STEP_SUMMARY
           echo "**Evento:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
@@ -52,6 +79,7 @@ jobs:
   # macOS — flet build macos → .app
   # ─────────────────────────────────────────────────────────────────────────────
   build-macos:
+    needs: version
     runs-on: macos-26
     strategy:
       matrix:
@@ -66,7 +94,7 @@ jobs:
           python-version: "3.12"
 
       - name: Escribir versión
-        run: echo "__version__ = '1.0.${{ github.run_number }}'" > ${{ matrix.app }}/src/version.py
+        run: echo "__version__ = '${{ needs.version.outputs.version }}'" > ${{ matrix.app }}/src/version.py
 
       - name: Añadir ruta al paquete de backend pyproject.toml
         shell: bash
@@ -78,7 +106,7 @@ jobs:
 
       - name: Escribir versión en pyproject.toml
         run: |
-          sed -i '' 's/^version = .*/version = "1.0.${{ github.run_number }}"/' \
+          sed -i '' 's/^version = .*/version = "${{ needs.version.outputs.base }}"/' \
             ${{ matrix.app }}/pyproject.toml
 
       - name: Instalar dependencias Python
@@ -108,7 +136,8 @@ jobs:
       - name: Build macOS
         run: |
           cd ${{ matrix.app }}
-          echo "y" | flet build macos --output dist --no-rich-output
+          echo "y" | flet build macos --output dist --no-rich-output \
+            --build-version ${{ needs.version.outputs.base }} --build-number ${{ github.run_number }}
 
       - name: Debug - verificar contingut del bundle
         if: matrix.app == 'bifrost-mount'
@@ -152,6 +181,7 @@ jobs:
   # macOS Intel — stopgap hasta nov-2026 (macos-14 es el último runner Intel)
   # ─────────────────────────────────────────────────────────────────────────────
   build-macos-intel:
+    needs: version
     runs-on: macos-15-intel
     strategy:
       matrix:
@@ -166,7 +196,7 @@ jobs:
           python-version: "3.12"
 
       - name: Escribir versión
-        run: echo "__version__ = '1.0.${{ github.run_number }}'" > ${{ matrix.app }}/src/version.py
+        run: echo "__version__ = '${{ needs.version.outputs.version }}'" > ${{ matrix.app }}/src/version.py
 
       - name: Añadir ruta al paquete de backend pyproject.toml
         shell: bash
@@ -178,7 +208,7 @@ jobs:
 
       - name: Escribir versión en pyproject.toml
         run: |
-          sed -i '' 's/^version = .*/version = "1.0.${{ github.run_number }}"/' \
+          sed -i '' 's/^version = .*/version = "${{ needs.version.outputs.base }}"/' \
             ${{ matrix.app }}/pyproject.toml
 
       - name: Instalar dependencias Python
@@ -208,7 +238,8 @@ jobs:
       - name: Build macOS
         run: |
           cd ${{ matrix.app }}
-          echo "y" | flet build macos --output dist --no-rich-output
+          echo "y" | flet build macos --output dist --no-rich-output \
+            --build-version ${{ needs.version.outputs.base }} --build-number ${{ github.run_number }}
 
       - name: Debug - verificar contingut del bundle
         if: matrix.app == 'bifrost-mount'
@@ -251,6 +282,7 @@ jobs:
   # Windows — flet build windows + Inno Setup
   # ─────────────────────────────────────────────────────────────────────────────
   build-windows:
+    needs: version
     runs-on: windows-latest
     strategy:
       matrix:
@@ -280,7 +312,7 @@ jobs:
       - name: Escribir versión en pyproject.toml
         shell: bash
         run: |
-          sed -i 's/^version = .*/version = "1.0.${{ github.run_number }}"/' \
+          sed -i 's/^version = .*/version = "${{ needs.version.outputs.base }}"/' \
             ${{ matrix.app }}/pyproject.toml
 
       - name: Instalar dependencias Python
@@ -307,7 +339,7 @@ jobs:
 
       - name: Escribir versión
         shell: bash
-        run: echo "__version__ = '1.0.${{ github.run_number }}'" > ${{ matrix.app }}/src/version.py
+        run: echo "__version__ = '${{ needs.version.outputs.version }}'" > ${{ matrix.app }}/src/version.py
 
       - name: Build Windows
         shell: bash
@@ -315,7 +347,8 @@ jobs:
           PYTHONUTF8: "1"
         run: |
           cd ${{ matrix.app }}
-          echo "y" | uv run flet build windows --output dist --no-rich-output -v
+          echo "y" | uv run flet build windows --output dist --no-rich-output -v \
+            --build-version ${{ needs.version.outputs.base }} --build-number ${{ github.run_number }}
 
       - name: Crear directorio installer
         shell: pwsh
@@ -325,7 +358,7 @@ jobs:
         shell: pwsh
         env:
           BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
-          APP_VERSION: "1.0.${{ github.run_number }}"
+          APP_VERSION: "${{ needs.version.outputs.version }}"
           APP: ${{ matrix.app }}
         run: |
           Write-Host "=== dist/ structure ==="
@@ -394,75 +427,67 @@ jobs:
   
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Release — solo en main y release
-  # Recoge los artefactos de los tres jobs y crea una GitHub Release
+  # Publicar — un solo job para las dos ramas que publican, con los mismos pasos:
+  #  · main, cuando el job version dice que estos commits sacan versión: la release vX.Y.Z
+  #    ("Release vX.Y.Z", latest), que es la que ven el autoupdate y los usuarios.
+  #  · develop, en cada push (al fusionar una PR): una sola prerelease, develop-latest
+  #    ("Develop: vX.Y.Z.N"), que sustituye a la anterior. Sirve para descargar la build de pruebas
+  #    desde Releases y, sobre todo, ejecuta en cada fusión a develop el mismo código que publicará en
+  #    main: si la prerelease sale bien, en main solo cambian los valores del paso "Qué se publica".
+  # La prerelease no afecta a los usuarios: el autoupdate solo mira la release "latest" y una
+  # prerelease nunca lo es; y next_version.py solo cuenta los tags vX.Y.Z. El tag es develop-latest y
+  # no "develop" para no chocar con el nombre de la rama.
   # ─────────────────────────────────────────────────────────────────────────────
-  release:
-    needs: [build-macos, build-windows, build-macos-intel]
+  publish:
+    needs: [version, build-macos, build-windows, build-macos-intel]
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release'
+    if: github.ref == 'refs/heads/develop' || (github.ref == 'refs/heads/main' && needs.version.outputs.is_release == 'true')
+    concurrency:
+      group: publish-${{ github.ref_name }}   # dos pushes seguidos a la misma rama: uno detrás de otro
+      cancel-in-progress: false
     steps:
       - name: Checkout código
         uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Qué se publica
+        id: p
+        run: |
+          set -euo pipefail
+          v="${{ needs.version.outputs.version }}"
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            tag="v$v"; name="Release v$v"; prerelease=false; latest=true; rolling=false
+          else
+            tag="develop-latest"; name="Develop: v$v"; prerelease=true; latest=false; rolling=true
+          fi
+          {
+            echo "tag=$tag"; echo "name=$name"; echo "prerelease=$prerelease"
+            echo "latest=$latest"; echo "rolling=$rolling"
+          } >> "$GITHUB_OUTPUT"
+          echo "Publica $name (tag $tag, prerelease: $prerelease, latest: $latest)"
+
+      - name: Notas
+        run: |
+          {
+            if [ "${{ steps.p.outputs.rolling }}" = "true" ]; then
+              echo "Build de pruebas de \`develop\` (**v${{ needs.version.outputs.version }}**, commit ${GITHUB_SHA::7})."
+              echo "No es una versión publicada: las apps no se actualizan a ella. Se sustituye en cada fusión a develop."
+              echo ""
+              echo "Lo que saldrá en la próxima release de main:"
+              echo ""
+            fi
+            python3 .github/scripts/next_version.py notes
+          } > release-notes.md
+          cat release-notes.md
 
       - name: Descargar todos los artefactos
         uses: actions/download-artifact@v4.3.0
         with:
           path: dist
           merge-multiple: true
-
-      # - name: Verificar dist
-      #   run: ls -lah dist/
-
-      - name: Limpiar nombre de rama
-        id: clean_branch
-        run: |
-          clean=$(echo "${{ github.ref_name }}" | sed 's/\//-/g')
-          echo "name=$clean" >> $GITHUB_OUTPUT
-
-      #- name: Zipear .app bundles de macOS
-      #  env:
-      #    BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
-      #  run: |
-      #    cd dist
-      #    for APP in bifrost-transfer bifrost-mount; do
-      #      BUNDLE="${APP}-macos.app"
-      #      if [ -d "$BUNDLE" ]; then
-      #        zip -r "${BUNDLE}.zip" "$BUNDLE"
-      #        rm -rf "$BUNDLE"
-      #        echo "Zipeado: ${BUNDLE}.zip"
-      #      fi
-      #    done
-       #   ls -lah .
-
-      # - name: Verificar artefactos macOS
-      #   env:
-      #     BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
-      #   run: |
-      #     ls -lah dist/
-      #     for APP in bifrost-transfer bifrost-mount; do
-      #       test -f "dist/${APP}-macos.app.zip" \
-      #         && echo "OK: ${APP}" \
-      #         || echo "WARNING: ${APP} no encontrado"
-      #     done
-
-      #Por si queremos quitar el nombre de la rama de los archivos finales, aunque no es tan importante porque ya se incluye en el tag de la release.
-      # - name: Eliminar sufijo de rama de los nombres de archivo
-      #   shell: bash
-      #   env:
-      #     BRANCH_SUFFIX: ${{ steps.clean_branch.outputs.name }}
-      #   run: |
-      #     for file in dist/*; do
-      #       [[ -f "$file" ]] || continue
-      #       base=$(basename "$file")
-      #       new_name="${base/-${BRANCH_SUFFIX}/}"
-      #       if [[ "$base" != "$new_name" ]]; then
-      #         mv "$file" "dist/$new_name"
-      #       fi
-      #     done
-      #     ls -lah dist/
 
       # La release publica el instalador de Windows de dos formas: <app>-windows.zip con el
       # .exe dentro, que es el que descargan los usuarios y el autoupdate (updates.py, sufijo
@@ -478,13 +503,25 @@ jobs:
           done
           ls -lah dist/
 
-      - name: Crear GitHub Release
+      - name: Borrar la prerelease anterior y su tag (develop)
+        if: steps.p.outputs.rolling == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.p.outputs.tag }}
+        run: |
+          gh release delete "$TAG" --cleanup-tag --yes || echo "No había prerelease $TAG"
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true    # por si quedó el tag sin release
+
+      - name: Publicar en GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: "Release v1.0.${{ github.run_number }}"
+          tag_name: ${{ steps.p.outputs.tag }}
+          name: ${{ steps.p.outputs.name }}
+          target_commitish: ${{ github.sha }}
+          body_path: release-notes.md
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.p.outputs.prerelease }}
+          make_latest: ${{ steps.p.outputs.latest }}
           files: dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

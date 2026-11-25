@@ -27,18 +27,35 @@ releases de GitHub.
   `backend.download_new_binary()`.
 - Vista: `view_update` (`build_update_content`, en
   `shared/bifrost_frontend/views/update.py`) es la primera vista del flujo.
-- `--update` pretende forzar la comprobación en desarrollo:
+- Cuándo se comprueba (`should_check_for_updates()`, en este orden):
+  1. **Nunca en Linux ni con `BIFROST_CLUSTER=1`**, ni siquiera con `--update`.
+     Es el clúster: transfer en modo web en Open OnDemand y mount en las
+     sesiones DCV. Allí la app se ejecuta desde el código que instala ITS, y las
+     releases no traen binarios de Linux. El modo web de transfer tampoco
+     muestra la pantalla de actualización (`main.py`), también en local.
+  2. **Siempre con `--update`** (para probar la pantalla de actualización).
+  3. **Nunca con la versión de desarrollo** (lleva `dev`: `0.0.0.dev`, la de
+     `version.py` en el repositorio), para que `flet run` no pida actualizar
+     cada vez que hay una release.
+  4. Nunca si la app no está empaquetada (salvo que Flet haya puesto
+     `FLET_APP_STORAGE_TEMP`), con SLURM ni con un ejecutable `_cluster`.
+- `--update` se pasa con `python src/main.py --update`, desde la carpeta de la
+  app (`flet run` no deja pasarle argumentos):
 
   ```bash
-  flet run --update
+  python src/main.py --update
   ```
 
-  **Ahora mismo no hace nada**: la vista pasa `force_update` a
-  `check_update_version()`, pero el bloque de prueba que simula la versión
-  `999.999.999` está comentado. Para probar la pantalla de actualización hay
-  que descomentarlo en `shared/bifrost_backend/common/updates.py` y
-  reinstalar el paquete compartido.
-- Versionado: `1.0.<run_number>` (ver [build-and-ci.md](build-and-ci.md)).
+  Con la versión de desarrollo cualquier release es más nueva, así que sale la
+  pantalla de actualización. **"Update now" instala la release de verdad** (en
+  macOS sustituye `/Applications/bifrost-<app>.app`); para ver solo la
+  pantalla, "Continue anyway". `check_update_version()` sigue sin usar
+  `force_update` (el bloque que simula `999.999.999` está comentado).
+- Para probar el autoupdate de punta a punta se pone a mano una versión sin
+  `dev` y más baja que la última release (p. ej. `0.0.1`) y se compila: ver
+  [testing.md](testing.md#prueba-manual-del-autoupdate-windows).
+- Versionado (SemVer a partir de los commits, `X.Y.Z` en las releases y
+  `X.Y.Z.N` en el resto): ver [build-and-ci.md](build-and-ci.md).
 
 ## Logs
 
