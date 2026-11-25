@@ -14,8 +14,10 @@ comprobar a mano lo que los tests no pueden cubrir.
   (`shared/bifrost_backend/common/updates.py`), el análisis de la lista de procesos
   `rclone mount` (`shared/bifrost_backend/mount/processes.py`), el comando con el que se
   monta un servidor (`shared/bifrost_backend/mount/s3_mount.py`), dónde se busca rclone
-  (`shared/bifrost_backend/common/rclone.py`) y, aparte, en `bifrost-transfer/tests/`, los
-  perfiles y la validación de metadatos (`bifrost-transfer/src/meta_fields.py`).
+  (`shared/bifrost_backend/common/rclone.py`), el cálculo de la versión de cada build y las
+  notas de la release (`.github/scripts/next_version.py`) y, aparte, en
+  `bifrost-transfer/tests/`, los perfiles y la validación de metadatos
+  (`bifrost-transfer/src/meta_fields.py`).
 - El resto del proyecto se valida **a mano**, ejecutando las apps (ver la política de
   validación en [build-and-ci.md](build-and-ci.md#política-de-validación)).
 - Todavía **no** hay ruff, mypy ni tests en la CI: `pytest`, `ruff` y `mypy` no figuran
@@ -36,6 +38,8 @@ tests/
       test_processes.py            # reconocer los `rclone mount` en la salida de ps / PowerShell
       test_s3_mount.py             # el comando de montaje: servidor entero, solo lectura y opciones
       test_rclone.py               # dónde se busca rclone: FLET_ASSETS_DIR, assets de la app, PATH
+    ci/
+      test_next_version.py         # versión de cada build según los commits, Release-As y notas de la release
 
 bifrost-transfer/tests/            # aparte: necesita el venv de transfer (importa flet y bifrost_frontend)
   conftest.py                      # añade bifrost-transfer/src al path
@@ -83,8 +87,12 @@ significa "pasa" en cada grupo:
 
 - **Lógica pura** (`test_updates.py`): comparación de versiones (`2.10.0` es mayor que
   `2.0.0`, no se compara como texto), sufijo de descarga por plataforma y arquitectura
-  (incluido Mac Intel) y cuándo se comprueba el update (`--update`, SLURM, ejecutables
-  `_cluster`). Aquí el test sí valida el comportamiento real de la función.
+  (incluido Mac Intel) y cuándo se comprueba el update: nunca en Linux ni con
+  `BIFROST_CLUSTER=1` (tampoco con `--update`), siempre con `--update`, nunca con la versión de
+  desarrollo (`0.0.0.dev`) pero sí con una versión puesta a mano (`1.0.0`), SLURM y ejecutables
+  `_cluster`. El fixture `clean_env` fija `sys.platform` y una versión publicada para que no
+  dependan del equipo ni del `version.py` (en los tests no hay, así que sería `0.0.0.dev`).
+  Aquí el test sí valida el comportamiento real de la función.
 - **Red simulada** (`test_update_flow.py`): `check_update_version` y `download_new_binary`
   frente a respuestas falsas de `requests.get`: versión nueva, igual o más antigua, error de
   la API, respuesta sin `tag_name`, sin red, descarga correcta y 404; y que se piden las URLs
@@ -116,6 +124,13 @@ significa "pasa" en cada grupo:
   `get_rclone_executable()` encuentra el rclone de la app sin `FLET_ASSETS_DIR`, da prioridad a
   `FLET_ASSETS_DIR` y falla con `EnvironmentError` si no hay rclone en ningún sitio. Usa una app
   falsa en una carpeta temporal: no comprueba que exista el rclone real ni que funcione.
+- **Versión de cada build** (`tests/unit/ci/test_next_version.py`): qué versión sale de cada
+  tipo de commit (y de varios a la vez), `Release-As` (también uno que no es mayor que la
+  última release, que debe fallar), que las ramas que no son `main` nunca publican, la versión
+  sin ninguna release previa y cómo se agrupan las notas. Uno de los tests crea un repositorio
+  git de verdad en una carpeta temporal (tag, rama fusionada con merge commit) para comprobar
+  que se leen los commits correctos. No ejecuta el workflow: que GitHub Actions pase bien las
+  salidas a los jobs solo se ve en una ejecución real.
 - **Metadatos** (`bifrost-transfer/tests/test_meta_fields.py`): campos de cada perfil con
   `provider` primero, `apply_provider`, campos obligatorios, límites y caracteres de los tags
   (`check_tag_value`, `validate_profile_tagset`) y `detect_profile`.
@@ -172,13 +187,37 @@ binario empaquetado y una actualización real.
 Tras pulsar *Update*, la app debe cerrarse, instalarse la versión nueva y **relanzarse sola
 y abrir con normalidad**.
 
+### Prueba rápida, sin compilar: `--update`
+
+Para ver **solo la comprobación y la pantalla de actualización** (qué release encuentra y que
+la ofrece), sin compilar ni instalar nada, lanza la app desde el código con `--update`, desde
+la carpeta de la app y con su venv activado:
+
+```bash
+python src/main.py --update
+```
+
+`flet run --update` no sirve: `flet run` rechaza cualquier argumento que no sea suyo
+(`unrecognized arguments: --update`). Con `--update` la app comprueba aunque la versión sea la
+de desarrollo (`0.0.0.dev`), así que cualquier release es más nueva: debe salir
+**New version available: v<última release>**. No funciona en Linux ni con
+`BIFROST_CLUSTER=1`: ahí no se comprueba nunca.
+
+**Pulsa "Continue anyway", no "Update now"**: "Update now" descarga e instala la release de
+verdad (en macOS sustituye `/Applications/bifrost-<app>.app` y pide la contraseña de
+administrador; en Windows ejecuta el instalador), aunque la app se esté ejecutando desde el
+código. Lo que pasa después de pulsarlo (instalar y relanzar) solo se prueba con un build
+empaquetado, como se explica a continuación.
+
 ### Cómo probarlo: contra la última release real de GitHub
 
 No requiere hacer commit ni montar ningún servidor: se compila el build con una versión
 inferior a la última release y se deja que se actualice con la real.
 
-1. Pon una versión baja en `bifrost-<flavour>/src/version.py` (p. ej. `0.0.1`), compila el
-   build empaquetado e instálalo (ver "Compilar e instalar").
+1. Pon una versión baja **sin `dev`** en `bifrost-<flavour>/src/version.py` (p. ej. `0.0.1`;
+   con la del repositorio, `0.0.0.dev`, la app no comprueba actualizaciones), compila el build
+   empaquetado e instálalo (ver "Compilar e instalar"). En macOS, si compilas con
+   `build-macos.sh`, la versión hay que ponerla en el script: sobrescribe `version.py`.
 2. Abre la app instalada.
 3. Pulsa *Update* y **no abras la app a mano**. Debe instalarse y relanzarse sola. Al final
    debe mostrarse la pantalla de inicio de sesión, con la última versión en la esquina
@@ -201,8 +240,9 @@ el autoupdate de Windows del `.exe` al `.zip` (rama `feature/update`, prerelease
 
 **Por qué funciona y por qué es seguro:**
 
-- El job `release` del CI solo se ejecuta en `main` y `release`, así que desde una rama
-  normal no hay ninguna release que probar. Se habilita temporalmente para tu rama.
+- El job `release` del CI solo se ejecuta en `main` (y solo cuando hay versión nueva), así
+  que desde una rama normal no hay ninguna release que probar. Se habilita temporalmente para
+  tu rama.
 - La release de la rama se publica como **prerelease**. GitHub nunca marca una prerelease
   como `latest`, y las apps de los usuarios solo consultan `releases/latest`: no la ven y no
   se actualizan a ella.
@@ -222,19 +262,21 @@ línea con un comentario `TEMPORAL` para encontrarlas luego):
 ```yaml
   release:
     # TEMPORAL: <tu-rama> publica una prerelease. Revertir antes del merge a main.
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || github.ref == 'refs/heads/<tu-rama>'
+    if: (github.ref == 'refs/heads/main' && needs.version.outputs.is_release == 'true') || github.ref == 'refs/heads/<tu-rama>'
     ...
       - name: Crear GitHub Release
         with:
           ...
           prerelease: ${{ github.ref == 'refs/heads/<tu-rama>' }}   # TEMPORAL
-          target_commitish: ${{ github.sha }}                       # TEMPORAL
 ```
 
-- `if`: deja que el job `release` se ejecute en tu rama.
+- `if`: deja que el job `release` se ejecute en tu rama. En tu rama la versión es la de
+  prueba, con cuatro números (`<última release>.<n>`, p. ej. `v1.1.0.412`), y con ella se
+  crean el tag y la release. Esto no se ha probado todavía con el versionado nuevo; el
+  autoupdate compara bien los cuatro números.
 - `prerelease`: es lo que impide que la release sea `latest`. En `main` sigue valiendo `false`.
-- `target_commitish`: sin él, GitHub crea el tag sobre la rama principal y no sobre tu
-  commit, lo que confunde.
+- `target_commitish: ${{ github.sha }}` ya está en el job: crea el tag sobre tu commit y no
+  sobre la rama principal.
 
 Haz un commit **solo con este cambio** (así se revierte fácil) y súbelo. Si usas PowerShell
 5.1, escribe el mensaje en un fichero y usa `git commit -F fichero`: con varios `-m`,
@@ -244,8 +286,8 @@ PowerShell puede meterlos todos en el título.
 
 Cuando termine la ejecución en *Actions* (todos los jobs en verde, incluido `release`):
 
-1. En *Releases* debe aparecer `Release v1.0.<n>` con la etiqueta **Pre-release**. El número
-   es el de la ejecución del workflow.
+1. En *Releases* debe aparecer `Release v<versión>` (p. ej. `v1.1.0.412`) con la etiqueta
+   **Pre-release**. El último número es el de la ejecución del workflow.
 2. Revisa sus assets: deben estar los ficheros con los nombres que espera tu código (para
    Windows: `bifrost-<app>-<rama>-windows.exe` y `bifrost-<app>-windows.zip`). Si publicas un
    `.zip`, descárgalo y comprueba que contiene lo que debe.
@@ -257,18 +299,22 @@ Cuando termine la ejecución en *Actions* (todos los jobs en verde, incluido `re
 
 #### 3. Apuntar tu build local a la prerelease (sin commit)
 
-- `bifrost-<flavour>/src/version.py`: una versión menor que la de la prerelease, p. ej.
-  `0.0.1`. **Por qué:** el updater solo ofrece actualizar si la versión publicada es mayor
-  que la instalada. Ojo: `2.0.0` es mayor que `1.0.<n>`, así que con la versión del repo no
-  ofrecería nada.
+En este paso y los siguientes, `<versión>` es la de tu prerelease tal como la muestra *Releases*
+(paso 2), sin la `v`: p. ej. `1.1.0.412`.
+
+- `bifrost-<flavour>/src/version.py`: una versión menor que la de la prerelease y **sin
+  `dev`**, p. ej. `0.0.1`. **Por qué:** el updater solo ofrece actualizar si la versión
+  publicada es mayor que la instalada, y con la versión del repositorio (`0.0.0.dev`) ni
+  siquiera comprueba. Si compilas con `build-macos.sh`, ponla en el script: sobrescribe
+  `version.py`.
 - `shared/bifrost_backend/common/updates.py`: cambia `releases/latest` por el tag de tu
   prerelease en las dos URLs, y marca las líneas con `# PRUEBA LOCAL, no commitear`:
 
   ```python
   # check_update_version()
-  requests.get(f"https://api.github.com/repos/{REPO}/releases/tags/v1.0.<n>", timeout=5)
+  requests.get(f"https://api.github.com/repos/{REPO}/releases/tags/v<versión>", timeout=5)
   # download_new_binary()
-  url = f"https://github.com/{REPO}/releases/download/v1.0.<n>/{file_name}{sufijo}"
+  url = f"https://github.com/{REPO}/releases/download/v<versión>/{file_name}{sufijo}"
   ```
 
   **Por qué:** `releases/latest` ignora las prereleases, así que sin este cambio tu build
@@ -276,10 +322,15 @@ Cuando termine la ejecución en *Actions* (todos los jobs en verde, incluido `re
   el `.exe` antiguo, `-main-windows.exe`), cambia también el sufijo en
   `get_update_file_suffix()` por el de tu rama. Con el `.zip` no hace falta: su nombre no
   lleva la rama.
+- Antes de compilar, puedes comprobar que tu código encuentra la prerelease con la prueba
+  rápida: `python src/main.py --update` debe ofrecer `New version available: v<versión>`
+  (y pulsa "Continue anyway"). Para esto no hace falta cambiar `version.py`: con `--update` la
+  versión de desarrollo también comprueba. Antes, reinstala el paquete compartido para que
+  coja tu `updates.py` cambiado (`uv sync --reinstall-package bifrost-shared`).
 - Comprueba que las URLs responden antes de compilar (deben dar `200` o `206`):
 
   ```bash
-  curl -s -o /dev/null -w "%{http_code}\n" -L -r 0-0 https://github.com/its-irb/irb-storage-public-scripts/releases/download/v1.0.<n>/bifrost-mount-windows.zip
+  curl -s -o /dev/null -w "%{http_code}\n" -L -r 0-0 https://github.com/its-irb/irb-storage-public-scripts/releases/download/v<versión>/bifrost-mount-windows.zip
   ```
 
 #### 4. Compilar, comprobar e instalar
@@ -288,7 +339,7 @@ Compila como en "Compilar e instalar" (borrando antes la caché de Flet, ver "Tr
 conocidas"). Antes de instalar, comprueba que el build lleva tu código de prueba:
 
 ```powershell
-Get-ChildItem $src -Recurse -Filter updates.py | Select-String "v1.0.<n>"
+Get-ChildItem $src -Recurse -Filter updates.py | Select-String "v<versión>"
 ```
 
 donde `$src` es `dist` o, si tuviste que usar el CMake de 64 bits,
@@ -307,9 +358,9 @@ mezclada". En robocopy, los códigos de salida de 0 a 7 son correctos.
 
 #### 5. Probar la actualización
 
-1. Abre la app desde el acceso directo. Debe ofrecer `New version available: v1.0.<n>`.
+1. Abre la app desde el acceso directo. Debe ofrecer `New version available: v<versión>`.
 2. Pulsa *Update* y **no abras la app a mano**.
-3. Debe instalarse y relanzarse sola, en la pantalla de inicio de sesión y con `1.0.<n>`
+3. Debe instalarse y relanzarse sola, en la pantalla de inicio de sesión y con `<versión>`
    arriba a la derecha.
 
 Si el updater descarga un `.zip`, puedes confirmar que pasó por él: en `%TEMP%` debe quedar
@@ -325,7 +376,7 @@ una carpeta `bifrost-update-*` con el `.exe` extraído
    merge a `main`**. Si llegaran a `main`, el `if` no haría daño, pero el workflow quedaría
    con código de prueba.
 3. Borra la prerelease en *Releases* (icono de papelera) y después su tag, que no se borra
-   con ella: `git push origin --delete v1.0.<n>`.
+   con ella: `git push origin --delete v<versión>`.
 4. Comprueba que `latest` sigue siendo la release anterior.
 
 ### Compilar e instalar (Windows)

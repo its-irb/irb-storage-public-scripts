@@ -19,7 +19,7 @@ bifrost-mount/            # Mount app (desktop)
     main.py               # Flet entry point: technical log, exit cleanup (register_shutdown), view navigation
     views/                # servers (one card per MinIO server), server_card, winfsp_dialog
     config.py             # APP_INFO = {"flavour": "mount", ...}
-    version.py            # __version__ (written by CI/build)
+    version.py            # __version__: 0.0.0.dev in the repo, the real one written by CI
     assets/bin/           # bundled rclone
   frameworks/             # fuse_t.framework (macOS)
   pyproject-template.toml # Template; pyproject.toml is generated locally (not versioned)
@@ -95,7 +95,7 @@ docs/superpowers/         # Historical feature specs and plans
 - `src/web_session.py` (**transfer only**) — web-mode session store.
 - `src/meta_fields.py` — **`bifrost-transfer` only**: `FieldType`, `TAG_PROFILES`, `profile_fields`, `apply_provider`, `missing_required`, `validate_profile_tagset`, `check_tag_value`, `validate_tagset`, `TAG_KEY_MAX`, `TAG_VALUE_MAX`, `build_meta_fields`, `LAB_ACRONYMS`, `build_lab_filter_widget`, `detect_profile`. Canonical source of profiles and fields.
 - `src/config.py` — only `APP_INFO`. Its location also tells the backend where the app's `src/assets/` is in development (`common/rclone.app_assets_dir()`: rclone and the emoji font when there is no `FLET_ASSETS_DIR`, e.g. `python src/main.py`). `APP_INFO["flavour"]` names the update binary and adapts some texts.
-- `src/version.py` — written by CI/build (`__version__ = "1.0.<run_number>"`).
+- `src/version.py` — tracked with the development version `0.0.0.dev` (no update checks with it); CI overwrites it with `X.Y.Z` or `X.Y.Z.N` (see `operations.md`).
 - `installer.iss`, `build-macos.sh`, `pyproject-template.toml` (frozen deps per app).
 
 ## Coupling and invariants
@@ -107,7 +107,7 @@ docs/superpowers/         # Historical feature specs and plans
   in each app** (that is why each app has its own, even though it only contains
   `APP_INFO`). `version` is also imported as a top-level module
   (`common/constants.py`, `common/rclone.py`), but inside `try/except` with a
-  fallback (`"1.0.1"` / `"dev"`), so a missing `version.py` does not break the
+  fallback (`DEV_VERSION = "0.0.0.dev"` / `"dev"`), so a missing `version.py` does not break the
   import.
 - Each app's `pyproject.toml` references
   `bifrost-shared @ file:///__BUILDPATH__/shared`; the build script (CI,

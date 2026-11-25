@@ -36,7 +36,8 @@ https://github.com/its-irb/irb-storage-public-scripts/releases .
      browser through Open OnDemand (see [web-mode-ood.md](web-mode-ood.md)).
 
 The app **updates itself**: when you open it and a newer version exists, it
-asks if you want to update, and downloads it if you accept.
+asks if you want to update, and downloads it if you accept. On the cluster
+(Open OnDemand) it never asks: there ITS keeps the app up to date for you.
 
 ## Sign in
 

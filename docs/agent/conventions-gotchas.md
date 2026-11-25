@@ -109,21 +109,26 @@ Cross-cutting knowledge that constrains any change. Technical details in
 17. **Known cluster limitation (from the maintainers)**: Bifrost mount in a DCV
     session fails straight away on node `ccn01`; use other nodes (for example
     `sphr`). This is not enforced in the repository code.
+18. **Version strings**: `_parse_version` (autoupdate) only understands numbers
+    (`1.1.0`, test builds `1.1.0.412`). A suffix such as `1.1.0-rc1` is read as
+    `0` and makes the app always ask to update — that is why test builds carry a
+    fourth number and not a suffix. A version containing `dev` (the repo's
+    `0.0.0.dev`) disables the update check (except with `--update`).
 
 ## Repository hygiene
 
-18. **Never `print()`**: every module logs with its own logger
+19. **Never `print()`**: every module logs with its own logger
     (`logging.getLogger("bifrost.<area>")`, list in
     `docs/development/operations.md#logs`), in English, one line per event,
     with `%s` arguments and no emojis, passwords, file listings or tag values.
     Anything printed by a library still reaches the log as `bifrost.print`
     (`common/logs.py`), but that is only a safety net.
-19. **Do not commit** `.venv/`, `dist/`, `build/`, generated `src/version.py` or
+20. **Do not commit** `.venv/`, `dist/`, `build/`, a `src/version.py` other than `0.0.0.dev` or
     the local `pyproject.toml` of the apps. See `.gitignore`.
 
 ## Documentation hygiene
 
-20. `docs/wiki/` is referenced by old documentation but **does not exist**.
+21. `docs/wiki/` is referenced by old documentation but **does not exist**.
     Do not create new references to it.
-21. Documentation is updated with the `docs-update` skill; the agent entry
+22. Documentation is updated with the `docs-update` skill; the agent entry
     point is `AGENTS.md`.

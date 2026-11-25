@@ -124,6 +124,8 @@ After signing in, bifrost-mount shows one card per MinIO server (`minio`, `minio
 
 When a new release of bifrost-mount or bifrost-transfer is available, the app asks the user whether they want to upgrade. If so, the new release is downloaded from this git repo.
 
+It only happens in the desktop apps built by CI. It never checks on Linux or on the cluster (Open OnDemand: transfer in web mode, mount in DCV sessions, `BIFROST_CLUSTER=1`), where ITS installs the code and releases have no Linux binaries, nor with the development version (`0.0.0.dev`), unless it is forced with `--update` (see "Running the app").
+
 > **macOS:** releases include `bifrost-<app>-macos.dmg` (Apple Silicon) and
 > `bifrost-<app>-macos-intel.dmg` (Intel). Autoupdate
 > downloads the build matching the Mac's architecture (arm64 →
@@ -135,6 +137,26 @@ When a new release of bifrost-mount or bifrost-transfer is available, the app as
 > `.zip` files (browsers warn when downloading an `.exe`, not a `.zip`).
 > Autoupdate downloads `bifrost-<app>-windows.zip`, extracts the installer and
 > runs it; the loose `.exe` is kept for older versions, which still download it.
+
+### Versioning
+
+One version for both apps, [SemVer](https://semver.org) `MAJOR.MINOR.PATCH`, computed by CI (`.github/scripts/next_version.py`) from the conventional commits since the last release (the highest `vX.Y.Z` tag):
+
+| Commits since the last release | Next version |
+|---|---|
+| any `!` (`feat!:`) or `BREAKING CHANGE:` in the body | major (`1.4.2` → `2.0.0`) |
+| any `feat` | minor (`1.4.2` → `1.5.0`) |
+| only `fix`, `perf`, `revert`, `build` | patch (`1.4.2` → `1.4.3`) |
+| only `docs`, `style`, `refactor`, `test`, `ci`, `chore` | no release |
+| `Release-As: X.Y.Z` in a commit body | exactly that version (it must be greater than the last release) |
+
+Only `main` publishes a release (`vX.Y.Z`, with the commits as notes). Builds of other branches, or of `main` with nothing to release, carry `<last release>.<run number>` (e.g. `1.1.0.412`): newer than their release for the autoupdate, older than the next one. To force a version, push an empty commit to the branch that goes to `main`:
+
+```bash
+git commit --allow-empty -m "chore(release): publica la 2.0.0" -m "Release-As: 2.0.0"
+```
+
+Details: [docs/development/build-and-ci.md](docs/development/build-and-ci.md).
 
 ---
 
@@ -248,16 +270,19 @@ flet run
 ```
 
 
-Additional option (available in both apps):
+To see the update screen (both apps), launch the app with Python from its folder
+— `flet run --update` does not work, `flet run` rejects arguments it does not know:
 ```bash
-flet run --update       # Meant to force auto-update — currently has no effect
+python src/main.py --update
 ```
 
-`--update` currently does nothing: the test block that simulates a new version
-(`999.999.999`) is commented out in `check_update_version()`
-(`shared/bifrost_backend/common/updates.py`). Uncomment it, and reinstall the
-shared package, to test the update screen. The username field of the login is
-always editable, so no option is needed to sign in as a different user.
+The development version (`0.0.0.dev`, the one in the repo's `version.py`) never
+checks for updates, but `--update` forces the check, so any release is newer and
+the update screen appears (except on Linux or with `BIFROST_CLUSTER=1`, where it
+never checks). **"Update now" really installs the release** (on macOS it replaces
+`/Applications/bifrost-<app>.app`); click "Continue anyway" to only look. The
+username field of the login is always editable, so no option is needed to sign
+in as a different user.
 
 `bifrost-transfer` also supports web mode (Open OnDemand / Linux cluster):
 ```bash

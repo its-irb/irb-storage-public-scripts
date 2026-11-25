@@ -57,16 +57,18 @@ flet run
 Useful flags:
 
 ```bash
-flet run --update         # Meant to force autoupdate — currently has no effect (see below)
+python src/main.py --update   # force the update check (flet run cannot pass it: it rejects unknown arguments)
 flet run --web            # (transfer only) web mode for local development
 BIFROST_CLUSTER=1 python src/main.py --web  # (transfer only) simulate OOD production
 ```
 
-- `--update` currently does nothing: `check_update_version()` receives
-  `force_update`, but the test block that simulates version `999.999.999` is
-  commented out. Uncomment it in
-  `shared/bifrost_backend/common/updates.py` (and reinstall the shared package)
-  to test the update screen.
+- `--update` (from the app folder, with `python src/main.py`) forces the update
+  check even with the development version `0.0.0.dev`, so any release is newer
+  and the update screen appears (not on Linux or with `BIFROST_CLUSTER=1`: there
+  it never checks). **"Update now" really installs the release** (macOS: replaces
+  `/Applications/bifrost-<app>.app`); use "Continue anyway" to only look at the
+  screen. `check_update_version(force_update=…)` still ignores `force_update` (the
+  block that simulates `999.999.999` is commented out).
 - The username field of the login is always editable; there is no flag to sign
   in with another user.
 - With Flet 0.84, `flet run --web` fails with
@@ -105,7 +107,7 @@ Common prerequisite: local `pyproject.toml` generated from the template with
 | Environment | Notes |
 |---|---|
 | Local Windows | `build-windows.ps1`, from the repo root: regenerates `pyproject.toml`, downloads rclone, reinstalls `bifrost-shared` and runs `flet build windows` (output in `<app>/build/windows/`; uses the `flet` on PATH, so the app's venv must be active) or, with `-run`, `uv run flet run` (always the app's venv). Default app: `bifrost-mount`. The installer (Inno Setup) is packaged separately. |
-| Local macOS | From the app folder; requires Xcode. Local version `2.0.0.dev`; in mount it copies `fuse_t.framework` into the bundle. |
+| Local macOS | From the app folder; requires Xcode. `build-macos.sh` writes version `0.0.0.dev` (it overwrites `src/version.py`: to test the autoupdate with a lower version, change it in the script); in mount it copies `fuse_t.framework` into the bundle. |
 | CI | `.github/workflows/main.yml` — macOS (`.app` → DMG) and Windows (build + Inno Setup + installer signing) for both apps. **There is no Linux job.** |
 | Linux (cluster) | No packaging: `bifrost-transfer` runs from source in web mode (Open OnDemand, `BIFROST_CLUSTER=1`). |
 
@@ -140,11 +142,32 @@ uv add <package>
 ## CI and releases
 
 - Triggers: push to `main`, `release`, `develop`, `feature/**` (only with
-  changes in the apps, `shared/` or the workflow) + `workflow_dispatch`.
+  changes in the apps, `shared/` or the workflow) + `workflow_dispatch`. Only
+  `main` publishes releases; the others build artifacts.
 - CI toolchain: Python 3.12, `uv` via pip, **Node 24** (needed for
   `flet build windows`), `PYTHONUTF8=1` on Windows.
-- The version is injected as `1.0.<run_number>` in `src/version.py` and in each
-  app's `pyproject.toml` before the build (the template version is `2.0.0`).
+- **Versioning (SemVer, one version for both apps)**: the `version` job runs
+  `.github/scripts/next_version.py version` and the other jobs read its outputs.
+  It reads the commits since the highest `vX.Y.Z` tag (merge commits skipped,
+  the commits they bring counted):
+
+  | Commits | Next version |
+  |---|---|
+  | `feat!:` / any `!`, or `BREAKING CHANGE:` in the body | major |
+  | any `feat` | minor |
+  | only `fix`, `perf`, `revert`, `build` | patch |
+  | only `docs`, `style`, `refactor`, `test`, `ci`, `chore` | none |
+  | `Release-As: X.Y.Z` in a body (newest wins) | exactly that (must be greater than the last release, or the job fails) |
+
+  On `main` with a next version: `version` = `base` = `X.Y.Z`, `is_release=true`.
+  Anything else (other branches, or `main` with nothing releasable):
+  `version` = `<last release>.<run_number>` (e.g. `1.1.0.412`), `base` = the last
+  release, `is_release=false` — newer than its release for the autoupdate, older
+  than the next one. `version` goes to `src/version.py` and the Inno Setup
+  `AppVersion`; `base` to `pyproject.toml` and `flet build --build-version`, with
+  `--build-number <run_number>` (Flutter/macOS only accept three numbers). The
+  template version (`0.0.0`) and the repo `version.py` (`0.0.0.dev`) are always
+  overwritten.
 - `build-macos` job (runner `macos-26`, Apple Silicon; pinned instead of
   `macos-latest` so a new macOS image never changes the build unless we decide
   it): DMGs from `macos-assets-downloader.sh` (mount) /
@@ -157,8 +180,9 @@ uv add <package>
 - `build-windows` job: signed installer
   `bifrost-<flavour>-<branch>-windows.exe` plus a `.zip` with it inside
   (`bifrost-<flavour>-<branch>-windows.zip`), both in the artifact.
-- `release` job (only on `main` and `release`): publishes the release with tag
-  `v1.0.<run_number>` and the artifacts (macOS:
+- `release` job (only on `main` and only when `is_release` is true): creates tag
+  `vX.Y.Z` on the built commit and the release "Release vX.Y.Z" with notes grouped
+  by commit type (`next_version.py notes`) and the artifacts (macOS:
   `bifrost-<flavour>-macos.dmg` (arm64) +
   `bifrost-<flavour>-macos-intel.dmg` (Intel); Windows: the installer
   `.exe` **signed** with `signtool`, PFX from the secrets
@@ -195,7 +219,7 @@ setx BIFROST_NO_LDAP 1 /M
 
 ## Commit hygiene
 
-Do not commit `.venv/`, `dist/`, `build/`, generated `src/version.py`, the
+Do not commit `.venv/`, `dist/`, `build/`, a `src/version.py` other than `0.0.0.dev`, the
 downloaded binaries (`src/assets/**/*`, `frameworks/*`) or the local
 `pyproject.toml` of the apps (only the `pyproject-template.toml` templates). See
 `.gitignore`.

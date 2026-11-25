@@ -187,6 +187,8 @@ another node (for example `sphr`).
 
 The app updates itself: if a new version exists on GitHub, it asks if you want
 to install it. Accept to get the latest version, or wait; it asks again later.
+On the cluster (Open OnDemand) it never asks: there ITS keeps the app up to
+date for you.
 
 **Intel Macs:** if you are still on an older version of the app, the in-app
 update may offer a build that does not run on your Mac. In that case, download

@@ -13,7 +13,7 @@ Ambas apps comparten el layout base:
   src/
     main.py                # GUI Flet — punto de entrada
     config.py              # APP_INFO = {"flavour": ..., "name": ..., "description": ...}
-    version.py             # __version__ — generado por CI/build local
+    version.py             # __version__ — 0.0.0.dev en el repositorio; CI escribe la real
     assets/
       bin/                 # rclone(.exe) — descargado con los downloaders (no versionado)
     views/                 # vistas propias de la app

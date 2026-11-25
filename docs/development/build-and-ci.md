@@ -131,16 +131,21 @@ la carpeta de la app, sin tener que activar el venv (ver «Empaquetado»).
 Flags útiles:
 
 ```bash
-flet run --update         # pretende forzar el autoupdate; ahora mismo no hace nada (ver abajo)
+python src/main.py --update   # fuerza la comprobación del autoupdate (flet run no deja pasarle argumentos)
 flet run --web            # (solo transfer) modo web para desarrollo local
 BIFROST_CLUSTER=1 python src/main.py --web   # (solo transfer) simular OOD
 ```
 
-- `--update` no tiene efecto: `check_update_version()` recibe
-  `force_update`, pero el bloque de prueba que simula la versión
-  `999.999.999` está comentado. Hay que descomentarlo en
-  `shared/bifrost_backend/common/updates.py` (y reinstalar el paquete
-  compartido) para probar la pantalla de actualización.
+- `--update` se pasa con `python src/main.py --update`, desde la carpeta de la
+  app: `flet run` rechaza cualquier argumento que no sea suyo (`unrecognized
+  arguments: --update`). Fuerza la comprobación aunque la versión sea la de
+  desarrollo (`0.0.0.dev`), así que cualquier release es más nueva y sale la
+  pantalla de actualización (salvo en Linux o con `BIFROST_CLUSTER=1`, donde no
+  se comprueba nunca). **"Update now" instala la release de verdad** (en macOS
+  sustituye `/Applications/bifrost-<app>.app` y pide la contraseña de
+  administrador); para ver solo la pantalla, "Continue anyway".
+  `check_update_version()` sigue sin usar `force_update`: el bloque que simula la
+  versión `999.999.999` está comentado.
 - El campo de usuario del login es siempre editable; no hace falta ningún
   flag para entrar con otro usuario.
 - Con Flet 0.84, `flet run --web` falla con
@@ -222,8 +227,9 @@ común: `pyproject.toml` local generado desde la plantilla con
 ```
 
 **`build-macos.sh`** automatiza: plantilla → `pyproject.toml` (con
-`__BUILDPATH__` = `$(pwd)/..`), versión `2.0.0.dev` (en el `pyproject.toml` y
-en `version.py`), limpieza de `dist/`/`build/`, `pip install uv`, `uv sync`,
+`__BUILDPATH__` = `$(pwd)/..`), versión `0.0.0.dev` (en el `pyproject.toml` y
+en `version.py`; el script **sobrescribe** `version.py`, así que para probar el
+autoupdate con una versión antigua hay que cambiarla en el script), limpieza de `dist/`/`build/`, `pip install uv`, `uv sync`,
 descarga de assets y `flet build macos -o ./dist`. En `bifrost-mount` copia
 además `frameworks/fuse_t.framework` a
 `dist/bifrost-mount.app/Contents/Frameworks/` (paso sin el que el montado en
@@ -256,14 +262,65 @@ solo la hace la CI; ver abajo.)
 
 - **Triggers**: push a `main`, `release`, `develop`, `feature/**` — solo con
   cambios en `bifrost-transfer/**`, `bifrost-mount/**`, `shared/**` o el
-  propio workflow—, además de `workflow_dispatch` (manual).
+  propio workflow—, además de `workflow_dispatch` (manual). Todas compilan y
+  suben artefactos; **solo `main` publica releases** (la rama `release` ya no).
 - **Toolchain**: Python **3.12** (`setup-python`), `uv` vía `pip install uv`,
   **Node 24** (`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`; necesario para
   `flet build windows`), y en Windows `PYTHONUTF8=1` y long paths activados.
-- **Versionado**: `1.0.<run_number>`. Se genera el `pyproject.toml` desde la
-  plantilla con `__BUILDPATH__` = workspace, se reescribe su `version`
-  (la de la plantilla es `2.0.0`) y se escribe
-  `__version__ = "1.0.<run_number>"` en `src/version.py`.
+- **Versionado** (SemVer `MAYOR.MENOR.PARCHE`, una sola versión para las dos
+  apps): el job `version` ejecuta `.github/scripts/next_version.py version` y
+  los demás jobs usan sus salidas (`version`, `base`, `is_release`). Lee los
+  commits desde el tag `vX.Y.Z` más alto (sin los «Merge pull request», pero sí
+  los commits que traen dentro):
+
+  | Commits desde la última release | Siguiente versión |
+  |---|---|
+  | `feat!:` (cualquier tipo con `!`) o `BREAKING CHANGE:` en el cuerpo | MAYOR (`1.4.2` → `2.0.0`) |
+  | algún `feat` | MENOR (`1.4.2` → `1.5.0`) |
+  | solo `fix`, `perf`, `revert` o `build` | PARCHE (`1.4.2` → `1.4.3`) |
+  | solo `docs`, `style`, `refactor`, `test`, `ci` o `chore` | ninguna |
+  | `Release-As: X.Y.Z` en el cuerpo de un commit (manda el más reciente) | exactamente esa |
+
+  Si llegan varios tipos, manda el más fuerte: una sola versión por push.
+  - **En `main` con versión nueva**: `version` = `base` = `X.Y.Z` e
+    `is_release=true`; el job `release` la publica.
+  - **En el resto** (otras ramas, o `main` sin commits que saquen versión):
+    `version` = `<última release>.<run_number>` (p. ej. `1.1.0.412`), `base` =
+    la última release, `is_release=false`; solo artefactos.
+  - `version` se escribe en `src/version.py` y en el `AppVersion` de Inno
+    Setup; `base` en el `version` del `pyproject.toml` y en
+    `flet build --build-version`, con `--build-number <run_number>`.
+
+  Por qué así:
+  - **El número sale de los commits** (que commitlint ya obliga a escribir con
+    tipo), así que tiene significado y nadie tiene que decidirlo a mano. Antes
+    era `1.0.<run_number>`: el contador de ejecuciones de Actions, que subía con
+    cada push a cualquier rama y no decía nada del cambio.
+  - **Las builds de prueba llevan un cuarto número y no un sufijo**
+    (`1.1.0.412`, no `1.1.0-dev.412`): `_parse_version` del autoupdate solo
+    entiende números y leería el sufijo como `0`. Con el cuarto número, una
+    build de prueba es más nueva que su release (no ofrece «volver» a ella) y
+    más antigua que la siguiente (sí ofrece actualizar cuando sale).
+  - **El bundle lleva `base` y el contador como build number** porque
+    Flutter/macOS solo admiten tres números en la versión de la app.
+  - **La última release se toma del tag más alto**, no de un fichero de la
+    rama: así acierta en `develop` y en las `feature/**` aunque no se haya
+    fusionado `main` de vuelta tras una release.
+  - **`Release-As` tiene que ser mayor que la última release**; si no, el job
+    `version` falla y no se publica nada: los ordenadores que ya la tienen no
+    verían la nueva como más reciente y no se actualizarían. Para usarlo, un
+    commit vacío en la rama que vaya a `main`:
+    `git commit --allow-empty -m "chore(release): publica la 2.0.0" -m "Release-As: 2.0.0"`.
+  - **No se usa release-please** (se probó en la rama `feature/versionado-semver`): saca cada
+    versión con dos PRs (la normal a `main` y una PR de release automática) y
+    necesita que la organización deje a GitHub Actions crear PRs, que está
+    desactivado en `its-irb`. Aquí `main` ya es la rama de releases: a ella
+    solo llega `develop` cuando se quiere publicar.
+
+  La plantilla (`version = "0.0.0"`) y el `version.py` del repositorio
+  (`0.0.0.dev`, la versión de desarrollo, que no busca actualizaciones) se
+  sobrescriben siempre. Los tests del script están en
+  `tests/unit/ci/test_next_version.py` (ver [testing.md](testing.md)).
 - **Job `build-macos`** (matriz por app, runner `macos-26`, Apple
   Silicon; fijado en vez de `macos-latest` para que una imagen nueva de macOS
   no cambie el build sin que lo decidamos): descarga assets (mount: `macos-assets-downloader.sh`;
@@ -281,17 +338,21 @@ solo la hace la CI; ver abajo.)
 - **Job `build-windows`** (matriz por app): descarga rclone, `uv sync`,
   `uv run flet build windows --output dist --no-rich-output -v`,
   **Inno Setup** (`ISCC.exe` sobre `installer.iss` con
-  `/DBranchSuffix`, `/DAppVersion=1.0.<run_number>`, `/DAppName=<app>`) →
+  `/DBranchSuffix`, `/DAppVersion=<version>` (con cuatro números en las builds
+  de prueba), `/DAppName=<app>`) →
   `installer/*.exe`, y **firma el instalador** con `signtool` (certificado
   PFX desde los secrets del repo `IRBCODESIGNING` /
   `IRBCODESIGNING_PASSWORD`, con timestamp de Digicert). Comprime el
   instalador firmado en `bifrost-<flavour>-<rama>-windows.zip` (para la
   descarga manual: los navegadores avisan al bajar un `.exe` pero no un `.zip`)
   y sube el `.exe` y ese `.zip` como artefacto `<app>-windows`.
-- **Job `release`** (solo en `main` y `release`): descarga los artefactos de
-  los tres jobs de build (por eso su `needs` incluye también
-  `build-macos-intel`) y publica una release de GitHub con tag
-  `v1.0.<run_number>` que contiene:
+- **Job `release`** (solo en `main` y solo si el job `version` devuelve
+  `is_release=true`): descarga los artefactos de los tres jobs de build (por eso
+  su `needs` incluye también `build-macos-intel`) y publica la release de GitHub
+  «Release vX.Y.Z» con tag `vX.Y.Z` sobre el commit compilado
+  (`target_commitish`) y, como notas, los commits que sacan versión agrupados en
+  cambios incompatibles, nuevas funciones, arreglos y otros
+  (`next_version.py notes`). Contiene:
   - macOS: `bifrost-<flavour>-macos.dmg` (Apple Silicon) y
     `bifrost-<flavour>-macos-intel.dmg` (Intel)
   - Windows, tres ficheros a propósito: `bifrost-<flavour>-<rama>-windows.exe`
