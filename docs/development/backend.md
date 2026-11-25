@@ -15,8 +15,8 @@ shared/
     __init__.py
     frontend.py           # Fachada: reexporta theme, components y views
     theme.py              # Paleta C_*, fuentes, apply_theme
-    components.py         # Botones, campos, show_dialog, show_confirm, build_header
-    views/                # update, login, minio, credentials (vistas comunes)
+    components.py         # Botones, nav_bar, tarjetas/etiquetas, diálogos (open_dialog, show_dialog, show_issue, show_confirm), ErrorBanner, build_header
+    views/                # update, login, minio, credentials, renew_dialog (vistas y diálogos comunes)
   linux-assets-downloader.sh
   macos-assets-downloader.sh
   macos-rclone-downloader.sh
@@ -45,7 +45,7 @@ llamando a `backend.X` (`from bifrost_backend import backend`).
 |---|---|
 | `common/auth.py` — STS, perfil rclone, LDAP | `get_credentials(endpoint, username, password, durationseconds)` → dict de credenciales temporales (timeout HTTP de 30 s); `configure_rclone()`; `get_session_info(perfil)` → `SessionInfo`; `validar_credenciales_ldap()`. |
 | `common/constants.py` | `MINIO_SERVERS` (su orden es el de las pantallas: las tarjetas de mount y la lista de servidores de transfer, donde el primero sale seleccionado: `minio`, `minio-archive`, `irbminio`), `DEFAULT_S3_REGION`, `REPO`, `__version__`, `EMOJI_FONT_FILENAME`, `LDAP_SERVER_URL`, `LDAP_BASE_DN`, `STS_RENEWAL_THRESHOLD_DAYS` (3), `STS_AUTO_RENEWAL_DAYS` (7), `NO_LDAP` (`BIFROST_NO_LDAP=1`). |
-| `common/rclone.py` — resolución de rclone | `get_rclone_executable()` — resuelve el binario en (1) `FLET_ASSETS_DIR/bin/` (apps empaquetadas), (2) `bifrost-<flavour>/src/assets/bin/` del repo (desarrollo; se construye con `APP_INFO["flavour"]`), (3) PATH (modo web/clúster); si no lo encuentra lanza `EnvironmentError`. `obtener_ruta_rclone_conf()` (ejecuta `rclone config file`; el resultado se cachea con `lru_cache`), `rclone_lsd()` (solo carpetas — S3 destino), `_subprocess_kwargs()`. |
+| `common/rclone.py` — resolución de rclone | `get_rclone_executable()` — resuelve el binario en (1) `FLET_ASSETS_DIR/bin/` (apps empaquetadas y `flet run`), (2) `app_assets_dir()/bin/` (desarrollo con `python src/main.py`, también en modo web), (3) PATH (modo web/clúster); si no lo encuentra lanza `EnvironmentError`. `app_assets_dir()` — la carpeta `src/assets/` de la app en ejecución, junto al fichero del módulo `config` (None si `config` no tiene fichero, como en los tests). No se calcula subiendo carpetas desde `shared/`: con `bifrost-shared` instalado en el venv, `shared/` está en `site-packages` y esa ruta no existe (por eso `python src/main.py --web` no encontraba rclone). `common/updates.get_emoji_font_asset_path()` la usa también para la fuente de emojis. `obtener_ruta_rclone_conf()` (ejecuta `rclone config file`; el resultado se cachea con `lru_cache`), `rclone_lsd()` (solo carpetas — S3 destino), `_subprocess_kwargs()`. |
 | `common/updates.py` — autoupdate | `_parse_version()`, `check_update_version()`, `should_check_for_updates()`, `get_update_file_suffix()`, `download_new_binary()`, `extract_windows_installer()`, `build_windows_update_script()`, `get_emoji_font_asset_path()`. |
 | `common/ui_helpers.py` — Flet ⇄ threading | `ui_call(page, fn)`, `safe_thread(page, target)`. |
 | `common/logs.py` — log técnico, informes y exportación | `setup_logging()`, `log_dir()`, `report_path()`, `write_report()`, `rclone_log_path()`, `open_in_file_browser()`, `export_logs_zip(sessions=EXPORTED_SESSIONS)` → ruta del zip, en `~/Downloads` (0600) con los logs de las 5 últimas sesiones y los informes de copy, check y Tag Manager de esas sesiones. |

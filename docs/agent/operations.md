@@ -77,11 +77,19 @@ BIFROST_CLUSTER=1 python src/main.py --web  # (transfer only) simulate OOD produ
   without the Flet CLI, from `bifrost-transfer/`, serving on port 8000 (change
   it with `FLET_SERVER_PORT`; open `http://localhost:8000` by hand). Flet also
   installs `flet-web` automatically if it is missing (the app's dependencies
-  only include it on Linux):
+  only include it on Linux) — but it installs the latest FastAPI, which no longer
+  accepts the `openapi_prefix` that `flet-web` 0.84 passes, and the start fails
+  with `TypeError: FastAPI.__init__() got an unexpected keyword argument
+  'openapi_prefix'`. Install the pinned versions first (the ones `uv.lock` uses
+  on the cluster), with the **transfer** venv:
 
 ```bash
+uv pip install --python .venv/bin/python "flet-web==0.84.0" "fastapi==0.143.0"
 FLET_FORCE_WEB_SERVER=true python src/main.py --web
 ```
+
+  A later `uv sync` removes those two packages (they are Linux-only in the app's
+  dependencies); install them again before the next run.
 
 After changing code in `shared/`, reinstall the shared package:
 
@@ -165,8 +173,11 @@ uv add <package>
 
 ## Tests
 
-**There is no automated test suite.** Changes are validated by running the apps
-manually (`flet run`).
+There are **pytest tests for pure logic only**: `tests/` at the repo root
+(autoupdate, `rclone mount` processes, mount command, rclone/assets lookup) and
+`bifrost-transfer/tests/` (`meta_fields.py`). They are not run in CI. The UI is
+validated by running the apps manually (`flet run`). How to run them:
+`docs/development/testing.md`.
 
 ## Environment variables
 

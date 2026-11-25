@@ -40,11 +40,11 @@ Use something else if:
 2. You see one card per **MinIO server** (`minio`, `minio-archive`, `irbminio`).
    Each server is mounted whole: all the buckets you can see appear inside it
    as folders.
-3. Click **⊞ Mount** on the server's card (or double-click the card). If your
+3. Click **Mount** on the server's card (or double-click the card). If your
    MinIO access pass needs renewing, BIFROST renews it first and comes back to
-   mount. BIFROST checks that the server really answers before it says
-   **✅ Mounted!** and opens it.
-4. If the server is already mounted, the button says **📂 Open** and just opens
+   mount (if that renewal fails, see "If something goes wrong"). BIFROST checks
+   that the server really answers before it says **Mounted!** and opens it.
+4. If the server is already mounted, the button says **Open** and just opens
    it again. If macOS disconnected it (for example, after you clicked
    **Disconnect** when the connection was lost), BIFROST mounts it again.
 
@@ -63,7 +63,7 @@ You can have several servers mounted at the same time.
 - **New files take time to appear.** To go faster, BIFROST remembers the
   contents of each folder for up to 12 hours. A file added to MinIO meanwhile
   (for example with Bifrost transfer) may not appear until then. To see it
-  now, close the files you have open from that server, click **⊠ Unmount** and
+  now, close the files you have open from that server, click **Unmount** and
   mount it again.
 - It is read-only: you can open and copy files, but not change, add or delete
   anything in MinIO. Which buckets you see depends on your permissions (see
@@ -71,9 +71,9 @@ You can have several servers mounted at the same time.
 
 ## Unmount when you finish
 
-Click **⊠ Unmount** on the server's card. If it is still in use (a Finder or
+Click **Unmount** on the server's card. If it is still in use (a Finder or
 Explorer window, or a program with a file open), the app tells you it could not
-be unmounted: close what is using it and click **⊠ Unmount** again. Closing
+be unmounted: close what is using it and click **Unmount** again. Closing
 Bifrost mount also unmounts the servers it mounted.
 
 ## Limits
@@ -89,15 +89,16 @@ Bifrost mount also unmounts the servers it mounted.
 
 | Problem | What to do |
 |---|---|
-| A window says **Could not mount the server** | Follow its "What you can do" line. If the problem continues, click **Export logs…** and send the file to ITS with the error code shown under the title (see [Error codes](troubleshooting.md#error-codes)). |
-| **MinIO access expired** | Click **🔑 Renew credentials** and mount again. |
+| A window says **Could not mount the server** | Follow what its **What you can do** box says. If the problem continues, click **Export logs…** and send the file to ITS with the error code shown at the bottom of the window (the button next to the code copies it) (see [Error codes](troubleshooting.md#error-codes)). |
+| **MinIO access expired** | Click **Renew credentials** and mount again. |
+| The renewal screen says it **cannot connect to MinIO** (when you mount, or after **Renew credentials**) | Check that the Nexica VPN is on and click **Try again**. To leave that screen, click **Back to servers** at the top left; you do not need to close the app. |
 | Mac: **BIFROST cannot open the mounted folder** | In **System Settings → Privacy & Security → Files and Folders**, allow BIFROST to access network volumes, then mount again. |
 | **The folder did not respond** | MinIO did not answer in time. Check that the Nexica VPN is on and try again. |
-| **Could not unmount** | Close the windows or programs that are using the folder and click **⊠ Unmount** again. |
-| **Could not mount the server** with folders "mounted by the previous version of Bifrost mount" | An older version of the app left some buckets mounted and a program still has a file open in them. Close it and click **⊞ Mount** again. |
+| **Could not unmount** | Close the windows or programs that are using the folder and click **Unmount** again. |
+| **Could not mount the server** with folders "mounted by the previous version of Bifrost mount" | An older version of the app left some buckets mounted and a program still has a file open in them. Close it and click **Mount** again. |
 | **No free drive letter** (Windows) | Unmount a server you do not need, or disconnect a drive, and try again. |
-| A file you just added to MinIO does not appear | Close the files open from that server, click **⊠ Unmount** and mount it again (see "Expected result"). |
+| A file you just added to MinIO does not appear | Close the files open from that server, click **Unmount** and mount it again (see "Expected result"). |
 | Windows: it does not mount, or a driver error appears | Accept the automatic WinFsp installation offered by the app, or install it from `winfsp.dev`, then try again. |
 | It cannot connect | Check that the Nexica VPN is on and mount again. |
 | You do not see a bucket inside the server | You probably do not have access. Ask your group's data manager. |
-| The label on a server's card is red or orange (**🔑 Credentials expire in …**) | Your MinIO access pass for that server is about to run out. Click **🔑 Renew credentials** on the card (see [getting-started.md](getting-started.md#renew-your-minio-access-pass-by-hand)). |
+| The label on a server's card is red or orange (**Credentials expire in …**) | Your MinIO access pass for that server is about to run out. Click **Renew credentials** on the card (see [getting-started.md](getting-started.md#renew-your-minio-access-pass-by-hand)). |

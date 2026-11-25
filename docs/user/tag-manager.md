@@ -34,7 +34,7 @@ without copying the data again.
    profile are written on the files, also the empty ones. The **Provider**
    field is filled in automatically with the name of the profile and cannot be
    changed. Fields marked with **\*** are required.
-4. For a folder, click **Apply tags →**; for a single file, **Save tags**. The
+4. For a folder, click **Apply tags**; for a single file, **Save tags**. The
    labels are written on the existing files; the data itself is not touched.
    If a required field is empty, or a value is too long (more than 256
    characters) or has characters MinIO does not accept, nothing is written and
@@ -103,6 +103,6 @@ current labels would replace them blindly. A window explains the problem; click
 | Problem | What to do |
 |---|---|
 | You do not see the folder or file | Check that you signed in with the right user and that you have access to that folder. If the list shows an error, follow what it says. |
-| A window says the labels could not be read, saved or applied | Follow the "What you can do" line, then click **Try again**. For a folder, Try again only retries the files that failed (or the whole folder again if the operation stopped). |
-| "MinIO access expired" | Go **← Back**, click **🔑 Renew credentials** and open the Tag Manager again. |
+| A window says the labels could not be read, saved or applied | Follow what its **What you can do** box says, then click **Try again**. For a folder, Try again only retries the files that failed (or the whole folder again if the operation stopped). |
+| "MinIO access expired" | Click **Back to copy** (top left), click **Renew credentials** and open the Tag Manager again. |
 | It keeps failing | Click **Export logs…** and send the file to ITS with the error code shown in the window and in the LOGS panel (see [Error codes](troubleshooting.md#error-codes)). |

@@ -116,7 +116,7 @@ Like the copy screen, it has a **LOGS** panel and saves a report of each operati
 
 ## Mounting (bifrost-mount)
 
-After signing in, bifrost-mount shows one card per MinIO server (`minio`, `minio-archive`, `irbminio`). **⊞ Mount** (or a double-click on the card) mounts the whole server, read-only, with its buckets as folders: on Windows in the first free drive letter (`X:\<bucket>`), on macOS and Linux in `~/rclone-mounts/<server>/<bucket>`. Each card shows how long the server's MinIO credentials last and where it is mounted, and has **⊠ Unmount** and **🔑 Renew credentials**; credentials are renewed automatically when mounting if they are about to expire. Closing the app unmounts the servers it mounted. Folder listings are cached for 12 hours, so a file just added to MinIO may need an unmount and mount to appear. User guide: [docs/user/mount-buckets.md](docs/user/mount-buckets.md).
+After signing in, bifrost-mount shows one card per MinIO server (`minio`, `minio-archive`, `irbminio`). **Mount** (or a double-click on the card) mounts the whole server, read-only, with its buckets as folders: on Windows in the first free drive letter (`X:\<bucket>`), on macOS and Linux in `~/rclone-mounts/<server>/<bucket>`. Each card shows how long the server's MinIO credentials last and where it is mounted, and has **Unmount** and **Renew credentials**; credentials are renewed automatically when mounting if they are about to expire, and if the renewal fails (for example without VPN) the screen offers **Try again** and **Back to servers**. Every screen has a back button at the top left and shows the signed-in user at the top right. Closing the app unmounts the servers it mounted. Folder listings are cached for 12 hours, so a file just added to MinIO may need an unmount and mount to appear. User guide: [docs/user/mount-buckets.md](docs/user/mount-buckets.md).
 
 ---
 
@@ -382,7 +382,7 @@ Each entry contains:
 
 - `_ws_save(usuario, state)` — saves/updates the session when navigating to the copy view
 - `_ws_load(usuario)` → `dict | None` — returns the session if complete enough to restore (has `perfil_rclone` and `endpoint`)
-- `_ws_clear(usuario)` — deletes the session; also cancels any pending throttle timer and clears callbacks to avoid firing on dead pages. There is no logout: it is used when a previous session is being restored and the user types a different username (the old session is discarded and the normal flow follows)
+- `_ws_clear(usuario)` — deletes the session; also cancels any pending throttle timer and clears callbacks to avoid firing on dead pages. There is no logout: it is used when a different username signs in, both when a previous session is being restored and on a normal login (the old session is discarded and the normal flow follows)
 
 ---
 
@@ -392,11 +392,13 @@ When the user closes and reopens the tab:
 
 1. Flet assigns a new `page` with a new WebSocket
 2. `main(page)` re-executes from scratch for that page
-3. On reaching login, `go_login()` checks if a session exists for `_LAST_WEB_USER[0]`
+3. On reaching login, `go_login()` (default `resume=True`) checks if a session exists for `_LAST_WEB_USER[0]`
 4. If so, shows the login with `username` pre-filled and the `on_login_success_with_restore` callback
 5. The user only enters the **password** (LDAP re-auth), skipping MinIO server selection and share download
 6. If the password is correct, jumps directly to the copy view (`_build_copy_content`)
 7. `_build_copy_content` detects the active session and launches the `_replay` thread
+
+This restore only happens when the tab is reopened. The **Back to login** button of the server selection calls `go_login(resume=False)`: a normal login that goes to the server selection (with the restore, signing in again would skip it and return to the copy view with the previous server). The session is kept for the same user, so a running copy stays attached when that server is chosen again; if another user signs in, the previous session is discarded (`_ws_clear`).
 
 The `_replay` thread:
 - Waits 200 ms for the control tree to stabilize
