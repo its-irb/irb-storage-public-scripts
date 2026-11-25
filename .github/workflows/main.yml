@@ -25,14 +25,14 @@ env:
 # ─────────────────────────────────────────────────────────────────────────────
 jobs:
   # ─────────────────────────────────────────────────────────────────────────────
-  # Versión — una sola para las dos apps (SemVer: MAYOR.MENOR.PARCHE)
-  #  · Release (main, al fusionar la PR de release-please): la de .release-please-manifest.json, X.Y.Z.
-  #    Se reconoce porque su tag vX.Y.Z aún no existe.
-  #  · Resto de builds (cualquier rama): la última release + el número de ejecución, X.Y.Z.N. El
-  #    autoupdate compara números: una build de pruebas es más nueva que su release (no ofrece "volver"
-  #    a ella) y más antigua que la siguiente (sí ofrece actualizar cuando sale).
-  # `base` (X.Y.Z) es la que va en pyproject.toml y en el bundle: Flutter/macOS solo admiten tres
-  # números; el cuarto va como build number (--build-number).
+  # Versión — una sola para las dos apps (SemVer: MAYOR.MENOR.PARCHE), .github/scripts/next_version.py
+  #  · main con commits que sacan versión (feat → MENOR; fix/perf/revert/build → PARCHE; `!` o
+  #    BREAKING CHANGE → MAYOR; `Release-As: X.Y.Z` la fija): X.Y.Z, y el job release la publica.
+  #  · Resto (otras ramas, o main con solo docs/refactor/ci…): la última release + el número de
+  #    ejecución, X.Y.Z.N. El autoupdate la ve más nueva que su release (no ofrece "volver") y más
+  #    antigua que la siguiente (sí ofrece actualizar cuando sale).
+  # `base` (X.Y.Z) es la del pyproject.toml y el bundle: Flutter/macOS solo admiten tres números; el
+  # cuarto va como build number (--build-number).
   # ─────────────────────────────────────────────────────────────────────────────
   version:
     runs-on: ubuntu-latest
@@ -48,19 +48,7 @@ jobs:
 
       - name: Calcular versión
         id: v
-        run: |
-          set -euo pipefail
-          manifest=$(jq -r '."."' .release-please-manifest.json)
-          latest=$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 | sed 's/^v//' || true)
-          if [ "${{ github.ref }}" = "refs/heads/main" ] && ! git rev-parse -q --verify "refs/tags/v${manifest}" >/dev/null; then
-            base="$manifest"; version="$manifest"; is_release=true
-          else
-            base="${latest:-$manifest}"; version="${base}.${{ github.run_number }}"; is_release=false
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "base=$base" >> "$GITHUB_OUTPUT"
-          echo "is_release=$is_release" >> "$GITHUB_OUTPUT"
-          echo "Versión: $version (base $base, release: $is_release)"
+        run: python3 .github/scripts/next_version.py version --ref "${{ github.ref }}" --run-number "${{ github.run_number }}"
 
   summary:
     needs: version
@@ -439,42 +427,26 @@ jobs:
   
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Release — solo en main, con release-please (release-please-config.json)
-  # Cada push a main abre o actualiza la PR de release (versión según los commits convencionales
-  # y CHANGELOG.md). Al fusionarla, este job crea el tag y la GitHub Release y le sube los binarios.
-  # Va al final, después de compilar, para que la release no quede publicada sin ficheros mientras
-  # compila (el autoupdate la vería como "latest" y la descarga fallaría).
+  # Release — solo en main, cuando el job version dice que estos commits sacan versión
+  # Recoge los artefactos de los tres jobs y crea el tag vX.Y.Z y la GitHub Release, con las notas
+  # agrupadas por tipo de commit (next_version.py notes).
   # ─────────────────────────────────────────────────────────────────────────────
   release:
     needs: [version, build-macos, build-windows, build-macos-intel]
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.version.outputs.is_release == 'true'
     steps:
-      - name: Release-please (PR de release, o tag y release si se acaba de fusionar)
-        id: rp
-        uses: googleapis/release-please-action@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-
-      - name: Comprobar que se compiló con la versión de la release
-        if: steps.rp.outputs.release_created == 'true'
-        run: |
-          if [ "${{ steps.rp.outputs.tag_name }}" != "v${{ needs.version.outputs.version }}" ]; then
-            echo "::error::release-please ha creado ${{ steps.rp.outputs.tag_name }} pero se compiló ${{ needs.version.outputs.version }}"
-            exit 1
-          fi
-
       - name: Checkout código
-        if: steps.rp.outputs.release_created == 'true'
         uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Notas de la release
+        run: python3 .github/scripts/next_version.py notes > release-notes.md
 
       - name: Descargar todos los artefactos
-        if: steps.rp.outputs.release_created == 'true'
         uses: actions/download-artifact@v4.3.0
         with:
           path: dist
@@ -530,7 +502,6 @@ jobs:
       # -windows.zip), y el .exe suelto, que lo siguen pidiendo las versiones anteriores
       # (sufijo -main-windows.exe). No cambiar estos nombres: romperían el autoupdate.
       - name: Comprimir instaladores de Windows en .zip
-        if: steps.rp.outputs.release_created == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -540,13 +511,13 @@ jobs:
           done
           ls -lah dist/
 
-      # La release ya la ha creado release-please (con el CHANGELOG como notas); aquí solo se suben los
-      # binarios. Sin `name` para no cambiarle el título.
-      - name: Subir binarios a la GitHub Release
-        if: steps.rp.outputs.release_created == 'true'
+      - name: Crear GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.rp.outputs.tag_name }}
+          tag_name: v${{ needs.version.outputs.version }}
+          name: "Release v${{ needs.version.outputs.version }}"
+          target_commitish: ${{ github.sha }}
+          body_path: release-notes.md
           draft: false
           prerelease: false
           files: dist/*
