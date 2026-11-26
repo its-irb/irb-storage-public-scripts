@@ -19,7 +19,9 @@ log = logging.getLogger("bifrost.login")
 # (aquí es ruido), pero se anota en el log técnico ("issue shown") como en las demás pantallas.
 _LDAP_ERRORS = {
     "vpn":     ("⚠️ Cannot reach the IRB network. Are you connected to the VPN?", ISSUES_BY_CODE["NETWORK"]),
-    "network": ("⚠️ Could not reach the LDAP server. Try again or contact ITS.", ISSUES_BY_CODE["NETWORK"]),
+    "tls":     ("⚠️ Could not verify the identity of the LDAP server. Your password was not sent. Contact ITS.",
+                UNEXPECTED),
+    "network":("⚠️ Could not reach the LDAP server. Try again or contact ITS.", ISSUES_BY_CODE["NETWORK"]),
     "error":   ("⚠️ Unexpected error validating credentials. Contact ITS.", UNEXPECTED),
 }
 # user_not_found / invalid_password no están a propósito: usan el error por defecto, el mismo para no revelar si el

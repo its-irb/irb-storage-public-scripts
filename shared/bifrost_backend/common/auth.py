@@ -8,12 +8,13 @@ import jwt
 import requests
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from ldap3 import Connection, SIMPLE, SUBTREE, Server
+from ldap3 import Connection, SIMPLE, SUBTREE
 from ldap3.core.exceptions import LDAPCommunicationError
 from ldap3.utils.conv import escape_filter_chars
 from xml.etree import ElementTree as etree
 
-from .constants import LDAP_BASE_DN, LDAP_SERVER_URL, STS_RENEWAL_THRESHOLD_DAYS
+from .constants import LDAP_BASE_DN, STS_RENEWAL_THRESHOLD_DAYS
+from .ldap_server import es_error_tls, ldap_server
 from .rclone import obtener_ruta_rclone_conf
 
 log = logging.getLogger("bifrost.auth")
@@ -168,7 +169,7 @@ def hay_que_renovar_credenciales(perfil: str, usuario: str, umbral_dias: int = S
 
 def validar_credenciales_ldap(credenciales_ldap: dict | None) -> tuple[bool, str | None]:
     """
-    Valida credenciales LDAP mediante un bind autenticado.
+    Valida credenciales LDAP mediante un bind autenticado, por LDAPS (ver common/ldap_server.py).
 
     Returns:
         (True, None) si son correctas. Si no, (False, motivo) con motivo en:
@@ -176,6 +177,7 @@ def validar_credenciales_ldap(credenciales_ldap: dict | None) -> tuple[bool, str
           "user_not_found"   el usuario no existe en LDAP
           "invalid_password" el usuario existe pero la contraseña no es correcta
           "vpn"              no se resuelve el servidor (sin red del IRB / VPN)
+          "tls"              el certificado del servidor no se pudo verificar (la contraseña no se llega a enviar)
           "network"          otro fallo de comunicación (timeout, conexión rechazada)
           "error"            cualquier otra excepción
     """
@@ -183,7 +185,7 @@ def validar_credenciales_ldap(credenciales_ldap: dict | None) -> tuple[bool, str
         return False, "invalid"
     usuario  = credenciales_ldap["usuario"]
     password = credenciales_ldap["password"]
-    server = Server(LDAP_SERVER_URL, connect_timeout=LDAP_TIMEOUT)
+    server = ldap_server(LDAP_TIMEOUT)
     try:
         conn = Connection(server, auto_bind=True, receive_timeout=LDAP_TIMEOUT)
         conn.search(LDAP_BASE_DN, f"(cn={escape_filter_chars(usuario)})", SUBTREE, attributes=["dn"])
@@ -203,6 +205,8 @@ def validar_credenciales_ldap(credenciales_ldap: dict | None) -> tuple[bool, str
         log.warning("ldap: communication error: %s", e)
         if "invalid server address" in str(e).lower():
             return False, "vpn"
+        if es_error_tls(e):
+            return False, "tls"
         return False, "network"
     except Exception:
         log.exception("ldap: validation failed")

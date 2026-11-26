@@ -50,7 +50,12 @@ except ImportError:
 EMOJI_FONT_FILENAME = "NotoColorEmoji-noflags.ttf"
 
 
-LDAP_SERVER_URL = "ldap://irbldap3.sc.irbbarcelona.org"
+# LDAP del IRB (eDirectory), siempre por LDAPS: la conexión se monta en common/ldap_server.py.
+LDAP_HOST = "irbedir3.sc.irbbarcelona.org"
+LDAP_PORT = 636
+# Nombre que figura en el certificado del servidor (solo CN=irbedir3, sin el dominio). ldap3 lo acepta como válido
+# aunque se conecte por el nombre completo. Sobra cuando ITS reemita el certificado con el FQDN en el SAN.
+LDAP_CERT_NAME = "irbedir3"
 
 
 LDAP_BASE_DN = "o=irbbarcelona"

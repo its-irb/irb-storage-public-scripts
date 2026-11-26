@@ -228,11 +228,12 @@ def _build_shares_content(
                         on_admin_activated({"usuario": admin_user, "password": pwd})
                     backend.ui_call(page, _success)
                 else:
-                    msg = (
-                        "⚠️ Cannot reach the IRB network. Are you connected to the VPN?"
-                        if motivo == "vpn"
-                        else "Invalid credentials."
-                    )
+                    msg = {
+                        "vpn":     "⚠️ Cannot reach the IRB network. Are you connected to the VPN?",
+                        "tls":     "⚠️ Could not verify the identity of the LDAP server. Your password was not sent.",
+                        "network": "⚠️ Could not reach the LDAP server. Try again or contact ITS.",
+                        "error":   "⚠️ Unexpected error validating credentials. Contact ITS.",
+                    }.get(motivo, "Invalid credentials.")
                     def _fail():
                         err.value                 = msg
                         err.visible               = True

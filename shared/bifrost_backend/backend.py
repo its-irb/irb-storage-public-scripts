@@ -12,7 +12,7 @@ from .common.constants import (
     REPO,
     __version__,
     EMOJI_FONT_FILENAME,
-    LDAP_SERVER_URL,
+    LDAP_HOST,
     LDAP_BASE_DN,
 )
 from .common.rclone import (
