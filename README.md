@@ -6,7 +6,7 @@ This repository contains two desktop apps (Flet/Python) for interacting with IRB
 | App | Folder | Description |
 |---|---|---|
 | **bifrost-transfer** | `bifrost-transfer/` | Upload data from network shares (SMB/CIFS), SFTP servers (password optional; browse and pick either a folder or an individual file as the source), or local folders to MinIO S3 buckets, with integrity verification and metadata tagging by profile. Includes a **Tag Manager** to browse and edit S3 object tags without re-uploading. |
-| **bifrost-mount** | `bifrost-mount/` | Mount MinIO S3 folders as a local drive. |
+| **bifrost-mount** | `bifrost-mount/` | Mount each MinIO server whole, with its buckets as folders: a drive letter on Windows, `~/rclone-mounts/<server>` on macOS and Linux. Read-only. |
 
 Both apps share the backend defined in `shared/bifrost_backend` (LDAP, rclone, SMB, S3). They also share part of the frontend in `shared/bifrost_frontend`, both imported as packages in each app's `main.py`.
 
@@ -43,7 +43,7 @@ This README is a quick reference for running and packaging the apps.
 bifrost-mount/            # MinIO folder mounting app
   src/
     main.py               # GUI (Flet). Entry point: startup, technical log, navigation, exit cleanup
-    views/                # mount.py: bucket selector + mount view
+    views/                # servers.py + server_card.py: one card per MinIO server
     config.py             # APP_INFO
     version.py
     assets/bin/           # Bundled binaries (rclone) — downloaded, not versioned
@@ -114,18 +114,49 @@ The Tag Manager bucket browser also includes the same **"Filter by lab…"** fie
 
 Like the copy screen, it has a **LOGS** panel and saves a report of each operation (`reports/tags-<date>.log`). Errors open a window with what happened and what to do (**Try again** / **Cancel**); a folder can be stopped with **Cancel** while its tags are being applied, and a file's editor only opens once its current tags have been read.
 
+## Mounting (bifrost-mount)
+
+After signing in, bifrost-mount shows one card per MinIO server (`minio`, `minio-archive`, `irbminio`). **Mount** (or a double-click on the card) mounts the whole server, read-only, with its buckets as folders: on Windows in the first free drive letter (`X:\<bucket>`), on macOS and Linux in `~/rclone-mounts/<server>/<bucket>`. Each card shows how long the server's MinIO credentials last and where it is mounted, and has **Unmount** and **Renew credentials**; credentials are renewed automatically when mounting if they are about to expire, and if the renewal fails (for example without VPN) the screen offers **Try again** and **Back to servers**. Every screen has a back button at the top left and shows the signed-in user at the top right. Closing the app unmounts the servers it mounted. Folder listings are cached for 12 hours, so a file just added to MinIO may need an unmount and mount to appear. User guide: [docs/user/mount-buckets.md](docs/user/mount-buckets.md).
+
 ---
 
 ## Auto-update
 
 When a new release of bifrost-mount or bifrost-transfer is available, the app asks the user whether they want to upgrade. If so, the new release is downloaded from this git repo.
 
+It only happens in the desktop apps built by CI. It never checks on Linux or on the cluster (Open OnDemand: transfer in web mode, mount in DCV sessions, `BIFROST_CLUSTER=1`), where ITS installs the code and releases have no Linux binaries, nor with the development version (`0.0.0.dev`), unless it is forced with `--update` (see "Running the app").
+
 > **macOS:** releases include `bifrost-<app>-macos.dmg` (Apple Silicon) and
-> `bifrost-<app>-macos-intel.dmg` (Intel, stopgap until Nov-2026). Autoupdate
+> `bifrost-<app>-macos-intel.dmg` (Intel). Autoupdate
 > downloads the build matching the Mac's architecture (arm64 →
 > `bifrost-<app>-macos.dmg`, Intel → `bifrost-<app>-macos-intel.dmg`). Intel
-> Macs still on a pre-stopgap release must install
+> Macs still on a release older than the Intel builds must install
 > `bifrost-<app>-macos-intel.dmg` once, manually, from the release page.
+>
+> **Windows:** releases include the signed installer as a loose `.exe` and inside
+> `.zip` files (browsers warn when downloading an `.exe`, not a `.zip`).
+> Autoupdate downloads `bifrost-<app>-windows.zip`, extracts the installer and
+> runs it; the loose `.exe` is kept for older versions, which still download it.
+
+### Versioning
+
+One version for both apps, [SemVer](https://semver.org) `MAJOR.MINOR.PATCH`, computed by CI (`.github/scripts/next_version.py`) from the conventional commits since the last release (the highest `vX.Y.Z` tag):
+
+| Commits since the last release | Next version |
+|---|---|
+| any `!` (`feat!:`) or `BREAKING CHANGE:` in the body | major (`1.4.2` → `2.0.0`) |
+| any `feat` | minor (`1.4.2` → `1.5.0`) |
+| only `fix`, `perf`, `revert`, `build` | patch (`1.4.2` → `1.4.3`) |
+| only `docs`, `style`, `refactor`, `test`, `ci`, `chore` | no release |
+| `Release-As: X.Y.Z` in a commit body | exactly that version (it must be greater than the last release) |
+
+Only `main` publishes a release (`vX.Y.Z`, with the commits as notes). Builds of other branches, or of `main` with nothing to release, carry `<last release>.<run number>` (e.g. `1.1.0.412`): newer than their release for the autoupdate, older than the next one. Every push to `develop` also replaces a single prerelease, **Develop: vX.Y.Z.N** (tag `develop-latest`), to download the current test build from the releases page; the apps never update to it (they only read the `Latest` release). To force a version, push an empty commit to the branch that goes to `main`:
+
+```bash
+git commit --allow-empty -m "chore(release): publica la 2.0.0" -m "Release-As: 2.0.0"
+```
+
+Details: [docs/development/build-and-ci.md](docs/development/build-and-ci.md).
 
 ---
 
@@ -239,16 +270,19 @@ flet run
 ```
 
 
-Additional option (available in both apps):
+To see the update screen (both apps), launch the app with Python from its folder
+— `flet run --update` does not work, `flet run` rejects arguments it does not know:
 ```bash
-flet run --update       # Meant to force auto-update — currently has no effect
+python src/main.py --update
 ```
 
-`--update` currently does nothing: the test block that simulates a new version
-(`999.999.999`) is commented out in `check_update_version()`
-(`shared/bifrost_backend/common/updates.py`). Uncomment it, and reinstall the
-shared package, to test the update screen. The username field of the login is
-always editable, so no option is needed to sign in as a different user.
+The development version (`0.0.0.dev`, the one in the repo's `version.py`) never
+checks for updates, but `--update` forces the check, so any release is newer and
+the update screen appears (except on Linux or with `BIFROST_CLUSTER=1`, where it
+never checks). **"Update now" really installs the release** (on macOS it replaces
+`/Applications/bifrost-<app>.app`); click "Continue anyway" to only look. The
+username field of the login is always editable, so no option is needed to sign
+in as a different user.
 
 `bifrost-transfer` also supports web mode (Open OnDemand / Linux cluster):
 ```bash
@@ -373,7 +407,7 @@ Each entry contains:
 
 - `_ws_save(usuario, state)` — saves/updates the session when navigating to the copy view
 - `_ws_load(usuario)` → `dict | None` — returns the session if complete enough to restore (has `perfil_rclone` and `endpoint`)
-- `_ws_clear(usuario)` — deletes the session; also cancels any pending throttle timer and clears callbacks to avoid firing on dead pages. There is no logout: it is used when a previous session is being restored and the user types a different username (the old session is discarded and the normal flow follows)
+- `_ws_clear(usuario)` — deletes the session; also cancels any pending throttle timer and clears callbacks to avoid firing on dead pages. There is no logout: it is used when a different username signs in, both when a previous session is being restored and on a normal login (the old session is discarded and the normal flow follows)
 
 ---
 
@@ -383,11 +417,13 @@ When the user closes and reopens the tab:
 
 1. Flet assigns a new `page` with a new WebSocket
 2. `main(page)` re-executes from scratch for that page
-3. On reaching login, `go_login()` checks if a session exists for `_LAST_WEB_USER[0]`
+3. On reaching login, `go_login()` (default `resume=True`) checks if a session exists for `_LAST_WEB_USER[0]`
 4. If so, shows the login with `username` pre-filled and the `on_login_success_with_restore` callback
 5. The user only enters the **password** (LDAP re-auth), skipping MinIO server selection and share download
 6. If the password is correct, jumps directly to the copy view (`_build_copy_content`)
 7. `_build_copy_content` detects the active session and launches the `_replay` thread
+
+This restore only happens when the tab is reopened. The **Back to login** button of the server selection calls `go_login(resume=False)`: a normal login that goes to the server selection (with the restore, signing in again would skip it and return to the copy view with the previous server). The session is kept for the same user, so a running copy stays attached when that server is chosen again; if another user signs in, the previous session is discarded (`_ws_clear`).
 
 The `_replay` thread:
 - Waits 200 ms for the control tree to stabilize

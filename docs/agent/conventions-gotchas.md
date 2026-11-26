@@ -15,17 +15,23 @@ Cross-cutting knowledge that constrains any change. Technical details in
    never pass the navigation function directly.
 3. **Windows console encoding**: `main.py` re-wraps `sys.stdout`/`sys.stderr`
    in UTF-8 at startup (`TextIOWrapper` block). Do not touch it.
+4. **Translucent colours in Flet**: `f"{C_X}22"` does not give the colour
+   at 13 % opacity: Flet reads `#RRGGBBAA` as `#AARRGGBB`, so it becomes another
+   colour (the amber DESKTOP badge looked red). Use `tint(color, opacity)` from
+   `bifrost_frontend.frontend` (`ft.Colors.with_opacity`).
 
 ## Structure and coupling
 
-4. **The backend imports from the frontend in one place only**:
+5. **The backend imports from the frontend in one place only**:
    `common/ui_helpers.safe_thread` imports `show_issue` from
    `bifrost_frontend.frontend` lazily (inside the function) to show unhandled
    exceptions. Keep it lazy: a top-level import creates a circular import.
-5. **`config.py` must be importable as a top-level module** in each app — the
-   backend (`common/rclone.py`, `common/updates.py`) and the frontend modules
-   do `from config import APP_INFO`.
-6. **`TAG_PROFILES` and `LAB_ACRONYMS` are canonical in
+6. **`config.py` must be importable as a top-level module** in each app — the
+   frontend modules do `from config import APP_INFO`, and the backend
+   (`common/rclone.app_assets_dir()`) finds the app's `src/assets/` next to the
+   `config` module's file. Do not compute asset paths by climbing folders from
+   `shared/`: once `bifrost-shared` is installed it lives in `site-packages`.
+7. **`TAG_PROFILES` and `LAB_ACRONYMS` are canonical in
    `bifrost-transfer/src/meta_fields.py`**: the copy form and Tag Manager use
    `TAG_PROFILES`, `build_meta_fields`, `LAB_ACRONYMS`,
    `build_lab_filter_widget` and `detect_profile` from there. To add, rename or
@@ -45,12 +51,12 @@ Cross-cutting knowledge that constrains any change. Technical details in
    - An object holds at most 10 tags: IRB Standard uses 8, Genomics 9 and
      Histopathology 10 (including `provider`), so Histopathology cannot get
      another field without removing one.
-7. **`IS_WEB` lives only in `bifrost-transfer/src/main.py`** (it depends on
+8. **`IS_WEB` lives only in `bifrost-transfer/src/main.py`** (it depends on
    `__name__ != "__main__"`, and `main()` updates it with `page.web`). Modules
    that read it declare `IS_WEB = False` and receive the real value from
    `_propagar_is_web()`. If a new module reads `IS_WEB`, add it to the tuple in
    `_propagar_is_web()`; otherwise it silently behaves as desktop.
-8. **Views never import `main`** (`main.py` imports the views; the reverse is a
+9. **Views never import `main`** (`main.py` imports the views; the reverse is a
    circular import). Shared constants (`STS_*`, `NO_LDAP`) come from
    `bifrost_backend.common.constants`; the technical log is configured in
    `main.py` with `backend.setup_logging(...)` and every module writes with its
@@ -58,32 +64,33 @@ Cross-cutting knowledge that constrains any change. Technical details in
 
 ## Visible behaviour to preserve
 
-9. **STS credentials**: if more than 3 days remain and the token belongs to the
+10. **STS credentials**: if more than 3 days remain and the token belongs to the
    user who signed in, they are reused; otherwise they are renewed
    automatically for 7 days (`STS_RENEWAL_THRESHOLD_DAYS` /
-   `STS_AUTO_RENEWAL_DAYS` in `bifrost_backend.common.constants`). The mount
-   and copy views also offer manual renewal ("🔑 Renew credentials", 1–30 days).
-10. **WinFsp auto-install (`bifrost-mount` only, Windows)**: if WinFsp is
+   `STS_AUTO_RENEWAL_DAYS` in `bifrost_backend.common.constants`). In mount
+   this check runs when a server is mounted. Each server card in mount and the
+   copy view also offer manual renewal ("Renew credentials", 1–30 days).
+11. **WinFsp auto-install (`bifrost-mount` only, Windows)**: if WinFsp is
     missing when mounting, the backend raises `WinFspMissingError` (subclass of
     `EnvironmentError`) and the UI offers to download the latest official
     release (`github.com/winfsp/winfsp`) through
     `backend.install_winfsp_windows()`. It needs UAC; the MSI is cached in
     `%TEMP%`. The messages of this flow are in **English**. `bifrost-transfer`
     has no such flow.
-11. **Language of the code**: follow the surrounding code (backend names,
+12. **Language of the code**: follow the surrounding code (backend names,
     comments and docstrings are mostly Spanish; UI strings in the apps are
     mostly English).
-12. **Conditional visibility in the copy form**: the METADATA section, action
+13. **Conditional visibility in the copy form**: the METADATA section, action
     buttons and LOG OUTPUT (`bottom_col.visible=False`) stay hidden until a
     destination bucket is selected. The toggle lives in `on_browser_select`:
     non-empty `path` → visible; back to root → hidden.
-13. **Lab filter in bucket browsers**: the destination browser of the copy view
+14. **Lab filter in bucket browsers**: the destination browser of the copy view
     and the Tag Manager browser include "Filter by lab…"
     (`build_lab_filter_widget`), which reads the `acronym` tag of each bucket
     with `backend.get_bucket_tags` in parallel (`ThreadPoolExecutor`). It hides
     when navigating into a bucket and reappears at the root. It only filters at
     bucket level (root).
-14. **Ephemeral SFTP source (`bifrost-transfer`)**: the "🌐 SFTP" button creates
+15. **Ephemeral SFTP source (`bifrost-transfer`)**: the "SFTP" button creates
     a temporary rclone profile (`sftp-src-<random>`, type `sftp`, password
     obscured with `rclone obscure`) in `rclone.conf`. For security it **must not
     outlive the session**: it is deleted on Disconnect (✕) and on leaving the
@@ -96,27 +103,32 @@ Cross-cutting knowledge that constrains any change. Technical details in
     because MinIO listing over HDD is slow. A folder or a single file can be
     chosen as the source (same `profile:path` format). Background in
     `docs/superpowers/specs/2026-07-30-sftp-source-design.md`.
-15. **"Mount NetApp" button (`bifrost-transfer`, web mode only)**: the copy
-    view shows `⊞  Mount NetApp` only when `IS_WEB` is true and the `on_cifs`
+16. **"Mount NetApp" button (`bifrost-transfer`, web mode only)**: the copy
+    view shows `Mount NetApp` only when `IS_WEB` is true and the `on_cifs`
     callback exists; it opens the CIFS shares view (`go_cifs`).
-16. **Known cluster limitation (from the maintainers)**: Bifrost mount in a DCV
+17. **Known cluster limitation (from the maintainers)**: Bifrost mount in a DCV
     session fails straight away on node `ccn01`; use other nodes (for example
     `sphr`). This is not enforced in the repository code.
+18. **Version strings**: `_parse_version` (autoupdate) only understands numbers
+    (`1.1.0`, test builds `1.1.0.412`). A suffix such as `1.1.0-rc1` is read as
+    `0` and makes the app always ask to update — that is why test builds carry a
+    fourth number and not a suffix. A version containing `dev` (the repo's
+    `0.0.0.dev`) disables the update check (except with `--update`).
 
 ## Repository hygiene
 
-17. **Never `print()`**: every module logs with its own logger
+19. **Never `print()`**: every module logs with its own logger
     (`logging.getLogger("bifrost.<area>")`, list in
     `docs/development/operations.md#logs`), in English, one line per event,
     with `%s` arguments and no emojis, passwords, file listings or tag values.
     Anything printed by a library still reaches the log as `bifrost.print`
     (`common/logs.py`), but that is only a safety net.
-18. **Do not commit** `.venv/`, `dist/`, `build/`, generated `src/version.py` or
+20. **Do not commit** `.venv/`, `dist/`, `build/`, a `src/version.py` other than `0.0.0.dev` or
     the local `pyproject.toml` of the apps. See `.gitignore`.
 
 ## Documentation hygiene
 
-19. `docs/wiki/` is referenced by old documentation but **does not exist**.
+21. `docs/wiki/` is referenced by old documentation but **does not exist**.
     Do not create new references to it.
-20. Documentation is updated with the `docs-update` skill; the agent entry
+22. Documentation is updated with the `docs-update` skill; the agent entry
     point is `AGENTS.md`.

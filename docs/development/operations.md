@@ -27,18 +27,35 @@ releases de GitHub.
   `backend.download_new_binary()`.
 - Vista: `view_update` (`build_update_content`, en
   `shared/bifrost_frontend/views/update.py`) es la primera vista del flujo.
-- `--update` pretende forzar la comprobación en desarrollo:
+- Cuándo se comprueba (`should_check_for_updates()`, en este orden):
+  1. **Nunca en Linux ni con `BIFROST_CLUSTER=1`**, ni siquiera con `--update`.
+     Es el clúster: transfer en modo web en Open OnDemand y mount en las
+     sesiones DCV. Allí la app se ejecuta desde el código que instala ITS, y las
+     releases no traen binarios de Linux. El modo web de transfer tampoco
+     muestra la pantalla de actualización (`main.py`), también en local.
+  2. **Siempre con `--update`** (para probar la pantalla de actualización).
+  3. **Nunca con la versión de desarrollo** (lleva `dev`: `0.0.0.dev`, la de
+     `version.py` en el repositorio), para que `flet run` no pida actualizar
+     cada vez que hay una release.
+  4. Nunca si la app no está empaquetada (salvo que Flet haya puesto
+     `FLET_APP_STORAGE_TEMP`), con SLURM ni con un ejecutable `_cluster`.
+- `--update` se pasa con `python src/main.py --update`, desde la carpeta de la
+  app (`flet run` no deja pasarle argumentos):
 
   ```bash
-  flet run --update
+  python src/main.py --update
   ```
 
-  **Ahora mismo no hace nada**: la vista pasa `force_update` a
-  `check_update_version()`, pero el bloque de prueba que simula la versión
-  `999.999.999` está comentado. Para probar la pantalla de actualización hay
-  que descomentarlo en `shared/bifrost_backend/common/updates.py` y
-  reinstalar el paquete compartido.
-- Versionado: `1.0.<run_number>` (ver [build-and-ci.md](build-and-ci.md)).
+  Con la versión de desarrollo cualquier release es más nueva, así que sale la
+  pantalla de actualización. **"Update now" instala la release de verdad** (en
+  macOS sustituye `/Applications/bifrost-<app>.app`); para ver solo la
+  pantalla, "Continue anyway". `check_update_version()` sigue sin usar
+  `force_update` (el bloque que simula `999.999.999` está comentado).
+- Para probar el autoupdate de punta a punta se pone a mano una versión sin
+  `dev` y más baja que la última release (p. ej. `0.0.1`) y se compila: ver
+  [testing.md](testing.md#prueba-manual-del-autoupdate-windows).
+- Versionado (SemVer a partir de los commits, `X.Y.Z` en las releases y
+  `X.Y.Z.N` en el resto): ver [build-and-ci.md](build-and-ci.md).
 
 ## Logs
 
@@ -106,28 +123,34 @@ Detalle y decisiones: `docs/superpowers/plans/PLAN-logging-improvements.md`.
   etiquetas anteriores y nuevas; una carpeta: lo del panel + hasta 100 ficheros que fallaron) y deja la ruta
   completa en LOGS. El log técnico: `tags finished: outcome=… total=… ok=… failed=… stopped=… duration=…`,
   errores una vez por tipo y sin nombres, y de las etiquetas solo los nombres de los campos.
-- **Montajes** (buckets en Bifrost Mount, shares de la NetApp en OOD): mientras monta, rclone escribe solo sus
-  errores, en JSON, en un fichero temporal en `rclone/` junto a `reports/` (`rclone_log_path()`:
-  `mount-<perfil>-<bucket>.log`, `netapp-<share>.log`, siempre el mismo por bucket o share; en OOD, la carpeta
-  de la sesión; `--use-json-log --log-level ERROR --log-file-max-size 10M --log-file-max-backups 1`). BIFROST lo
-  lee para elegir el pop-up y, cuando el montaje falla o se desmonta (también un resto de una sesión anterior,
-  un montaje perdido o al cerrar la app), pasa sus errores al log técnico con `[bifrost.rclone]`
+- **Montajes** (servidores de MinIO en Bifrost Mount, shares de la NetApp en OOD): mientras monta, rclone
+  escribe solo sus errores, en JSON, en un fichero temporal en `rclone/` junto a `reports/` (`rclone_log_path()`:
+  `mount-<perfil>.log` por servidor, `mount-<perfil>-<bucket>.log` para los montajes por bucket de la versión
+  anterior que se desmontan, `netapp-<share>.log`; siempre el mismo por servidor, bucket o share; en OOD, la
+  carpeta de la sesión; `--use-json-log --log-level ERROR --log-file-max-size 10M --log-file-max-backups 1`).
+  BIFROST lo lee para elegir el pop-up y, cuando el montaje falla o se desmonta (también un resto de una sesión
+  anterior, un montaje perdido o al cerrar la app), pasa sus errores al log técnico con `[bifrost.rclone]`
   (`drain_rclone_log`: cada error distinto una vez, con el `RequestID` de la primera vez para buscarlo en el log
-  de MinIO, sin nombres de ficheros, hasta 100) y lo borra. Un montaje
-  normal no deja ninguna línea de rclone. Si un montaje falla, el pop-up da el código del error (ver abajo), no
-  rutas. El log técnico registra `mount ok: <carpeta> (rclone pid
-  N, N s)` / `mount failed: <carpeta> code=…` (debajo, los errores de rclone), `already mounted` si la carpeta ya estaba montada (no se lanza otro rclone), `no longer mounted`
-  si el sistema quitó el montaje (al recargar la lista o al pulsar el bucket, que se vuelve a montar: `mounting
-  again` y `stopping rclone pid N of the lost mount`, porque su rclone sigue vivo),
-  `mounted from a previous session: <carpeta>` por cada bucket que la pantalla encuentra montado al abrirse y cada
-  desmontaje con el PID que se para (`unmount <carpeta>: stopping rclone pid N` o, si es un resto de una
-  sesión anterior, `rclone from a previous session, PIDs [N]` … `done (N s)`). Si la lista de buckets no se
-  puede cargar: `bucket list failed: profile=… code=…` y, con `[bifrost.rclone]`, el texto de rclone.
+  de MinIO, sin nombres de ficheros, hasta 100) y lo borra. Un montaje normal no deja ninguna línea de rclone. Si
+  un montaje falla, el pop-up da el código del error (ver abajo), no rutas. El log técnico de Bifrost Mount
+  registra:
+  - al abrir la pantalla, `mount: <servidor> is mounted at <letra o carpeta>` por cada servidor que ya estaba
+    montado (por esta sesión, una anterior u otra ventana);
+  - al montar, `mount: server=… profile=…`, `mounting <perfil>: at <destino>` y `mount ok: <destino> (rclone pid
+    N, N s)` / `mount failed: <destino> code=…` (debajo, los errores de rclone); `mount <perfil>: already mounted
+    at …` si ya estaba montado (no se lanza otro rclone; desde la pantalla, `mount: <servidor> is already mounted,
+    opening …`);
+  - antes de montar, `stopping rclone pid N of the lost mount` / `… of a lost mount from another session` si un
+    rclone de ese servidor seguía vivo sin montaje (el sistema quitó el montaje al cortarse la red, o se desmontó
+    a mano); `unmounting N bucket mounts of the previous version` y `removed the empty folder …`, o `bucket mounts
+    still in use: …` si alguno no se deja desmontar; `no free drive letter` en Windows;
+  - cada desmontaje con el PID que se para (`unmount <destino>: stopping rclone pid N` o, si es un resto de una
+    sesión anterior u otra ventana, `rclone from a previous session, PIDs [N]` … `done (N s)`).
 - **Códigos de error** (PR 4 y PR 5): cada error que ve el usuario (pop-ups, la línea de error en lugar de una
   lista, la primera línea del resumen de copy, check y Tag Manager cuando fallan, y los mensajes de la renovación
   de credenciales) lleva un código `<pantalla><tipo>-<MMDD>-<HHMMSS>`, por ejemplo `MNT101-1103-141526`. Los
   del login también tienen el suyo, pero solo en el log técnico: en esa pantalla sería ruido. Pantalla: `LGN`
-  login, `CRD` renovación de credenciales, `MNT` montar un bucket, `NET` NetApp, `CPY` copy (y "Save log" y los
+  login, `CRD` renovación de credenciales, `MNT` montar un servidor, `NET` NetApp, `CPY` copy (y "Save log" y los
   navegadores de copy), `CHK` check, `TAG` Tag Manager, `APP` actualizar BIFROST o fallo no previsto. El tipo es
   el campo `num` de cada `UserIssue` (`common/rclone_output.py`); `UserIssue.reference(screen)` crea el código.
 
@@ -136,7 +159,7 @@ Detalle y decisiones: `docs/superpowers/plans/PLAN-logging-improvements.md`.
   | 1xx MinIO | 101 · 102 · 103 · 104 · 105 · 106 · 107 · 108 · 109 | `CREDENTIALS_EXPIRED` · `PROFILE_MISSING` · `MINIO_PERMISSION` · `BUCKET_NOT_FOUND` · `OBJECT_GONE` · `WORM_PROTECTED` · `INVALID_TAG` · `MINIO_BUSY` · `CLOCK_SKEW` |
   | 2xx red y límites | 201 · 202 · 203 · 204 | `NETWORK` · `TEMPORARY` · `TRANSFER_LIMIT` · `TIME_LIMIT` |
   | 3xx ficheros de origen | 301 · 302 · 303 · 304 · 305 | `SOURCE_NOT_FOUND` · `SOURCE_PERMISSION` · `SOURCE_CHANGING` · `FILE_IN_USE` · `DISK_FULL` |
-  | 4xx montajes | 401 · 402 · 403 · 404 · 405 | `MOUNT_TIMEOUT` · `MOUNT_BUSY` · `MOUNT_NOT_ALLOWED` · `UNMOUNT_FAILED` · `FUSE_MISSING` |
+  | 4xx montajes | 401 · 402 · 403 · 404 · 405 · 406 | `MOUNT_TIMEOUT` · `MOUNT_BUSY` · `MOUNT_NOT_ALLOWED` · `UNMOUNT_FAILED` · `FUSE_MISSING` · `NO_DRIVE_LETTER` |
   | 5xx NetApp | 501 · 502 · 503 | `NETAPP_LOGIN` · `NETAPP_SHARE_NOT_FOUND` · `NETAPP_PERMISSION` |
   | 6xx inicio de sesión | 601 | `INVALID_CREDENTIALS` |
   | 9xx BIFROST | 901 · 902 · 903 · 999 | `RCLONE_MISSING` · `RCLONE_OPTIONS` · `FATAL` · `UNEXPECTED` |

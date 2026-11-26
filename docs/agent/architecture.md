@@ -5,7 +5,7 @@
 | Component | Folder | Role |
 |---|---|---|
 | **bifrost-transfer** | `bifrost-transfer/` | Copies data from network shares (SMB/CIFS), SFTP servers or local paths to MinIO S3 buckets, with integrity checks and tagging by metadata profile. Includes **Tag Manager** (bulk tagging without re-upload) and **web mode** (Open OnDemand). |
-| **bifrost-mount** | `bifrost-mount/` | Mounts MinIO S3 folders as a local drive (Windows/macOS/Linux). Desktop mode only. |
+| **bifrost-mount** | `bifrost-mount/` | Mounts each MinIO server whole and read-only, with its buckets as folders: a drive letter on Windows, `~/rclone-mounts/<server>` on macOS/Linux. Desktop mode only. |
 | **bifrost-shared** | `shared/` | Common wheel package: `bifrost_backend` (all non-UI logic, split into `common/`, `mount/` and `transfer/`; the `backend.py` facade re-exports it as `backend.X`) and `bifrost_frontend` (theme, components and the views shared by both apps; the `frontend.py` facade re-exports them). |
 
 Both apps are Flet apps with entry point `src/main.py` and one `pyproject.toml`
@@ -17,9 +17,9 @@ per app.
 bifrost-mount/            # Mount app (desktop)
   src/
     main.py               # Flet entry point: technical log, exit cleanup (register_shutdown), view navigation
-    views/mount.py        # Bucket selector + mount/unmount view
+    views/                # servers (one card per MinIO server), server_card, winfsp_dialog
     config.py             # APP_INFO = {"flavour": "mount", ...}
-    version.py            # __version__ (written by CI/build)
+    version.py            # __version__: 0.0.0.dev in the repo, the real one written by CI
     assets/bin/           # bundled rclone
   frameworks/             # fuse_t.framework (macOS)
   pyproject-template.toml # Template; pyproject.toml is generated locally (not versioned)
@@ -44,13 +44,13 @@ shared/                   # bifrost-shared package (local wheel)
   bifrost_backend/
     backend.py            # Facade: re-exports the public API (backend.X)
     common/               # auth, constants, logs, rclone, rclone_mount, rclone_output, shutdown, ui_helpers, updates
-    mount/                # preflight (WinFsp/FUSE checks), s3_mount
+    mount/                # preflight (WinFsp/FUSE checks), mount_points, processes, legacy, s3_mount
     transfer/             # copy_check, ldap_groups, rclone_ops, s3_tags, sftp, smb
   bifrost_frontend/
     frontend.py           # Facade: re-exports theme, components and views
     theme.py              # Palette (C_*), fonts, apply_theme
-    components.py         # Buttons, fields, show_dialog, show_confirm, build_header
-    views/                # update.py, login.py, minio.py, credentials.py
+    components.py         # Buttons, nav_bar, cards/chips, dialogs (open_dialog, show_dialog, show_issue, show_confirm), ErrorBanner, build_header
+    views/                # update.py, login.py, minio.py, credentials.py, renew_dialog.py
   pyproject.toml          # Defines the "bifrost-shared" package
   *-assets-downloader.sh  # Download rclone/fuse-t (also used by CI)
 
@@ -75,36 +75,39 @@ docs/superpowers/         # Historical feature specs and plans
   `bifrost_backend.common.constants` (`MINIO_SERVERS`, LDAP URL/base DN,
   `STS_RENEWAL_THRESHOLD_DAYS`, `STS_AUTO_RENEWAL_DAYS`, `NO_LDAP`). See
   [backend.md](backend.md).
-- `bifrost_frontend` — theme (`C_BG`, `C_PRIMARY`, …), components
-  (`btn_primary`, `btn_secondary`, `styled_field`, `show_dialog`,
-  `show_confirm`, `build_header`) and the views shared by both apps
+- `bifrost_frontend` — theme (`C_BG`, `C_PRIMARY`, …, `tint`), components
+  (`btn_primary`, `btn_secondary`, `btn_nav`, `nav_bar`, `styled_field`,
+  `expiry_chip`, `open_dialog`, `show_dialog`, `show_issue`, `show_confirm`,
+  `ErrorBanner`, `build_header`) and the views and dialogs shared by both apps
   (`build_update_content`, `build_login_content`, `build_minio_content`,
-  `build_credentials_content`). Each app does
+  `build_credentials_content`, `show_renew_dialog`). Each app does
   `from bifrost_frontend.frontend import *`. See [frontend.md](frontend.md).
 
 **App-specific**:
-- `src/main.py` — entry point: startup, view navigation (login → minio →
-  credentials → mount/copy), the technical log (`backend.setup_logging(...)`)
+- `src/main.py` — entry point: startup, view navigation (mount: login ⇄
+  servers ⇄ credentials; transfer: login ⇄ minio ⇄ credentials → copy; every
+  screen has a back button to the previous one), the technical log (`backend.setup_logging(...)`)
   and exit cleanup (`backend.register_shutdown(...)`). In `bifrost-transfer` it
   also computes `IS_WEB` and builds the cluster ASGI app.
-- `src/views/` — the app's own views (`mount.py` in mount; `shares.py`,
+- `src/views/` — the app's own views (`servers.py`, `server_card.py`,
+  `winfsp_dialog.py` in mount; `shares.py`,
   `rclone_browser.py`, `local_fs.py`, `copy.py`, `tag_manager.py` in transfer).
 - `src/web_session.py` (**transfer only**) — web-mode session store.
 - `src/meta_fields.py` — **`bifrost-transfer` only**: `FieldType`, `TAG_PROFILES`, `profile_fields`, `apply_provider`, `missing_required`, `validate_profile_tagset`, `check_tag_value`, `validate_tagset`, `TAG_KEY_MAX`, `TAG_VALUE_MAX`, `build_meta_fields`, `LAB_ACRONYMS`, `build_lab_filter_widget`, `detect_profile`. Canonical source of profiles and fields.
-- `src/config.py` — only `APP_INFO`. The backend reads `APP_INFO["flavour"]` to resolve asset paths in dev.
-- `src/version.py` — written by CI/build (`__version__ = "1.0.<run_number>"`).
+- `src/config.py` — only `APP_INFO`. Its location also tells the backend where the app's `src/assets/` is in development (`common/rclone.app_assets_dir()`: rclone and the emoji font when there is no `FLET_ASSETS_DIR`, e.g. `python src/main.py`). `APP_INFO["flavour"]` names the update binary and adapts some texts.
+- `src/version.py` — tracked with the development version `0.0.0.dev` (no update checks with it); CI overwrites it with `X.Y.Z` or `X.Y.Z.N` (see `operations.md`).
 - `installer.iss`, `build-macos.sh`, `pyproject-template.toml` (frozen deps per app).
 
 ## Coupling and invariants
 
 - Apps import the backend with `from bifrost_backend import backend` and the
   frontend with `from bifrost_frontend.frontend import *`. Shared code imports
-  `config` as a top-level module (`common/rclone.py`, `common/updates.py` and
-  the frontend modules): **`config.py` must be importable as a top-level module
+  `config` as a top-level module (the frontend modules; `common/rclone.py`
+  finds the app's assets from the `config` module's file): **`config.py` must be importable as a top-level module
   in each app** (that is why each app has its own, even though it only contains
   `APP_INFO`). `version` is also imported as a top-level module
   (`common/constants.py`, `common/rclone.py`), but inside `try/except` with a
-  fallback (`"1.0.1"` / `"dev"`), so a missing `version.py` does not break the
+  fallback (`DEV_VERSION = "0.0.0.dev"` / `"dev"`), so a missing `version.py` does not break the
   import.
 - Each app's `pyproject.toml` references
   `bifrost-shared @ file:///__BUILDPATH__/shared`; the build script (CI,
@@ -137,8 +140,12 @@ docs/superpowers/         # Historical feature specs and plans
 
 ## High-level flows
 
-- Desktop: login (LDAP) → MinIO server selection → automatic temporary STS
-  credentials → action view (mount or copy).
+- Desktop transfer: login (LDAP) → MinIO server selection → automatic temporary
+  STS credentials → copy view.
+- Desktop mount: login (LDAP) → one card per MinIO server → Mount (renews the
+  STS credentials first if needed) → the whole server is mounted, with its
+  buckets as folders (a drive letter on Windows, `~/rclone-mounts/<server>`
+  elsewhere).
 - Web (transfer only, Open OnDemand): same, with a persistent session in
   `_WEB_SESSIONS` (`web_session.py`) and tab reconnection. See
   [frontend.md](frontend.md).

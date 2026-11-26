@@ -50,7 +50,7 @@ def build_local_fs_browser(
         ],
         spacing=8, visible=False,
     )
-    error_text = ft.Text("", color=C_ERROR, size=11, visible=False)
+    error_text = ErrorBanner(visible=False)
 
     def _rebuild_breadcrumb(path: pathlib.Path):
         breadcrumb_row.controls.clear()
@@ -322,7 +322,7 @@ def show_local_fs_modal(
             ),
             style=ft.ButtonStyle(
                 padding=ft.Padding.symmetric(horizontal=8, vertical=4),
-                bgcolor={ft.ControlState.HOVERED: f"{C_PRIMARY}22"},
+                bgcolor={ft.ControlState.HOVERED: tint(C_PRIMARY, 0.13)},
                 shape=ft.RoundedRectangleBorder(radius=6),
             ),
             on_click=lambda e, p=dest: navigate_to(p),

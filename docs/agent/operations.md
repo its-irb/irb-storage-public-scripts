@@ -43,7 +43,7 @@ cd ..   # back to the app folder
 The macOS scripts pick the rclone architecture from `uname -m`
 (`arm64` on Apple Silicon, `amd64` on Intel); override with the `RCLONE_ARCH`
 env var. CI pins it explicitly: `arm64` in the ARM job and `amd64` in the
-Intel job (stopgap until Nov-2026).
+Intel job.
 
 ```bash
 # Activate
@@ -57,16 +57,18 @@ flet run
 Useful flags:
 
 ```bash
-flet run --update         # Meant to force autoupdate — currently has no effect (see below)
+python src/main.py --update   # force the update check (flet run cannot pass it: it rejects unknown arguments)
 flet run --web            # (transfer only) web mode for local development
 BIFROST_CLUSTER=1 python src/main.py --web  # (transfer only) simulate OOD production
 ```
 
-- `--update` currently does nothing: `check_update_version()` receives
-  `force_update`, but the test block that simulates version `999.999.999` is
-  commented out. Uncomment it in
-  `shared/bifrost_backend/common/updates.py` (and reinstall the shared package)
-  to test the update screen.
+- `--update` (from the app folder, with `python src/main.py`) forces the update
+  check even with the development version `0.0.0.dev`, so any release is newer
+  and the update screen appears (not on Linux or with `BIFROST_CLUSTER=1`: there
+  it never checks). **"Update now" really installs the release** (macOS: replaces
+  `/Applications/bifrost-<app>.app`); use "Continue anyway" to only look at the
+  screen. `check_update_version(force_update=…)` still ignores `force_update` (the
+  block that simulates `999.999.999` is commented out).
 - The username field of the login is always editable; there is no flag to sign
   in with another user.
 - With Flet 0.84, `flet run --web` fails with
@@ -77,11 +79,19 @@ BIFROST_CLUSTER=1 python src/main.py --web  # (transfer only) simulate OOD produ
   without the Flet CLI, from `bifrost-transfer/`, serving on port 8000 (change
   it with `FLET_SERVER_PORT`; open `http://localhost:8000` by hand). Flet also
   installs `flet-web` automatically if it is missing (the app's dependencies
-  only include it on Linux):
+  only include it on Linux) — but it installs the latest FastAPI, which no longer
+  accepts the `openapi_prefix` that `flet-web` 0.84 passes, and the start fails
+  with `TypeError: FastAPI.__init__() got an unexpected keyword argument
+  'openapi_prefix'`. Install the pinned versions first (the ones `uv.lock` uses
+  on the cluster), with the **transfer** venv:
 
 ```bash
+uv pip install --python .venv/bin/python "flet-web==0.84.0" "fastapi==0.143.0"
 FLET_FORCE_WEB_SERVER=true python src/main.py --web
 ```
+
+  A later `uv sync` removes those two packages (they are Linux-only in the app's
+  dependencies); install them again before the next run.
 
 After changing code in `shared/`, reinstall the shared package:
 
@@ -97,7 +107,7 @@ Common prerequisite: local `pyproject.toml` generated from the template with
 | Environment | Notes |
 |---|---|
 | Local Windows | `build-windows.ps1`, from the repo root: regenerates `pyproject.toml`, downloads rclone, reinstalls `bifrost-shared` and runs `flet build windows` (output in `<app>/build/windows/`; uses the `flet` on PATH, so the app's venv must be active) or, with `-run`, `uv run flet run` (always the app's venv). Default app: `bifrost-mount`. The installer (Inno Setup) is packaged separately. |
-| Local macOS | From the app folder; requires Xcode. Local version `2.0.0.dev`; in mount it copies `fuse_t.framework` into the bundle. |
+| Local macOS | From the app folder; requires Xcode. `build-macos.sh` writes version `0.0.0.dev` (it overwrites `src/version.py`: to test the autoupdate with a lower version, change it in the script); in mount it copies `fuse_t.framework` into the bundle. |
 | CI | `.github/workflows/main.yml` — macOS (`.app` → DMG) and Windows (build + Inno Setup + installer signing) for both apps. **There is no Linux job.** |
 | Linux (cluster) | No packaging: `bifrost-transfer` runs from source in web mode (Open OnDemand, `BIFROST_CLUSTER=1`). |
 
@@ -132,35 +142,79 @@ uv add <package>
 ## CI and releases
 
 - Triggers: push to `main`, `release`, `develop`, `feature/**` (only with
-  changes in the apps, `shared/` or the workflow) + `workflow_dispatch`.
+  changes in the apps, `shared/` or the workflow) + `workflow_dispatch`. `main`
+  publishes releases, `develop` publishes one rolling prerelease
+  (`develop-latest`), the other branches only build artifacts.
 - CI toolchain: Python 3.12, `uv` via pip, **Node 24** (needed for
   `flet build windows`), `PYTHONUTF8=1` on Windows.
-- The version is injected as `1.0.<run_number>` in `src/version.py` and in each
-  app's `pyproject.toml` before the build (the template version is `2.0.0`).
-- `build-macos` job (runner `macos-latest`, Apple Silicon): DMGs from the
-  `*-arm.sh` downloaders (with `RCLONE_ARCH=arm64`) →
+- **Versioning (SemVer, one version for both apps)**: the `version` job runs
+  `.github/scripts/next_version.py version` and the other jobs read its outputs.
+  It reads the commits since the highest `vX.Y.Z` tag (merge commits skipped,
+  the commits they bring counted):
+
+  | Commits | Next version |
+  |---|---|
+  | `feat!:` / any `!`, or `BREAKING CHANGE:` in the body | major |
+  | any `feat` | minor |
+  | only `fix`, `perf`, `revert`, `build` | patch |
+  | only `docs`, `style`, `refactor`, `test`, `ci`, `chore` | none |
+  | `Release-As: X.Y.Z` in a body (newest wins) | exactly that (must be greater than the last release, or the job fails) |
+
+  On `main` with a next version: `version` = `base` = `X.Y.Z`, `is_release=true`.
+  Anything else (other branches, or `main` with nothing releasable):
+  `version` = `<last release>.<run_number>` (e.g. `1.1.0.412`), `base` = the last
+  release, `is_release=false` — newer than its release for the autoupdate, older
+  than the next one. `version` goes to `src/version.py` and the Inno Setup
+  `AppVersion`; `base` to `pyproject.toml` and `flet build --build-version`, with
+  `--build-number <run_number>` (Flutter/macOS only accept three numbers). The
+  template version (`0.0.0`) and the repo `version.py` (`0.0.0.dev`) are always
+  overwritten.
+- `build-macos` job (runner `macos-26`, Apple Silicon; pinned instead of
+  `macos-latest` so a new macOS image never changes the build unless we decide
+  it): DMGs from `macos-assets-downloader.sh` (mount) /
+  `macos-rclone-downloader.sh` (transfer) with `RCLONE_ARCH=arm64` →
   `bifrost-<flavour>-macos.dmg`.
-- `build-macos-intel` job (runner `macos-14`, Intel): same job with the
-  `*-intel.sh` downloaders (hardcoded `osx-amd64`) →
-  `bifrost-<flavour>-macos-intel.dmg`. **Stopgap until Nov-2026** (GitHub
-  retires `macos-14`, the last Intel hosted runner): it runs with
-  `continue-on-error: true` so its failure never blocks the release, and the
-  whole job must be removed in the follow-up after that date.
-- `release` job (only on `main` and `release`): publishes the release with tag
-  `v1.0.<run_number>` and the artifacts (macOS:
+- `build-macos-intel` job (runner `macos-15-intel`, Intel): same job with
+  `RCLONE_ARCH=amd64` → `bifrost-<flavour>-macos-intel.dmg`. Intel Macs are
+  supported; the job has no `continue-on-error`, so if it fails the release is
+  not published.
+- `build-windows` job: signed installer
+  `bifrost-<flavour>-<branch>-windows.exe` plus a `.zip` with it inside
+  (`bifrost-<flavour>-<branch>-windows.zip`), both in the artifact.
+- `publish` job — one job, the same steps for both publishing branches; only the
+  "Qué se publica" step sets different values:
+
+  | | `main` (only when `is_release` is true) | `develop` (every push) |
+  |---|---|---|
+  | Release | "Release vX.Y.Z", latest | "Develop: vX.Y.Z.N", prerelease, not latest |
+  | Tag | `vX.Y.Z` | `develop-latest` (the previous release and tag are deleted first: there is always one) |
+  | Notes | commits grouped by type (`next_version.py notes`) | a "test build" header + the same notes (what the next `main` release will contain) |
+
+  So every merge to `develop` runs the code that will publish on `main`. The
+  prerelease never affects users (the autoupdate only reads the `latest` release)
+  nor the numbering (`next_version.py` only counts `vX.Y.Z` tags). The tag is not
+  `develop` because it would clash with the branch name. Two pushes to the same
+  branch publish one after the other (`concurrency`). Every release has the
+  artifacts on the built commit (`target_commitish`) (macOS:
   `bifrost-<flavour>-macos.dmg` (arm64) +
-  `bifrost-<flavour>-macos-intel.dmg` (Intel, stopgap); Windows: installer
+  `bifrost-<flavour>-macos-intel.dmg` (Intel); Windows: the installer
   `.exe` **signed** with `signtool`, PFX from the secrets
-  `IRBCODESIGNING`/`IRBCODESIGNING_PASSWORD`). The apps' autoupdate downloads
-  from those releases, picking the macOS suffix from the machine architecture
-  (`platform.machine()`: arm64 → `-macos.dmg`, x86_64 →
-  `-macos-intel.dmg`); Intel Macs on a pre-stopgap release need one manual
-  install of the `-macos-intel.dmg`.
+  `IRBCODESIGNING`/`IRBCODESIGNING_PASSWORD`, the build job's
+  `<branch>-windows.zip`, and `bifrost-<flavour>-windows.zip`, made by the
+  `publish` job, which users download and the Windows autoupdate uses; the three
+  Windows files are intentional). The apps' autoupdate downloads from those
+  releases, picking the suffix per platform (`platform.machine()` on macOS:
+  arm64 → `-macos.dmg`, x86_64 → `-macos-intel.dmg`; Windows:
+  `-windows.zip`); Intel Macs on a release older than the Intel builds need one
+  manual install of the `-macos-intel.dmg`.
 
 ## Tests
 
-**There is no automated test suite.** Changes are validated by running the apps
-manually (`flet run`).
+There are **pytest tests for pure logic only**: `tests/` at the repo root
+(autoupdate, `rclone mount` processes, mount command, rclone/assets lookup) and
+`bifrost-transfer/tests/` (`meta_fields.py`). They are not run in CI. The UI is
+validated by running the apps manually (`flet run`). How to run them:
+`docs/development/testing.md`.
 
 ## Environment variables
 
@@ -178,7 +232,7 @@ setx BIFROST_NO_LDAP 1 /M
 
 ## Commit hygiene
 
-Do not commit `.venv/`, `dist/`, `build/`, generated `src/version.py`, the
+Do not commit `.venv/`, `dist/`, `build/`, a `src/version.py` other than `0.0.0.dev`, the
 downloaded binaries (`src/assets/**/*`, `frameworks/*`) or the local
 `pyproject.toml` of the apps (only the `pyproject-template.toml` templates). See
 `.gitignore`.

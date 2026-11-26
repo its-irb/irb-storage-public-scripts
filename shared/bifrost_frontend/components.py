@@ -6,12 +6,13 @@ from typing import Callable
 
 import flet as ft
 from bifrost_backend import backend
+from bifrost_backend.common.constants import STS_RENEWAL_THRESHOLD_DAYS
 from config import APP_INFO
 
 from .theme import (
     C_ACCENT, C_BORDER, C_ERROR, C_OVERLAY, C_PRIMARY, C_SURFACE, C_SURFACE2,
     C_TEXT, C_TEXT_DIM, C_WARNING, FONT_MONO, FONT_REGULAR, MONO_FALLBACK,
-    REGULAR_FALLBACK,
+    REGULAR_FALLBACK, tint,
 )
 
 log = logging.getLogger("bifrost.ui")
@@ -21,9 +22,10 @@ log = logging.getLogger("bifrost.ui")
 # ============================================================================
 
 
-def btn_primary(text: str, on_click=None, width=None, disabled=False) -> ft.Button:
+def btn_primary(text: str, on_click=None, width=None, disabled=False, icon=None) -> ft.Button:
     return ft.Button(
         content=ft.Text(text, font_family=FONT_REGULAR, font_family_fallback=REGULAR_FALLBACK),
+        icon=icon,
         on_click=on_click,
         disabled=disabled,
         width=width,
@@ -42,9 +44,10 @@ def btn_primary(text: str, on_click=None, width=None, disabled=False) -> ft.Butt
         ),
     )
     
-def btn_secondary(text: str, on_click=None, width=None) -> ft.OutlinedButton:
+def btn_secondary(text: str, on_click=None, width=None, icon=None) -> ft.OutlinedButton:
     return ft.OutlinedButton(
         content=ft.Text(text, font_family=FONT_REGULAR, font_family_fallback=REGULAR_FALLBACK),
+        icon=icon,
         on_click=on_click,
         width=width,
         style=ft.ButtonStyle(
@@ -54,7 +57,102 @@ def btn_secondary(text: str, on_click=None, width=None) -> ft.OutlinedButton:
             padding=ft.padding.symmetric(horizontal=20, vertical=12),
         ),
     )
-    
+
+
+def btn_nav(text: str, on_click=None, icon=ft.Icons.ARROW_BACK) -> ft.TextButton:
+    """Botón discreto de navegación ("Back to login"), arriba a la izquierda de la pantalla."""
+    return ft.TextButton(
+        content=ft.Text(text, size=13, font_family=FONT_REGULAR, font_family_fallback=REGULAR_FALLBACK),
+        icon=icon,
+        on_click=on_click,
+        style=ft.ButtonStyle(
+            color={ft.ControlState.DEFAULT: C_TEXT_DIM, ft.ControlState.HOVERED: C_TEXT},
+            shape=ft.RoundedRectangleBorder(radius=6),
+            # Sin margen a la izquierda: el icono queda alineado con el borde del contenido de debajo.
+            padding=ft.Padding.only(left=0, right=10, top=8, bottom=8),
+        ),
+    )
+
+
+def icon_tile(icon, color: str, size: int = 44) -> ft.Container:
+    """Un icono sobre un cuadrado redondeado del mismo color, translúcido (cabeza de tarjetas y estados)."""
+    return ft.Container(
+        content=ft.Icon(icon, color=color, size=round(size / 2)),
+        width=size,
+        height=size,
+        bgcolor=tint(color, 0.13),
+        border_radius=round(size / 4),
+        alignment=ft.Alignment.CENTER,
+    )
+
+
+def nav_bar(back_text: str | None = None, on_back: Callable | None = None, *,
+            usuario: str | None = None) -> ft.Row:
+    """Fila de arriba de una pantalla: a la izquierda, volver (`back_text`, si hay `on_back`); a la derecha, con qué
+    usuario se ha entrado."""
+    left: list[ft.Control] = [btn_nav(back_text or "Back", on_click=lambda e: on_back())] if on_back else []
+    right: list[ft.Control] = [
+        ft.Icon(ft.Icons.PERSON_OUTLINE, size=16, color=C_TEXT_DIM),
+        ft.Text(f"Signed in as {usuario}", size=12, color=C_TEXT_DIM),
+    ] if usuario else []
+    return ft.Row([*left, ft.Container(expand=True, height=36), *right], spacing=6,
+                  vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+
+def expiry_label(session) -> tuple[str, str]:
+    """El texto y el color de la caducidad de las credenciales de un perfil (rojo con menos de 1 día, ámbar hasta
+    3). `session`: el `SessionInfo` (`backend.get_session_info`), o None si no tiene credenciales."""
+    if session is None:
+        return "No credentials yet", C_TEXT_DIM
+    if session.remaining is None:
+        return "Credentials: unknown expiry", C_TEXT_DIM
+    if session.expired:
+        return "Credentials expired", C_ERROR
+    dias = session.remaining.days
+    color = C_ERROR if dias < 1 else C_WARNING if dias <= STS_RENEWAL_THRESHOLD_DAYS else C_ACCENT
+    return f"Credentials expire in {session.remaining_text()}", color
+
+
+def expiry_chip(session) -> ft.Container:
+    """Etiqueta con la llave y la caducidad de las credenciales (ver `expiry_label`)."""
+    text, color = expiry_label(session)
+    return ft.Container(
+        content=ft.Row([ft.Icon(ft.Icons.KEY, size=13, color=color),
+                        ft.Text(text, size=11, color=color, weight=ft.FontWeight.W_600)], spacing=6, tight=True),
+        bgcolor=tint(color, 0.13),
+        border=ft.Border.all(1, tint(color, 0.33)),
+        border_radius=20,
+        padding=ft.Padding.symmetric(horizontal=10, vertical=5),
+        tooltip="MinIO credentials for this server",
+    )
+
+
+@ft.control
+class ErrorBanner(ft.Container):
+    """Un error dentro de una pantalla o un diálogo: icono y texto sobre un recuadro rojo suave.
+
+    Se usa como el ft.Text rojo al que sustituye: se cambian `value` y `visible`. Un emoji del principio del texto
+    ("⚠️ …", el de issue_line) se quita, porque ya lleva el icono.
+    """
+    value: str = ""
+
+    def init(self):
+        self._text = ft.Text("", size=12, color=C_TEXT, selectable=True, expand=True)
+        self.content = ft.Row([ft.Icon(ft.Icons.ERROR_OUTLINE, size=16, color=C_ERROR), self._text],
+                              spacing=8, vertical_alignment=ft.CrossAxisAlignment.START)
+        self.bgcolor = tint(C_ERROR, 0.10)
+        self.border = ft.Border.all(1, tint(C_ERROR, 0.35))
+        self.border_radius = 8
+        self.padding = ft.Padding.symmetric(horizontal=12, vertical=8)
+
+    def before_update(self):
+        super().before_update()
+        text = (self.value or "").strip()
+        for emoji in ("⚠️", "❌"):
+            text = text.removeprefix(emoji).strip()
+        self._text.value = text
+
+
 def card(content: ft.Control, padding=20) -> ft.Container:
     return ft.Container(
         content=content,
@@ -116,8 +214,8 @@ def styled_field(
 def status_badge(text: str, color: str) -> ft.Container:
     return ft.Container(
         content=ft.Text(text, size=11, color=color, weight=ft.FontWeight.W_600),
-        bgcolor=f"{color}22",
-        border=ft.Border.all(1, f"{color}55"),
+        bgcolor=tint(color, 0.13),
+        border=ft.Border.all(1, tint(color, 0.33)),
         border_radius=20,
         padding=ft.Padding.symmetric(horizontal=10, vertical=4),
     )
@@ -142,6 +240,45 @@ def log_text(line: str) -> ft.Text:
 # ============================================================================
 
     
+_DIALOG_ICONS = {
+    C_ACCENT:  ft.Icons.CHECK_CIRCLE_OUTLINE,
+    C_ERROR:   ft.Icons.ERROR_OUTLINE,
+    C_WARNING: ft.Icons.WARNING_AMBER_ROUNDED,
+}
+
+
+def open_dialog(page: ft.Page, *, title: str, color: str, icon, body: list[ft.Control], actions: list,
+                 subtitle: str = "") -> None:
+    """Diálogo modal con el aspecto común: icono en un cuadrado del color del tipo, título (y debajo `subtitle`, a
+    qué se refiere), el cuerpo y los botones a la derecha."""
+    head = ft.Row(
+        [
+            icon_tile(icon, color, size=40),
+            ft.Column(
+                [ft.Text(title, color=C_TEXT, size=16, weight=ft.FontWeight.W_600)]
+                + ([ft.Text(subtitle, color=C_TEXT_DIM, size=12, selectable=True)] if subtitle else []),
+                spacing=2, tight=True, expand=True,
+            ),
+        ],
+        spacing=14,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    )
+    dlg = ft.AlertDialog(
+        modal=True,
+        title=head,
+        content=ft.Column(body, spacing=12, tight=True, width=460),
+        actions=actions,
+        actions_alignment=ft.MainAxisAlignment.END,
+        bgcolor=C_OVERLAY,
+        shape=ft.RoundedRectangleBorder(radius=12),
+        title_padding=ft.Padding.only(left=24, top=24, right=24, bottom=0),
+        content_padding=ft.Padding.only(left=24, top=18, right=24, bottom=4),
+        actions_padding=ft.Padding.only(left=24, top=16, right=24, bottom=20),
+    )
+    page.show_dialog(dlg)
+    page.update()
+
+
 def show_dialog(
     page: ft.Page,
     title: str,
@@ -150,36 +287,75 @@ def show_dialog(
     actions: list | None = None,
     content: ft.Control | None = None,
 ):
-    """Diálogo modal. `content` sustituye al texto de `message` si se pasa."""
+    """Diálogo modal. `content` sustituye al texto de `message` si se pasa. El color da el icono (éxito, error,
+    aviso o información)."""
     def close(e=None):
         page.pop_dialog()
 
     if not actions:
         actions = [btn_primary("OK", on_click=close)]
 
-    icon = (
-        ft.Icons.CHECK_CIRCLE_OUTLINE   if color == C_ACCENT  else
-        ft.Icons.ERROR_OUTLINE          if color == C_ERROR   else
-        ft.Icons.WARNING_AMBER_OUTLINED if color == C_WARNING else
-        ft.Icons.INFO_OUTLINE
+    open_dialog(
+        page, title=title, color=color if color in _DIALOG_ICONS else C_PRIMARY,
+        icon=_DIALOG_ICONS.get(color, ft.Icons.INFO_OUTLINE),
+        body=[content or ft.Text(message, color=C_TEXT_DIM, size=13, selectable=True)],
+        actions=actions,
     )
 
-    dlg = ft.AlertDialog(
-        modal=True,
-        title=ft.Row(
+
+def tip_box(text: str) -> ft.Container:
+    """Recuadro "What you can do": qué puede hacer el usuario ante un error."""
+    return ft.Container(
+        content=ft.Row(
             [
-                ft.Icon(icon, color=color, size=20),
-                ft.Text(title, color=C_TEXT, size=15, weight=ft.FontWeight.W_600),
+                ft.Icon(ft.Icons.LIGHTBULB_OUTLINE, size=16, color=C_WARNING),
+                ft.Column(
+                    [
+                        ft.Text("What you can do", size=11, color=C_WARNING, weight=ft.FontWeight.W_600),
+                        ft.Text(text, size=13, color=C_TEXT, selectable=True),
+                    ],
+                    spacing=2, tight=True, expand=True,
+                ),
             ],
-            spacing=8,
+            spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.START,
         ),
-        content=content or ft.Text(message, color=C_TEXT_DIM, size=13),
-        actions=actions,
-        bgcolor=C_OVERLAY,
-        shape=ft.RoundedRectangleBorder(radius=10),
+        bgcolor=tint(C_WARNING, 0.08),
+        border=ft.Border.all(1, tint(C_WARNING, 0.25)),
+        border_radius=8,
+        padding=ft.Padding.symmetric(horizontal=12, vertical=10),
     )
-    page.show_dialog(dlg)
-    page.update()
+
+
+def error_code_row(page: ft.Page, ref: str) -> ft.Container:
+    """El código del error, que el usuario pasa a ITS, con un botón para copiarlo."""
+    copy_btn = ft.IconButton(icon=ft.Icons.CONTENT_COPY, icon_size=16, icon_color=C_TEXT_DIM, tooltip="Copy code")
+
+    async def _copy(e):
+        try:
+            await page.clipboard.set(ref)
+        except Exception as ex:                     # sin portapapeles (p. ej. el navegador no lo deja): no pasa nada
+            log.debug("copying the error code failed: %s", ex)
+            return
+        copy_btn.icon, copy_btn.icon_color, copy_btn.tooltip = ft.Icons.CHECK, C_ACCENT, "Copied"
+        copy_btn.update()
+
+    copy_btn.on_click = _copy
+    return ft.Container(
+        content=ft.Row(
+            [
+                ft.Text("Error code", size=11, color=C_TEXT_DIM),
+                ft.Text(ref, size=12, color=C_TEXT, selectable=True, expand=True,
+                        font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK),
+                copy_btn,
+            ],
+            spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        bgcolor=C_SURFACE2,
+        border_radius=8,
+        padding=ft.Padding.only(left=12, right=4, top=2, bottom=2),
+    )
 
 
 def show_issue(
@@ -196,9 +372,9 @@ def show_issue(
 ) -> str:
     """Diálogo de error a partir de un UserIssue (common/rclone_output.py). Devuelve el código del error.
 
-    Debajo del título, el código ("Error MNT101-1103-141526"); después `context` (el bucket, el fichero o el
-    recuento al que se refiere; nunca listas de ficheros ni rutas de logs), qué ha pasado y qué puede hacer el
-    usuario. `screen` ("mount", "netapp", "copy", "check", "tags" o "app") da el principio del código y la pista.
+    Debajo del título, `context` (el bucket, el fichero o el recuento al que se refiere; nunca listas de ficheros
+    ni rutas de logs); después qué ha pasado, qué puede hacer el usuario (recuadro "What you can do") y el código
+    ("MNT101-1103-141526", con un botón para copiarlo). `screen` ("mount", "netapp", "copy", "check", "tags" o "app") da el principio del código y la pista.
     `ref`: el código que ya tiene este error (el de una operación, o el de la primera vez que se mostró).
     `buttons` son pares (texto, acción): cada botón cierra el diálogo y después ejecuta su acción; el último es
     el principal.
@@ -212,18 +388,16 @@ def show_issue(
 
     ref = issue_reference(issue, screen, ref)
     buttons = buttons or [("OK", None)]
-    texts = [ft.Text(f"Error {ref}", color=C_TEXT_DIM, size=11, selectable=True,
-                     font_family=FONT_MONO, font_family_fallback=MONO_FALLBACK)]
-    if context:
-        texts.append(ft.Text(context, color=C_TEXT, size=13, selectable=True))
     # Con un título propio, el del issue va delante del mensaje para no perder la causa.
-    texts.append(ft.Text(f"{issue.title}: {issue.message}" if title else issue.message, color=C_TEXT_DIM, size=13))
+    body: list[ft.Control] = [ft.Text(f"{issue.title}: {issue.message}" if title else issue.message,
+                                      color=C_TEXT, size=13, selectable=True)]
     if hint := issue.hint_for(is_web, screen=screen):
-        texts.append(ft.Text(f"What you can do: {hint}", color=C_TEXT_DIM, size=13))
-    show_dialog(
-        page, title or issue.title, "", color,
+        body.append(tip_box(hint))
+    body.append(error_code_row(page, ref))
+    open_dialog(
+        page, title=title or issue.title, subtitle=context, color=color,
+        icon=_DIALOG_ICONS.get(color, ft.Icons.INFO_OUTLINE), body=body,
         actions=[_button(label, action, i == len(buttons) - 1) for i, (label, action) in enumerate(buttons)],
-        content=ft.Column(texts, spacing=10, tight=True, width=460),
     )
     return ref
 
@@ -342,18 +516,11 @@ def show_confirm(
         if on_no:
             on_no()
 
-    dlg = ft.AlertDialog(
-        modal=True,
-        title=ft.Text(title, color=C_TEXT, size=15, weight=ft.FontWeight.W_600),
-        content=ft.Text(message, color=C_TEXT_DIM, size=13),
+    open_dialog(
+        page, title=title, color=C_PRIMARY, icon=ft.Icons.HELP_OUTLINE,
+        body=[ft.Text(message, color=C_TEXT_DIM, size=13)],
         actions=[btn_secondary("No", on_click=no), btn_primary("Yes", on_click=yes)],
-        bgcolor=C_OVERLAY,
-        shape=ft.RoundedRectangleBorder(radius=10),
     )
-    #page.overlay.append(dlg)
-    #dlg.open = True
-    page.show_dialog(dlg)
-    page.update()
 
 
 # ============================================================================

@@ -10,8 +10,8 @@ import flet as ft
 from bifrost_backend import backend
 from bifrost_backend.common.rclone_output import INVALID_CREDENTIALS, ISSUES_BY_CODE, UNEXPECTED
 
-from ..components import btn_primary, build_header, issue_reference, styled_field
-from ..theme import C_BORDER, C_ERROR, C_PRIMARY, C_SURFACE, C_TEXT, C_TEXT_DIM, C_WARNING
+from ..components import ErrorBanner, btn_primary, build_header, issue_reference, styled_field
+from ..theme import C_BORDER, C_ERROR, C_PRIMARY, C_SURFACE, C_TEXT, C_TEXT_DIM, C_WARNING, tint
 
 log = logging.getLogger("bifrost.login")
 
@@ -48,7 +48,7 @@ def build_login_content(
 
     pass_tf, pass_col = styled_field("Password", password=True)
 
-    error_text = ft.Text("", color=C_ERROR, size=12, visible=False)
+    error_text = ErrorBanner(visible=False, width=360)
     loading    = ft.ProgressRing(width=18, height=18, stroke_width=2,
                                   color=C_PRIMARY, visible=False)
     login_btn  = btn_primary("Authenticate", width=280)
@@ -126,8 +126,8 @@ def build_login_content(
                                                 ],
                                                 spacing=6,
                                             ),
-                                            bgcolor=f"{C_WARNING}18",
-                                            border=ft.Border.all(1, f"{C_WARNING}44"),
+                                            bgcolor=tint(C_WARNING, 0.09),
+                                            border=ft.Border.all(1, tint(C_WARNING, 0.27)),
                                             border_radius=6,
                                             padding=ft.Padding.symmetric(horizontal=10, vertical=6),
                                         )

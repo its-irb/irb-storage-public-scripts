@@ -4,7 +4,7 @@ set -euo pipefail
 cp ./pyproject-template.toml ./pyproject.toml
 
 sed -i "" "s|__BUILDPATH__|$(pwd)/..|g" ./pyproject.toml
-sed -i "" 's/^version = .*/version = "2.0.0.dev"/' ./pyproject.toml
+sed -i "" 's/^version = .*/version = "0.0.0.dev"/' ./pyproject.toml
 
 mkdir -p dist
 rm -rf ./build
@@ -18,7 +18,7 @@ cd ./bifrost-transfer/src
 
 bash ../../shared/macos-rclone-downloader.sh
 
-echo "__version__ = '2.0.0.dev'" > version.py
+echo "__version__ = '0.0.0.dev'" > version.py
 
 cd ..
 

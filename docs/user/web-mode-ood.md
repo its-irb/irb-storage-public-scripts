@@ -28,8 +28,9 @@ data in MinIO **cannot be deleted** (see
 
 1. Open a **DCV** session on a node other than `ccn01`.
 2. Inside the DCV session, open **Bifrost mount** and sign in.
-3. Mount the MinIO folders that contain the data you need
-   (see [mount-buckets.md](mount-buckets.md)).
+3. Mount the MinIO server that contains the data you need. All its buckets
+   appear as folders in `~/rclone-mounts/<server>` (see
+   [mount-buckets.md](mount-buckets.md)).
 4. From that same DCV session, open the other apps (for example QuPath). They
    can read the MinIO data through the mounted folders.
 
@@ -56,13 +57,14 @@ cannot do from your own computer.
 
 1. Launch **Bifrost** from **Sandbox Apps** in Open OnDemand and sign in.
 2. Choose the **source** of the data:
-   - **The Z drive**: click **⊞ Mount NetApp** and double-click your lab's
+   - **The Z drive**: click **Mount NetApp** and double-click your lab's
      share to make it available first. Once mounted, you find it in
      `~/netapp-mount/<your user>/<share>`. If a share cannot be mounted, a
-     window explains why and what to do, and its row shows **⚠️ Error
-     (details)** to see it again. The details file is in the `rclone` folder of
-     your session (next to `reports`).
-   - **SFTP**: click **🌐 SFTP** and enter host and username (password is
+     window explains why and what to do, and its row shows **Error —
+     details** to see it again. The details file is in the `rclone` folder of
+     your session (next to `reports`). To go back to the copy screen, click
+     **Back to copy** at the top left.
+   - **SFTP**: click **SFTP** and enter host and username (password is
      optional).
    - **Scratch or other cluster folders**: type their path.
 3. Choose the **destination** in MinIO (see
@@ -120,12 +122,14 @@ If you need to keep a report, download it or copy it to another folder.
   Bifrost mount in a DCV session.
 - The session lasts as long as the Open OnDemand job. If the job ends or
   restarts, the session and any copy in progress are lost; start again.
+- On the cluster, Bifrost transfer and Bifrost mount never ask to update: ITS
+  keeps the version on the cluster up to date for you.
 
 ## If something goes wrong
 
 | Problem | What to do |
 |---|---|
 | It takes long or says it is checking for updates | It is probably reconnecting. Wait for the reconnection banner to finish loading. |
-| It asks for the password again | It is expected. Type your IRB password. |
+| It asks for the password again after you reopen the tab | It is expected: it shows your username and **Resuming previous session**. Type your IRB password and you go back to the copy screen where you were. If instead you clicked **Back to login**, you sign in again normally and choose the server. |
 | It cannot connect | Check that you are on the cluster network and that the Nexica VPN is on. |
-| An error shows a **code** (for example `NET501-1103-141526`) | Follow its "What you can do" line. If it keeps happening, send ITS the code and the `output.log` file of your session (see [Logs and reports](#logs-and-reports) and [Error codes](troubleshooting.md#error-codes)). |
+| An error shows a **code** (for example `NET501-1103-141526`) | Follow what it says under **What you can do**. If it keeps happening, send ITS the code and the `output.log` file of your session (see [Logs and reports](#logs-and-reports) and [Error codes](troubleshooting.md#error-codes)). |

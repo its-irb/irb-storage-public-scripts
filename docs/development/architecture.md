@@ -14,7 +14,7 @@ rclone.
 | Componente | Responsabilidad |
 |---|---|
 | `bifrost-transfer` | Copiar datos a buckets S3 con verificación de integridad, aplicar perfiles de metadatos, gestionar tags existentes (Tag Manager), ofrecer modo web para el clúster (Open OnDemand). |
-| `bifrost-mount` | Montar rutas de buckets S3 como unidades locales en Windows/macOS/Linux. |
+| `bifrost-mount` | Montar cada servidor MinIO entero, en solo lectura y con sus buckets como carpetas: en una letra de unidad en Windows y en `~/rclone-mounts/<servidor>` en macOS/Linux. |
 | `shared/bifrost_backend` | Toda la lógica no-UI: autenticación (LDAP), credenciales temporales (STS) y token de sesión, perfiles y ejecución de rclone, acceso SMB/CIFS, tagging S3 vía boto3, autoupdate, helpers de concurrencia UI y constantes compartidas. Organizado en `common/`, `mount/` y `transfer/`; `backend.py` es una fachada que reexporta la API pública. |
 | `ood-app-bifrost` (submódulo de git) | La app de Open OnDemand que lanza el job de `bifrost-transfer` en el clúster (formulario, `submit.yml.erb` y `template/script.sh.erb`, que arranca la app en modo web con Hypercorn). No se usa para desarrollar ni para los builds de escritorio. |
 | `shared/bifrost_frontend` | Tema (paleta, fuentes), componentes Flet reutilizables y las vistas comunes a las dos apps (actualización, login, selección de MinIO, renovación de credenciales), para que ambas apps se vean y se comporten igual. `frontend.py` es una fachada que reexporta todo. |
@@ -29,10 +29,14 @@ rclone.
   permite que tanto CI como builds locales sustituyan el placeholder por la
   ruta real del wheel generado. Por eso las apps versionan una plantilla
   (`pyproject-template.toml`) y el `pyproject.toml` efectivo es local.
-- **`APP_INFO["flavour"]` en cada app**: el backend es un único paquete
-  compartido por las dos apps; el flavour le permite resolver rutas de assets
-  empaquetados (`bifrost-<flavour>/src/assets/bin/`) en desarrollo sin
-  parámetros extra.
+- **`APP_INFO["flavour"]` y la ubicación de `config.py` en cada app**: el
+  backend es un único paquete compartido por las dos apps. En desarrollo sin
+  `flet run` (sin `FLET_ASSETS_DIR`), los assets de la app (rclone, fuente de
+  emojis) se buscan junto a su `config.py` (`common/rclone.app_assets_dir()`),
+  que siempre está en `bifrost-<flavour>/src/`. No se calculan subiendo carpetas
+  desde `shared/`: con `bifrost-shared` instalado en el venv, ese código está
+  en `site-packages`. El flavour se usa para el nombre del binario de
+  actualización y para adaptar algunos textos.
 - **Fachadas `backend.py` y `frontend.py`**: el backend y el frontend se
   dividieron en módulos por área, pero las apps siguen usando `backend.X` y
   `from bifrost_frontend.frontend import *`. Las fachadas reexportan los
@@ -46,7 +50,9 @@ rclone.
 - **Vistas compartidas en `shared/bifrost_frontend/views/`**: login, selección
   de MinIO y renovación de credenciales eran casi idénticas en las dos apps;
   ahora hay una sola versión y lo que cambia entre apps se pasa como parámetro
-  (`no_ldap`, `is_web`, `prefill_user`, `done_message`). Un arreglo en esas vistas se hace una vez para las dos apps.
+  (`no_ldap`, `is_web`, `prefill_user`, `done_message`, `on_back`,
+  `on_cancel`). El diálogo de renovación manual (`views/renew_dialog.py`)
+  también es común. Un arreglo en esas vistas se hace una vez para las dos apps.
 - **Backend que importa del frontend**: solo `safe_thread`
   (`common/ui_helpers.py`) importa `show_issue` de
   `bifrost_frontend.frontend`, para mostrar en un diálogo las excepciones no
@@ -76,16 +82,25 @@ rclone.
 ```text
 view_update (comprueba release)
   → view_login   (valida credenciales contra LDAP; BIFROST_NO_LDAP=1 se salta la validación)
-  → view_minio   (selección de servidor MinIO / perfil rclone)
-  → view_credentials (obtiene credenciales STS temporales; reutiliza si quedan >3 días)
-  → view_mount (mount) | view_copy (transfer; con view_shares previa en clúster)
+transfer:
+  ⇄ view_minio   (selección de servidor MinIO / perfil rclone)
+  ⇄ view_credentials (obtiene credenciales STS temporales; reutiliza si quedan >3 días)
+  → view_copy (los shares de NetApp se abren desde la copia, solo en web)
+mount:
+  ⇄ view_servers (una tarjeta por servidor; cada uno se monta entero, con sus buckets como carpetas)
+  ⇄ view_credentials (al montar, si hay que renovar; vuelve a view_servers y monta)
 ```
+
+Cada pantalla tiene arriba un botón para volver a la anterior y "Signed in as
+<usuario>" (`nav_bar`), para que ninguna se quede sin salida: si la renovación
+falla, se puede reintentar ("Try again") o volver sin cerrar la app.
 
 Las credenciales STS se reutilizan si les quedan más de 3 días y son del
 usuario que ha iniciado sesión; si no, se renuevan automáticamente por 7 días
 (`STS_RENEWAL_THRESHOLD_DAYS` y `STS_AUTO_RENEWAL_DAYS` en
-`bifrost_backend.common.constants`). Las vistas de montaje y de copia permiten
-además renovarlas a mano (botón "🔑 Renew credentials", de 1 a 30 días).
+`bifrost_backend.common.constants`). En mount la comprobación se hace al montar cada servidor. Cada
+tarjeta de servidor de mount y la vista de copia permiten además renovarlas a mano (botón
+"Renew credentials", de 1 a 30 días).
 
 ## Límites y consecuencias de modificarlos
 

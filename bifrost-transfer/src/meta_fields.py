@@ -5,7 +5,7 @@ import re
 import flet as ft
 from bifrost_frontend.frontend import (
     C_SURFACE, C_SURFACE2, C_BORDER, C_PRIMARY, C_TEXT, C_TEXT_DIM, C_ACCENT, C_ERROR,
-    styled_field,
+    styled_field, tint,
 )
 
 # S3 solo permite letras (unicode), dígitos, espacios y: _ . : / = + - @
@@ -372,7 +372,7 @@ def build_meta_fields(
                             return _del
                         chips.controls.append(ft.Chip(
                             label=ft.Text(v, size=12, color=C_TEXT),
-                            bgcolor=f"{C_ACCENT}22",
+                            bgcolor=tint(C_ACCENT, 0.13),
                             on_delete=make_delete(v),
                             delete_icon_color=C_TEXT_DIM,
                         ))
@@ -477,7 +477,7 @@ def build_meta_fields(
                             return _del
                         chips.controls.append(ft.Chip(
                             label=ft.Text(v, size=12, color=C_TEXT),
-                            bgcolor=f"{C_ACCENT}22",
+                            bgcolor=tint(C_ACCENT, 0.13),
                             on_delete=make_delete(v),
                             delete_icon_color=C_TEXT_DIM,
                         ))

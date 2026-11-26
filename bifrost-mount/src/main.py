@@ -9,12 +9,18 @@ Uso:
     python main.py             # desktop
 
 Flujo de vistas:
-    view_update → view_login → view_minio → view_credentials (auto) → view_mount
+    view_update → view_login ⇄ view_servers ⇄ view_credentials
 
-Notas sobre credenciales STS:
-  - Si quedan MÁS de 3 días → se salta la renovación y va directo a view_mount
+    view_servers vuelve al login con "← Back to login"; view_credentials vuelve a view_servers con
+    "← Back to servers" (en cualquier momento) y, si falla, deja reintentar con "Try again".
+
+    view_servers tiene una tarjeta por servidor MinIO; cada servidor se monta entero (sus buckets son carpetas).
+
+Notas sobre credenciales STS (se comprueban al pedir montar un servidor):
+  - Si quedan MÁS de 3 días → monta directamente
   - Si quedan MENOS de 3 días (o no hay credenciales) → renueva automáticamente
-    por 7 días, mostrando el progreso en un log en pantalla
+    por 7 días, mostrando el progreso en un log en pantalla, y vuelve a view_servers para montar
+  - "Renew credentials" en una tarjeta renueva a mano (1-30 días) y vuelve a view_servers
 
 """
 
@@ -31,7 +37,7 @@ from bifrost_backend.common.constants import NO_LDAP
 from bifrost_frontend.frontend import *
 from version import __version__
 
-from views.mount import _build_mount_bucket
+from views.servers import build_servers_content
 
 # ============================================================================
 # PARA EVITAR PROBLEMAS DE CODIFICACIÓN EN CONSOLA (ESPECIALMENTE EN WINDOWS)
@@ -48,7 +54,7 @@ except Exception:
 backend.setup_logging("mount", is_web=False, version=__version__)
 log = logging.getLogger("bifrost.mount")
 
-# Cierre: desmontar los buckets al salir, también si DCV/Open OnDemand mata la sesión con una señal
+# Cierre: desmontar los servidores al salir, también si DCV/Open OnDemand mata la sesión con una señal
 # (si no, el montaje FUSE queda colgado para la siguiente sesión). Una sola vez por proceso.
 backend.register_shutdown(backend.desmontar_todos_los_mounts_s3)
 
@@ -61,13 +67,8 @@ def main(page: ft.Page):
     backend.install_signal_handlers()   # ft.run() ha puesto los suyos al arrancar (ver common/shutdown.py)
     apply_theme(page)
 
-    state = {
-        "credenciales_ldap": None,
-        "servidor_minio":    None,
-        "perfil_rclone":     None,
-        "endpoint":          None,
-        "mounted_per_perfil": {},
-    }
+    # Lo que está montado no se guarda aquí: la pantalla de servidores se lo pregunta al backend.
+    state = {"credenciales_ldap": None}
 
     install_window_close(page)
 
@@ -86,57 +87,36 @@ def main(page: ft.Page):
 
     def on_login_success(creds: dict):
         state["credenciales_ldap"] = creds
-        go_minio()
+        go_servers()
 
-    def go_minio():
-        show_screen(build_minio_content(page, on_continue=on_minio_selected, no_ldap=NO_LDAP))
-
-    def on_minio_selected(eleccion: dict):
-        state["servidor_minio"] = eleccion["servidor"]
-        state["perfil_rclone"]  = eleccion["perfil"]
-        state["endpoint"]       = eleccion["endpoint"]
-        log.info("server selected: %s (%s)", eleccion["servidor"], eleccion["endpoint"])
-        _go_credentials_or_mount()
-
-    def _go_credentials_or_mount():
-        perfil         = state["perfil_rclone"]
-        usuario_actual = state["credenciales_ldap"]["usuario"]
-
-        if backend.hay_que_renovar_credenciales(perfil, usuario_actual):
-            servidor     = state["servidor_minio"]
-            extra_config = backend.MINIO_SERVERS.get(servidor, {}).get("IRB", {}).get("extra_rclone_config")
-            show_screen(build_credentials_content(
-                page,
-                perfil_rclone=perfil,
-                endpoint=state["endpoint"],
-                credenciales_ldap=state["credenciales_ldap"],
-                on_continue=go_mount,
-                extra_config=extra_config,
-                on_back=go_login if NO_LDAP else None,
-                no_ldap=NO_LDAP,
-                done_message="Loading mount interface...",
-            ))
-        else:
-            go_mount()
-
-    def go_mount():
-        servidor     = state["servidor_minio"]
-        perfil       = state["perfil_rclone"]
-        extra_config = backend.MINIO_SERVERS.get(servidor, {}).get("IRB", {}).get("extra_rclone_config")
-
-        # Recuperar o crear el mounted_state para este perfil
-        mounted_state = state["mounted_per_perfil"].setdefault(perfil, {})
-
-        show_screen(_build_mount_bucket(
+    def go_servers(mount: str | None = None):
+        """La pantalla de servidores; con `mount`, monta ese servidor al cargar (al volver de renovar)."""
+        show_screen(build_servers_content(
             page,
-            perfil_rclone=perfil,
-            endpoint=state["endpoint"],
+            usuario=state["credenciales_ldap"]["usuario"],
+            on_credentials=go_credentials,
+            on_back=go_login,
+            mount_on_load=mount,
+        ))
+
+    def go_credentials(servidor: str, dias: int | None):
+        """Renueva las credenciales de `servidor`: automáticas antes de montar (`dias` None: al terminar vuelve y
+        monta) o a mano desde "Renew credentials" (al terminar vuelve sin montar)."""
+        irb = backend.MINIO_SERVERS[servidor]["IRB"]
+        automatic = dias is None
+        show_screen(build_credentials_content(
+            page,
+            perfil_rclone=irb["profile"],
+            endpoint=irb["endpoint"],
             credenciales_ldap=state["credenciales_ldap"],
-            extra_config=extra_config,
-            on_renew_complete=go_mount,
-            show_screen=show_screen,
-            mounted_state=mounted_state,
-            on_back=go_minio,
+            on_continue=lambda: go_servers(mount=servidor if automatic else None),
+            extra_config=irb.get("extra_rclone_config"),
+            duracion_dias=dias,
+            on_back=go_login if (NO_LDAP and automatic) else None,
+            no_ldap=NO_LDAP,
+            done_message="Loading servers...",
+            on_cancel=go_servers,
+            cancel_label="Back to servers",
         ))
 
 

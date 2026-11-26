@@ -11,9 +11,9 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from config import APP_INFO
 
 from .constants import EMOJI_FONT_FILENAME, REPO, __version__
+from .rclone import app_assets_dir
 
 log = logging.getLogger("bifrost.update")
 
@@ -49,11 +49,23 @@ def check_update_version(force_update: bool = False) -> str | None:
 def should_check_for_updates() -> bool:
     """
     Determina si se debe comprobar actualizaciones en el entorno actual.
-    Devuelve False en entornos HPC/cluster o cuando no se ejecuta como binario compilado,
-    a menos que se pase el flag --update (útil para testing en desarrollo).
+
+    Nunca en Linux ni en el clúster (Open OnDemand: transfer en modo web y mount en las sesiones DCV), ni
+    siquiera con --update: allí la app se ejecuta desde el código que instala ITS y las releases no traen
+    binarios de Linux. El modo web tampoco muestra la pantalla de actualización (main.py de transfer).
+    En el resto, --update fuerza la comprobación (para probar la pantalla de actualización). Sin él, no
+    comprueba con la versión de desarrollo (lleva "dev", p. ej. 0.0.0.dev, la de version.py en el
+    repositorio: CI la sobrescribe con la real) ni cuando no se ejecuta como binario compilado. Para probar
+    el autoupdate con un build local, se pone a mano una versión sin "dev" (p. ej. 1.0.0).
     """
+    if sys.platform.startswith("linux") or os.environ.get("BIFROST_CLUSTER") == "1":
+        log.debug("update check skipped: Linux / cluster")
+        return False
     if "--update" in sys.argv:
         return True
+    if "dev" in __version__:
+        log.debug("update check skipped: development version %s", __version__)
+        return False
     if not getattr(sys, 'frozen', False) and not os.environ.get('FLET_APP_STORAGE_TEMP'):
         log.debug("update check skipped: not a packaged app")
         return False
@@ -150,15 +162,10 @@ def get_emoji_font_asset_path() -> str | None:
     if flet_assets and (Path(flet_assets) / font_rel).exists():
         return font_rel
 
-    # 2. Dev sin flet run: assets del repo (solo si el paquete se importa
-    # desde el repo, no desde site-packages).
-    pkg_root = Path(__file__).parent.parent.parent
-    if pkg_root.name == "shared":
-        repo_font = (
-            pkg_root.parent
-            / f"bifrost-{APP_INFO['flavour']}" / "src" / "assets" / font_rel
-        )
-        if repo_font.exists():
-            return font_rel
+    # 2. Dev sin flet run (python src/main.py): los assets de la app, junto a su config.py; funciona
+    # también con bifrost-shared instalado en site-packages.
+    assets = app_assets_dir()
+    if assets is not None and (assets / font_rel).exists():
+        return font_rel
 
     return None

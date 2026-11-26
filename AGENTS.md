@@ -29,8 +29,12 @@ English). Documentation methodology: `docs/documentation-methodology.md`.
 - Profiles and lab acronyms are defined only in `bifrost-transfer/src/meta_fields.py`.
 - In `bifrost-transfer`, `IS_WEB` is computed only in `src/main.py`; a module that
   reads it declares `IS_WEB = False` and must be added to `_propagar_is_web()`.
-- There is no automated test suite: validate by running the app (`flet run`).
-- Never commit `.venv/`, `dist/`, `build/`, generated `src/version.py` or local `pyproject.toml` files.
+- Automated tests (pytest) cover pure logic only (`tests/`, `bifrost-transfer/tests/`); validate UI changes by running the app (`flet run`).
+- Commit types decide the release version when they reach `main` (`.github/scripts/next_version.py`):
+  `feat` → minor, `fix`/`perf`/`revert`/`build` → patch, `!` or `BREAKING CHANGE:` → major,
+  `Release-As: X.Y.Z` in a commit body forces it; `docs`/`style`/`refactor`/`test`/`ci`/`chore` release nothing.
+- Never commit `.venv/`, `dist/`, `build/` or local `pyproject.toml` files. `src/version.py` is tracked with the
+  development version `0.0.0.dev` (CI writes the real one): never commit another value.
 
 ## Keeping the documentation up to date
 
